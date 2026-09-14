@@ -5,6 +5,8 @@ import { supabase } from "./lib/supabase";
 import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
 import "./index.css";
 
+installSupabaseStorageAdapter();
+
 function AuthScreen() {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -101,9 +103,6 @@ function Root() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (session?.user) installSupabaseStorageAdapter();
-  }, [session]);
 
   if (loading) {
     return <div className="min-h-screen grid place-items-center text-slate-500">Loading Takda…</div>;
