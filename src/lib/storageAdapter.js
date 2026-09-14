@@ -1,7 +1,13 @@
 import { supabase } from "./supabase";
 
+let hydratedUserId = null;
+
 async function getUser() {
-  const { data: { user }, error } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
   if (error) throw error;
   return user;
 }
@@ -41,13 +47,29 @@ function toNote(row) {
   };
 }
 
-async function deleteMissing(table, userId, ids) {
-  let q = supabase.from(table).delete().eq("user_id", userId);
-  if (ids.length > 0) {
-    q = q.not("id", "in", `(${ids.join(",")})`);
-  }
-  const { error } = await q;
-  if (error) throw error;
+async function deleteRemovedRows(table, userId, desiredIds) {
+  const { data: existingRows, error: fetchError } = await supabase
+    .from(table)
+    .select("id")
+    .eq("user_id", userId);
+
+  if (fetchError) throw fetchError;
+
+  const desiredSet = new Set(desiredIds);
+
+  const idsToDelete = (existingRows || [])
+    .map((row) => row.id)
+    .filter((id) => !desiredSet.has(id));
+
+  if (idsToDelete.length === 0) return;
+
+  const { error: deleteError } = await supabase
+    .from(table)
+    .delete()
+    .eq("user_id", userId)
+    .in("id", idsToDelete);
+
+  if (deleteError) throw deleteError;
 }
 
 export function installSupabaseStorageAdapter() {
@@ -56,17 +78,39 @@ export function installSupabaseStorageAdapter() {
       if (key !== "takda-app-data") return null;
 
       const user = await getUser();
-      if (!user) return null;
+
+      if (!user) {
+        hydratedUserId = null;
+        return null;
+      }
 
       const [subjectsRes, activitiesRes, notesRes] = await Promise.all([
-        supabase.from("subjects").select("*").eq("user_id", user.id).order("created_at"),
-        supabase.from("activities").select("*").eq("user_id", user.id).order("created_at"),
-        supabase.from("notes").select("*").eq("user_id", user.id).order("created_at"),
+        supabase
+          .from("subjects")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at"),
+
+        supabase
+          .from("activities")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at"),
+
+        supabase
+          .from("notes")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at"),
       ]);
 
       if (subjectsRes.error) throw subjectsRes.error;
       if (activitiesRes.error) throw activitiesRes.error;
       if (notesRes.error) throw notesRes.error;
+
+      // Important:
+      // Allow destructive syncing only AFTER a successful database load.
+      hydratedUserId = user.id;
 
       return {
         value: JSON.stringify({
@@ -83,7 +127,17 @@ export function installSupabaseStorageAdapter() {
       const user = await getUser();
       if (!user) return false;
 
+      // Safety protection:
+      // Never sync/delete until this user's data has successfully loaded.
+      if (hydratedUserId !== user.id) {
+        console.warn(
+          "Takda prevented a database save before initial data finished loading."
+        );
+        return false;
+      }
+
       const parsed = JSON.parse(value);
+
       const subjects = parsed.subjects || [];
       const activities = parsed.activities || [];
       const notes = parsed.notes || [];
@@ -119,25 +173,50 @@ export function installSupabaseStorageAdapter() {
         updated_at: n.updatedAt || new Date().toISOString(),
       }));
 
-      if (subjectRows.length) {
-        const { error } = await supabase.from("subjects").upsert(subjectRows, { onConflict: "id" });
+      // UPSERT CURRENT DATA
+      if (subjectRows.length > 0) {
+        const { error } = await supabase
+          .from("subjects")
+          .upsert(subjectRows, { onConflict: "id" });
+
         if (error) throw error;
       }
 
-      if (activityRows.length) {
-        const { error } = await supabase.from("activities").upsert(activityRows, { onConflict: "id" });
+      if (activityRows.length > 0) {
+        const { error } = await supabase
+          .from("activities")
+          .upsert(activityRows, { onConflict: "id" });
+
         if (error) throw error;
       }
 
-      if (noteRows.length) {
-        const { error } = await supabase.from("notes").upsert(noteRows, { onConflict: "id" });
+      if (noteRows.length > 0) {
+        const { error } = await supabase
+          .from("notes")
+          .upsert(noteRows, { onConflict: "id" });
+
         if (error) throw error;
       }
 
-      // Remove records deleted in the UI.
-      await deleteMissing("activities", user.id, activities.map((a) => a.id));
-      await deleteMissing("notes", user.id, notes.map((n) => n.id));
-      await deleteMissing("subjects", user.id, subjects.map((s) => s.id));
+      // DELETE ONLY RECORDS THE USER ACTUALLY REMOVED.
+      // Child records first, subjects last.
+      await deleteRemovedRows(
+        "activities",
+        user.id,
+        activities.map((a) => a.id)
+      );
+
+      await deleteRemovedRows(
+        "notes",
+        user.id,
+        notes.map((n) => n.id)
+      );
+
+      await deleteRemovedRows(
+        "subjects",
+        user.id,
+        subjects.map((s) => s.id)
+      );
 
       return true;
     },
