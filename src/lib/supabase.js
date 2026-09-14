@@ -1,13 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabaseUrl = "https://ldhnbqhfsyslunyahcci.supabase.co";
 
-if (!supabaseUrl || !supabasePublishableKey) {
-  console.warn("Missing Supabase environment variables.");
-}
+const supabasePublishableKey =
+  "sb_publishable_Zli8CTCzTA4VaTncxZPV6w_fa1VbmhS";
 
 export const supabase = createClient(
-  supabaseUrl || "",
-  supabasePublishableKey || ""
+  supabaseUrl,
+  supabasePublishableKey
 );
