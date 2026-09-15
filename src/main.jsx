@@ -785,6 +785,64 @@ function getTakdaPlan(profile) {
 
 function ProModal({ onClose }) {
   const [billing, setBilling] = useState("yearly");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function startCheckout() {
+    if (loading) return;
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      if (!session?.access_token) {
+        throw new Error(
+          "Your login session has expired. Please log in again."
+        );
+      }
+
+      const response = await fetch("/api/create-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          plan: billing,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error || "Unable to start PayMongo checkout."
+        );
+      }
+
+      if (!data?.checkoutUrl) {
+        throw new Error(
+          "PayMongo checkout URL was not returned."
+        );
+      }
+
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      console.error("Takda Pro checkout error:", err);
+      setMessage(
+        err.message ||
+          "Unable to start checkout. Please try again."
+      );
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/50 p-4">
@@ -794,7 +852,8 @@ function ProModal({ onClose }) {
             <button
               type="button"
               onClick={onClose}
-              className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xl"
+              disabled={loading}
+              className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xl disabled:opacity-50"
               aria-label="Close Takda Pro"
             >
               ×
@@ -833,24 +892,24 @@ function ProModal({ onClose }) {
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
                 type="button"
+                disabled={loading}
                 onClick={() => setBilling("monthly")}
-                className={`rounded-2xl border p-4 text-left ${
+                className={`rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "monthly"
                     ? "border-[#3D2FE0] bg-[#F7F6FF] ring-1 ring-[#3D2FE0]"
                     : "border-[#E4E4F0] bg-white"
                 }`}
               >
                 <p className="text-xs font-bold text-slate-500">MONTHLY</p>
-                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">
-                  ₱29
-                </p>
+                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">₱29</p>
                 <p className="text-xs text-slate-400">per month</p>
               </button>
 
               <button
                 type="button"
+                disabled={loading}
                 onClick={() => setBilling("yearly")}
-                className={`relative rounded-2xl border p-4 text-left ${
+                className={`relative rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "yearly"
                     ? "border-[#3D2FE0] bg-[#F7F6FF] ring-1 ring-[#3D2FE0]"
                     : "border-[#E4E4F0] bg-white"
@@ -860,24 +919,33 @@ function ProModal({ onClose }) {
                   BEST VALUE
                 </span>
                 <p className="text-xs font-bold text-slate-500">YEARLY</p>
-                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">
-                  ₱299
-                </p>
+                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">₱299</p>
                 <p className="text-xs text-slate-400">per year</p>
               </button>
             </div>
 
+            {message && (
+              <div className="mt-4 rounded-xl bg-red-50 px-3 py-2.5 text-center text-xs font-medium text-red-600">
+                {message}
+              </div>
+            )}
+
             <button
               type="button"
-              disabled
-              className="mt-5 w-full rounded-xl bg-[#3D2FE0] py-3.5 text-sm font-bold text-white opacity-70"
+              onClick={startCheckout}
+              disabled={loading}
+              className="mt-5 w-full rounded-xl bg-[#3D2FE0] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Upgrade to Pro — Coming Soon
+              {loading
+                ? "Opening secure checkout..."
+                : `Upgrade to Pro — ${
+                    billing === "monthly" ? "₱29/month" : "₱299/year"
+                  }`}
             </button>
 
             <p className="mt-3 text-center text-xs leading-5 text-slate-400">
-              Payments are not enabled yet. Your current Free account will
-              continue to work normally.
+              You will be redirected to PayMongo's secure checkout page.
+              Takda Pro is activated only after payment is confirmed.
             </p>
           </div>
         </div>
