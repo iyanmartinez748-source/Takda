@@ -47,6 +47,17 @@ function toNote(row) {
   };
 }
 
+function toGrade(row) {
+  return {
+    id: row.id,
+    subjectId: row.subject_id || "",
+    title: row.title,
+    category: row.category || "Quiz",
+    score: Number(row.score) || 0,
+    totalScore: Number(row.total_score) || 100,
+  };
+}
+
 async function deleteRemovedRows(table, userId, desiredIds) {
   const { data: existingRows, error: fetchError } = await supabase
     .from(table)
@@ -84,32 +95,41 @@ export function installSupabaseStorageAdapter() {
         return null;
       }
 
-      const [subjectsRes, activitiesRes, notesRes] = await Promise.all([
-        supabase
-          .from("subjects")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at"),
+      const [subjectsRes, activitiesRes, notesRes, gradesRes] =
+        await Promise.all([
+          supabase
+            .from("subjects")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at"),
 
-        supabase
-          .from("activities")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at"),
+          supabase
+            .from("activities")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at"),
 
-        supabase
-          .from("notes")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at"),
-      ]);
+          supabase
+            .from("notes")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at"),
+
+          supabase
+            .from("grades")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at"),
+        ]);
 
       if (subjectsRes.error) throw subjectsRes.error;
       if (activitiesRes.error) throw activitiesRes.error;
       if (notesRes.error) throw notesRes.error;
+      if (gradesRes.error) throw gradesRes.error;
 
-      // Important:
-      // Allow destructive syncing only AFTER a successful database load.
+      // IMPORTANT:
+      // Destructive syncing is allowed only after this user's
+      // database data has loaded successfully.
       hydratedUserId = user.id;
 
       return {
@@ -117,6 +137,7 @@ export function installSupabaseStorageAdapter() {
           subjects: (subjectsRes.data || []).map(toSubject),
           activities: (activitiesRes.data || []).map(toActivity),
           notes: (notesRes.data || []).map(toNote),
+          grades: (gradesRes.data || []).map(toGrade),
         }),
       };
     },
@@ -127,8 +148,9 @@ export function installSupabaseStorageAdapter() {
       const user = await getUser();
       if (!user) return false;
 
-      // Safety protection:
-      // Never sync/delete until this user's data has successfully loaded.
+      // SAFETY PROTECTION:
+      // Never sync/delete until this user's database data
+      // has successfully loaded.
       if (hydratedUserId !== user.id) {
         console.warn(
           "Takda prevented a database save before initial data finished loading."
@@ -141,6 +163,7 @@ export function installSupabaseStorageAdapter() {
       const subjects = parsed.subjects || [];
       const activities = parsed.activities || [];
       const notes = parsed.notes || [];
+      const grades = parsed.grades || [];
 
       const subjectRows = subjects.map((s) => ({
         id: s.id,
@@ -173,7 +196,18 @@ export function installSupabaseStorageAdapter() {
         updated_at: n.updatedAt || new Date().toISOString(),
       }));
 
+      const gradeRows = grades.map((g) => ({
+        id: g.id,
+        user_id: user.id,
+        subject_id: g.subjectId,
+        title: g.title,
+        category: g.category || "Quiz",
+        score: Number(g.score) || 0,
+        total_score: Number(g.totalScore) || 100,
+      }));
+
       // UPSERT CURRENT DATA
+
       if (subjectRows.length > 0) {
         const { error } = await supabase
           .from("subjects")
@@ -198,8 +232,19 @@ export function installSupabaseStorageAdapter() {
         if (error) throw error;
       }
 
+      if (gradeRows.length > 0) {
+        const { error } = await supabase
+          .from("grades")
+          .upsert(gradeRows, { onConflict: "id" });
+
+        if (error) throw error;
+      }
+
       // DELETE ONLY RECORDS THE USER ACTUALLY REMOVED.
-      // Child records first, subjects last.
+      //
+      // Child records MUST be deleted before subjects
+      // because they reference subjects through foreign keys.
+
       await deleteRemovedRows(
         "activities",
         user.id,
@@ -210,6 +255,12 @@ export function installSupabaseStorageAdapter() {
         "notes",
         user.id,
         notes.map((n) => n.id)
+      );
+
+      await deleteRemovedRows(
+        "grades",
+        user.id,
+        grades.map((g) => g.id)
       );
 
       await deleteRemovedRows(
