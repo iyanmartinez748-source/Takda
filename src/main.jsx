@@ -767,6 +767,126 @@ function Avatar({ profile, email, size = "normal" }) {
 }
 
 /* =========================
+   PLAN HELPERS
+========================= */
+
+function getTakdaPlan(profile) {
+  const plan = String(profile?.plan || "free").toLowerCase();
+  const proUntil = profile?.pro_until ? new Date(profile.pro_until) : null;
+  const hasActiveProDate =
+    proUntil instanceof Date &&
+    !Number.isNaN(proUntil.getTime()) &&
+    proUntil.getTime() > Date.now();
+
+  return plan === "pro" && (!profile?.pro_until || hasActiveProDate)
+    ? "pro"
+    : "free";
+}
+
+function ProModal({ onClose }) {
+  const [billing, setBilling] = useState("yearly");
+
+  return (
+    <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/50 p-4">
+      <div className="flex min-h-full items-center justify-center">
+        <div className="w-full max-w-md overflow-hidden rounded-3xl border border-[#E4E4F0] bg-white shadow-2xl">
+          <div className="relative bg-[#1B1B2F] px-6 pb-7 pt-6 text-white">
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xl"
+              aria-label="Close Takda Pro"
+            >
+              ×
+            </button>
+
+            <div className="inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-extrabold tracking-wide text-amber-300">
+              ⭐ TAKDA PRO
+            </div>
+
+            <h2 className="mt-4 text-3xl font-extrabold">
+              Do more with your school life.
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Unlock premium Takda tools designed to help you stay organized,
+              focused, and ready for deadlines.
+            </p>
+          </div>
+
+          <div className="p-6">
+            <div className="space-y-3 text-sm text-[#1B1B2F]">
+              {[
+                "Advanced academic insights",
+                "More powerful grade tracking",
+                "Premium productivity tools",
+                "Future Pro features included",
+              ].map((feature) => (
+                <div key={feature} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#F0EEFF] text-xs font-bold text-[#3D2FE0]">
+                    ✓
+                  </span>
+                  <span className="font-medium">{feature}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setBilling("monthly")}
+                className={`rounded-2xl border p-4 text-left ${
+                  billing === "monthly"
+                    ? "border-[#3D2FE0] bg-[#F7F6FF] ring-1 ring-[#3D2FE0]"
+                    : "border-[#E4E4F0] bg-white"
+                }`}
+              >
+                <p className="text-xs font-bold text-slate-500">MONTHLY</p>
+                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">
+                  ₱59
+                </p>
+                <p className="text-xs text-slate-400">per month</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBilling("yearly")}
+                className={`relative rounded-2xl border p-4 text-left ${
+                  billing === "yearly"
+                    ? "border-[#3D2FE0] bg-[#F7F6FF] ring-1 ring-[#3D2FE0]"
+                    : "border-[#E4E4F0] bg-white"
+                }`}
+              >
+                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[#1B1B2F]">
+                  BEST VALUE
+                </span>
+                <p className="text-xs font-bold text-slate-500">YEARLY</p>
+                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">
+                  ₱499
+                </p>
+                <p className="text-xs text-slate-400">per year</p>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              disabled
+              className="mt-5 w-full rounded-xl bg-[#3D2FE0] py-3.5 text-sm font-bold text-white opacity-70"
+            >
+              Upgrade to Pro — Coming Soon
+            </button>
+
+            <p className="mt-3 text-center text-xs leading-5 text-slate-400">
+              Payments are not enabled yet. Your current Free account will
+              continue to work normally.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
    PROFILE MENU
 ========================= */
 
@@ -774,10 +894,12 @@ function ProfileMenu({
   profile,
   user,
   onOpenProfile,
+  onOpenPro,
   onLogout,
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  const isPro = getTakdaPlan(profile) === "pro";
 
   useEffect(() => {
     function handleOutsideClick(event) {
@@ -814,7 +936,6 @@ function ProfileMenu({
 
   return (
     <div className="relative" ref={menuRef}>
-
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -825,36 +946,50 @@ function ProfileMenu({
           profile={profile}
           email={user.email}
         />
+        <span
+          className={`hidden rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide sm:inline-flex ${
+            isPro
+              ? "bg-amber-100 text-amber-700"
+              : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {isPro ? "⭐ PRO" : "FREE"}
+        </span>
       </button>
 
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-[#E4E4F0] bg-white shadow-lg">
-
           <div className="border-b border-[#E4E4F0] p-4">
-
             <div className="flex items-center gap-3">
-
               <Avatar
                 profile={profile}
                 email={user.email}
               />
 
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-[#1B1B2F]">
-                  {profile?.full_name || "Takda Student"}
-                </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-[#1B1B2F]">
+                    {profile?.full_name || "Takda Student"}
+                  </p>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold tracking-wide ${
+                      isPro
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {isPro ? "⭐ PRO" : "FREE"}
+                  </span>
+                </div>
 
                 <p className="truncate text-xs text-slate-400">
                   {user.email}
                 </p>
               </div>
-
             </div>
-
           </div>
 
           <div className="p-2">
-
             <button
               type="button"
               onClick={() => {
@@ -866,6 +1001,19 @@ function ProfileMenu({
               👤 My Profile
             </button>
 
+            {!isPro && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenPro();
+                }}
+                className="mt-1 w-full rounded-xl bg-[#FFF8E7] px-3 py-2.5 text-left text-sm font-bold text-amber-700 hover:bg-amber-100"
+              >
+                ⭐ Upgrade to Pro
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onLogout}
@@ -873,12 +1021,9 @@ function ProfileMenu({
             >
               Log out
             </button>
-
           </div>
-
         </div>
       )}
-
     </div>
   );
 }
@@ -1328,6 +1473,9 @@ function Root() {
   const [showProfile, setShowProfile] =
     useState(false);
 
+  const [showPro, setShowPro] =
+    useState(false);
+
   const [publicScreen, setPublicScreen] = useState("landing");
 
   async function checkProfile(user) {
@@ -1402,6 +1550,7 @@ function Root() {
             setNeedsProfile(false);
             setProfileLoading(false);
             setShowProfile(false);
+            setShowPro(false);
             setLoading(false);
             return;
           }
@@ -1530,6 +1679,9 @@ function Root() {
             onOpenProfile={() =>
               setShowProfile(true)
             }
+            onOpenPro={() =>
+              setShowPro(true)
+            }
             onLogout={() =>
               supabase.auth.signOut()
             }
@@ -1553,6 +1705,12 @@ function Root() {
           onProfileUpdated={(updatedProfile) => {
             setProfile(updatedProfile);
           }}
+        />
+      )}
+
+      {showPro && (
+        <ProModal
+          onClose={() => setShowPro(false)}
         />
       )}
 
