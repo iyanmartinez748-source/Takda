@@ -450,7 +450,7 @@ function Sidebar({ view, setView, onAddSubject }) {
     <div className="hidden md:flex md:flex-col w-56 shrink-0 bg-white border-r border-[#E4E4F0] p-5">
       <div className="flex items-center gap-2 mb-8 px-1">
         <img
-  src="/takda-icon.png"
+  src="/takda-icon.png.png"
   alt="Takda"
   className="w-8 h-8 rounded-lg object-cover"
 />
