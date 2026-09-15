@@ -2,6 +2,9 @@ import { supabase } from "./supabase";
 
 let hydratedUserId = null;
 
+// Makes sure database saves happen ONE AT A TIME.
+let saveQueue = Promise.resolve();
+
 async function getUser() {
   const {
     data: { user },
@@ -64,7 +67,10 @@ async function deleteRemovedRows(table, userId, desiredIds) {
     .select("id")
     .eq("user_id", userId);
 
-  if (fetchError) throw fetchError;
+  if (fetchError) {
+    console.error(`Takda: unable to read ${table} before delete sync`, fetchError);
+    throw fetchError;
+  }
 
   const desiredSet = new Set(desiredIds);
 
@@ -80,7 +86,156 @@ async function deleteRemovedRows(table, userId, desiredIds) {
     .eq("user_id", userId)
     .in("id", idsToDelete);
 
-  if (deleteError) throw deleteError;
+  if (deleteError) {
+    console.error(`Takda: unable to delete removed ${table}`, deleteError);
+    throw deleteError;
+  }
+}
+
+async function performSave(value) {
+  const user = await getUser();
+
+  if (!user) {
+    console.warn("Takda: save skipped because there is no authenticated user.");
+    return false;
+  }
+
+  if (hydratedUserId !== user.id) {
+    console.warn(
+      "Takda prevented a database save before initial data finished loading."
+    );
+    return false;
+  }
+
+  const parsed = JSON.parse(value);
+
+  const subjects = parsed.subjects || [];
+  const activities = parsed.activities || [];
+  const notes = parsed.notes || [];
+  const grades = parsed.grades || [];
+
+  const subjectRows = subjects.map((s) => ({
+    id: s.id,
+    user_id: user.id,
+    name: s.name,
+    teacher: s.teacher || null,
+    schedule: s.schedule || null,
+    room: s.room || null,
+    color: s.color || "#3D2FE0",
+  }));
+
+  const activityRows = activities.map((a) => ({
+    id: a.id,
+    user_id: user.id,
+    subject_id: a.subjectId || null,
+    title: a.title,
+    type: a.type || "Assignment",
+    description: a.description || null,
+    deadline: a.deadline,
+    priority: a.priority || "Medium",
+    status: a.status || "pending",
+    completed_at: a.completedAt || null,
+  }));
+
+  const noteRows = notes.map((n) => ({
+    id: n.id,
+    user_id: user.id,
+    subject_id: n.subjectId || null,
+    body: n.body,
+    updated_at: n.updatedAt || new Date().toISOString(),
+  }));
+
+  const gradeRows = grades.map((g) => ({
+    id: g.id,
+    user_id: user.id,
+    subject_id: g.subjectId,
+    title: g.title,
+    category: g.category || "Quiz",
+    score: Number(g.score) || 0,
+    total_score: Number(g.totalScore) || 100,
+  }));
+
+  // -------------------------
+  // UPSERT CURRENT DATA
+  // -------------------------
+
+  if (subjectRows.length > 0) {
+    const { error } = await supabase
+      .from("subjects")
+      .upsert(subjectRows, { onConflict: "id" });
+
+    if (error) {
+      console.error("Takda SUBJECT save error:", error);
+      throw error;
+    }
+  }
+
+  if (activityRows.length > 0) {
+    const { error } = await supabase
+      .from("activities")
+      .upsert(activityRows, { onConflict: "id" });
+
+    if (error) {
+      console.error("Takda ACTIVITY save error:", error);
+      throw error;
+    }
+  }
+
+  if (noteRows.length > 0) {
+    const { error } = await supabase
+      .from("notes")
+      .upsert(noteRows, { onConflict: "id" });
+
+    if (error) {
+      console.error("Takda NOTE save error:", error);
+      throw error;
+    }
+  }
+
+  if (gradeRows.length > 0) {
+    const { error } = await supabase
+      .from("grades")
+      .upsert(gradeRows, { onConflict: "id" });
+
+    if (error) {
+      console.error("Takda GRADE save error:", error);
+      throw error;
+    }
+
+    console.log(`Takda: saved ${gradeRows.length} grade(s).`);
+  }
+
+  // -------------------------
+  // DELETE REMOVED DATA
+  // -------------------------
+  // Child records first.
+  // Subjects last because the other tables reference subjects.
+
+  await deleteRemovedRows(
+    "activities",
+    user.id,
+    activities.map((a) => a.id)
+  );
+
+  await deleteRemovedRows(
+    "notes",
+    user.id,
+    notes.map((n) => n.id)
+  );
+
+  await deleteRemovedRows(
+    "grades",
+    user.id,
+    grades.map((g) => g.id)
+  );
+
+  await deleteRemovedRows(
+    "subjects",
+    user.id,
+    subjects.map((s) => s.id)
+  );
+
+  return true;
 }
 
 export function installSupabaseStorageAdapter() {
@@ -127,9 +282,8 @@ export function installSupabaseStorageAdapter() {
       if (notesRes.error) throw notesRes.error;
       if (gradesRes.error) throw gradesRes.error;
 
-      // IMPORTANT:
-      // Destructive syncing is allowed only after this user's
-      // database data has loaded successfully.
+      // Only after ALL four tables successfully load
+      // do we allow database synchronization.
       hydratedUserId = user.id;
 
       return {
@@ -145,131 +299,23 @@ export function installSupabaseStorageAdapter() {
     async set(key, value) {
       if (key !== "takda-app-data") return false;
 
-      const user = await getUser();
-      if (!user) return false;
+      // Queue every save.
+      // Even if the previous save failed, the next save
+      // is still allowed to run.
+      const queuedSave = saveQueue
+        .catch(() => {})
+        .then(() => performSave(value));
 
-      // SAFETY PROTECTION:
-      // Never sync/delete until this user's database data
-      // has successfully loaded.
-      if (hydratedUserId !== user.id) {
-        console.warn(
-          "Takda prevented a database save before initial data finished loading."
-        );
+      saveQueue = queuedSave.catch((error) => {
+        console.error("Takda database synchronization error:", error);
+      });
+
+      try {
+        return await queuedSave;
+      } catch (error) {
+        console.error("Takda save failed:", error);
         return false;
       }
-
-      const parsed = JSON.parse(value);
-
-      const subjects = parsed.subjects || [];
-      const activities = parsed.activities || [];
-      const notes = parsed.notes || [];
-      const grades = parsed.grades || [];
-
-      const subjectRows = subjects.map((s) => ({
-        id: s.id,
-        user_id: user.id,
-        name: s.name,
-        teacher: s.teacher || null,
-        schedule: s.schedule || null,
-        room: s.room || null,
-        color: s.color || "#3D2FE0",
-      }));
-
-      const activityRows = activities.map((a) => ({
-        id: a.id,
-        user_id: user.id,
-        subject_id: a.subjectId || null,
-        title: a.title,
-        type: a.type || "Assignment",
-        description: a.description || null,
-        deadline: a.deadline,
-        priority: a.priority || "Medium",
-        status: a.status || "pending",
-        completed_at: a.completedAt || null,
-      }));
-
-      const noteRows = notes.map((n) => ({
-        id: n.id,
-        user_id: user.id,
-        subject_id: n.subjectId || null,
-        body: n.body,
-        updated_at: n.updatedAt || new Date().toISOString(),
-      }));
-
-      const gradeRows = grades.map((g) => ({
-        id: g.id,
-        user_id: user.id,
-        subject_id: g.subjectId,
-        title: g.title,
-        category: g.category || "Quiz",
-        score: Number(g.score) || 0,
-        total_score: Number(g.totalScore) || 100,
-      }));
-
-      // UPSERT CURRENT DATA
-
-      if (subjectRows.length > 0) {
-        const { error } = await supabase
-          .from("subjects")
-          .upsert(subjectRows, { onConflict: "id" });
-
-        if (error) throw error;
-      }
-
-      if (activityRows.length > 0) {
-        const { error } = await supabase
-          .from("activities")
-          .upsert(activityRows, { onConflict: "id" });
-
-        if (error) throw error;
-      }
-
-      if (noteRows.length > 0) {
-        const { error } = await supabase
-          .from("notes")
-          .upsert(noteRows, { onConflict: "id" });
-
-        if (error) throw error;
-      }
-
-      if (gradeRows.length > 0) {
-        const { error } = await supabase
-          .from("grades")
-          .upsert(gradeRows, { onConflict: "id" });
-
-        if (error) throw error;
-      }
-
-      // DELETE ONLY RECORDS THE USER ACTUALLY REMOVED.
-      //
-      // Child records MUST be deleted before subjects
-      // because they reference subjects through foreign keys.
-
-      await deleteRemovedRows(
-        "activities",
-        user.id,
-        activities.map((a) => a.id)
-      );
-
-      await deleteRemovedRows(
-        "notes",
-        user.id,
-        notes.map((n) => n.id)
-      );
-
-      await deleteRemovedRows(
-        "grades",
-        user.id,
-        grades.map((g) => g.id)
-      );
-
-      await deleteRemovedRows(
-        "subjects",
-        user.id,
-        subjects.map((s) => s.id)
-      );
-
-      return true;
     },
   };
 }
