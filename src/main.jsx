@@ -25,11 +25,138 @@ function getInitials(name, email = "") {
 }
 
 /* =========================
+   PUBLIC LANDING PAGE
+========================= */
+
+function LandingPage({ onLogin, onSignup }) {
+  const features = [
+    ["📚", "Subjects", "Keep your classes, schedules, teachers, and rooms organized."],
+    ["✅", "Activities", "Track assignments, projects, quizzes, and deadlines in one place."],
+    ["📅", "Calendar", "See what is coming up so important schoolwork does not get missed."],
+    ["📊", "Grade Tracker", "Record scores and quickly understand your performance per subject."],
+    ["📝", "Notes", "Keep useful notes connected to your subjects and schoolwork."],
+    ["📱", "Made for students", "A clean workspace that works on both phone and laptop."],
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#F7F8FC] text-[#1B1B2F]">
+      <header className="sticky top-0 z-40 border-b border-[#E4E4F0] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <img src="/takda-icon.png" alt="Takda" className="h-10 w-10 rounded-xl object-cover" />
+            <span className="text-xl font-bold">Takda</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[#3D2FE0] sm:px-4">
+              Log in
+            </button>
+            <button type="button" onClick={onSignup} className="rounded-xl bg-[#3D2FE0] px-3 py-2 text-sm font-semibold text-white shadow-sm sm:px-4">
+              Get Started Free
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 md:grid-cols-2 md:py-24">
+          <div>
+            <div className="mb-4 inline-flex rounded-full border border-[#DCD9FF] bg-[#F0EEFF] px-3 py-1 text-xs font-semibold text-[#3D2FE0]">
+              Your student workspace
+            </div>
+            <h1 className="text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
+              Stay on top of school with <span className="text-[#3D2FE0]">Takda.</span>
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
+              Manage your subjects, activities, deadlines, grades, calendar, and notes — all in one simple student workspace.
+            </p>
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <button type="button" onClick={onSignup} className="rounded-xl bg-[#3D2FE0] px-6 py-3.5 text-sm font-semibold text-white shadow-sm">
+                Get Started Free →
+              </button>
+              <button type="button" onClick={onLogin} className="rounded-xl border border-[#E4E4F0] bg-white px-6 py-3.5 text-sm font-semibold text-[#1B1B2F]">
+                I already have an account
+              </button>
+            </div>
+            <p className="mt-4 text-xs text-slate-400">Free to get started • Built for students</p>
+          </div>
+
+          <div className="rounded-3xl border border-[#E4E4F0] bg-white p-5 shadow-xl shadow-slate-200/50 sm:p-7">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-400">Good day 👋</p>
+                <p className="text-xl font-bold">Your academic overview</p>
+              </div>
+              <img src="/takda-icon.png" alt="" className="h-11 w-11 rounded-xl object-cover" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[["📚", "Subjects", "6"], ["⏳", "Pending", "4"], ["✅", "Completed", "12"], ["📅", "Due Today", "2"]].map(([icon, label, value]) => (
+                <div key={label} className="rounded-2xl border border-[#E4E4F0] p-4">
+                  <span>{icon}</span>
+                  <p className="mt-2 text-2xl font-bold">{value}</p>
+                  <p className="text-xs text-slate-500">{label}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 rounded-2xl bg-[#F5F6FA] p-4">
+              <p className="text-xs font-semibold text-slate-500">UPCOMING DEADLINE</p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold">Research Paper</p>
+                  <p className="text-xs text-slate-400">Contemporary Issues</p>
+                </div>
+                <span className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-[#3D2FE0]">Tomorrow</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-y border-[#E4E4F0] bg-white py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="mx-auto mb-10 max-w-2xl text-center">
+              <p className="text-sm font-semibold text-[#3D2FE0]">EVERYTHING IN ONE PLACE</p>
+              <h2 className="mt-2 text-3xl font-bold sm:text-4xl">Less school chaos. More focus.</h2>
+              <p className="mt-3 text-slate-500">Takda gives students the essentials for organizing academic life without making things complicated.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {features.map(([icon, title, description]) => (
+                <div key={title} className="rounded-2xl border border-[#E4E4F0] p-5">
+                  <div className="mb-3 text-2xl">{icon}</div>
+                  <h3 className="font-bold">{title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-4xl px-4 py-16 text-center sm:px-6 sm:py-20">
+          <div className="rounded-3xl bg-[#1B1B2F] px-6 py-10 text-white sm:px-10">
+            <h2 className="text-3xl font-bold">Ready to organize your school life?</h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">Create your Takda account and start managing your academic work from one place.</p>
+            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[#3D2FE0]">
+              Create Free Account
+            </button>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-[#E4E4F0] bg-white">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p>© {new Date().getFullYear()} Takda. Built for students.</p>
+          <p>Plan • Track • Finish</p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* =========================
    LOGIN / SIGN UP
 ========================= */
 
-function AuthScreen() {
-  const [mode, setMode] = useState("login");
+function AuthScreen({ initialMode = "login", onBack }) {
+  const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -129,10 +256,22 @@ function AuthScreen() {
     <div className="min-h-screen bg-[#F5F6FA] flex items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-2xl border border-[#E4E4F0] bg-white p-6 shadow-sm">
 
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-4 text-sm font-semibold text-[#3D2FE0]"
+          >
+            ← Back to Takda
+          </button>
+        )}
+
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#3D2FE0] text-lg font-bold text-white">
-            T
-          </div>
+          <img
+            src="/takda-icon.png"
+            alt="Takda"
+            className="mx-auto mb-3 h-14 w-14 rounded-2xl object-cover shadow-sm"
+          />
 
           <h1 className="text-2xl font-bold text-[#1B1B2F]">
             Takda
@@ -1127,6 +1266,8 @@ function Root() {
   const [showProfile, setShowProfile] =
     useState(false);
 
+  const [publicScreen, setPublicScreen] = useState("landing");
+
   async function checkProfile(user) {
     if (!user) {
       setProfile(null);
@@ -1256,7 +1397,30 @@ function Root() {
   /* NOT LOGGED IN */
 
   if (!session) {
-    return <AuthScreen />;
+    if (publicScreen === "auth") {
+      return (
+        <AuthScreen
+          initialMode="login"
+          onBack={() => setPublicScreen("landing")}
+        />
+      );
+    }
+
+    if (publicScreen === "signup") {
+      return (
+        <AuthScreen
+          initialMode="signup"
+          onBack={() => setPublicScreen("landing")}
+        />
+      );
+    }
+
+    return (
+      <LandingPage
+        onLogin={() => setPublicScreen("auth")}
+        onSignup={() => setPublicScreen("signup")}
+      />
+    );
   }
 
   /* PROFILE SETUP */
