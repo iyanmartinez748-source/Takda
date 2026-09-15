@@ -110,6 +110,7 @@ export default function TakdaApp() {
   const [subjects, setSubjects] = useState([]);
   const [activities, setActivities] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [grades, setGrades] = useState([]);
   const [view, setView] = useState("dashboard");
   const [activeSubjectId, setActiveSubjectId] = useState(null);
   const [showAddSubject, setShowAddSubject] = useState(false);
@@ -134,6 +135,7 @@ export default function TakdaApp() {
           setSubjects(parsed.subjects || []);
           setActivities(parsed.activities || []);
           setNotes(parsed.notes || []);
+          setGrades(parsed.grades || []);
         }
       } catch (e) {
         // no existing data yet
@@ -150,14 +152,14 @@ export default function TakdaApp() {
       try {
         const result = await window.storage.set(
           "takda-app-data",
-          JSON.stringify({ subjects, activities, notes })
+          JSON.stringify({ subjects, activities, notes, grades })
         );
         setSaveError(!result);
       } catch (e) {
         setSaveError(true);
       }
     })();
-  }, [subjects, activities, notes, ready]);
+  }, [subjects, activities, notes, grades, ready]);
 
   const subjectMap = useMemo(() => {
     const m = {};
@@ -231,6 +233,7 @@ export default function TakdaApp() {
     setSubjects((prev) => prev.filter((s) => s.id !== id));
     setActivities((prev) => prev.filter((a) => a.subjectId !== id));
     setNotes((prev) => prev.filter((n) => n.subjectId !== id));
+    setGrades((prev) => prev.filter((g) => g.subjectId !== id));
     setActiveSubjectId(null);
     setView("subjects");
   }
@@ -276,6 +279,25 @@ export default function TakdaApp() {
   function deleteActivity(id) {
     if (!window.confirm("Delete this activity?")) return;
     setActivities((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  function saveGrade(grade) {
+    const prepared = {
+      ...grade,
+      score: Number(grade.score),
+      totalScore: Number(grade.totalScore),
+    };
+
+    if (prepared.id) {
+      setGrades((prev) => prev.map((g) => (g.id === prepared.id ? prepared : g)));
+    } else {
+      setGrades((prev) => [...prev, { ...prepared, id: uid() }]);
+    }
+  }
+
+  function deleteGrade(id) {
+    if (!window.confirm("Delete this grade?")) return;
+    setGrades((prev) => prev.filter((g) => g.id !== id));
   }
 
   if (!ready) {
@@ -372,7 +394,15 @@ export default function TakdaApp() {
             />
           )}
 
-          {view === "grades" && <GradesLocked />}
+          {view === "grades" && (
+            <GradesView
+              grades={grades}
+              subjects={subjects}
+              subjectMap={subjectMap}
+              onSave={saveGrade}
+              onDelete={deleteGrade}
+            />
+          )}
         </div>
 
         <MobileNav view={view} setView={setView} onFab={() => setShowAddActivity(true)} onMore={() => setShowMore(true)} />
@@ -923,23 +953,212 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
   );
 }
 
-/* ---------------- Grades (premium locked preview) ---------------- */
-function GradesLocked() {
+/* ---------------- Grades ---------------- */
+const GRADE_CATEGORIES = ["Quiz", "Assignment", "Exam", "Project", "Presentation", "Report", "Research", "Other"];
+
+function gradePercent(grade) {
+  const score = Number(grade.score);
+  const total = Number(grade.totalScore);
+  if (!Number.isFinite(score) || !Number.isFinite(total) || total <= 0) return 0;
+  return (score / total) * 100;
+}
+
+function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
+  const [showModal, setShowModal] = useState(false);
+  const [editingGrade, setEditingGrade] = useState(null);
+  const [subjectFilter, setSubjectFilter] = useState("all");
+
+  const visibleGrades = useMemo(
+    () => grades.filter((g) => subjectFilter === "all" || g.subjectId === subjectFilter),
+    [grades, subjectFilter]
+  );
+
+  const overallAverage = useMemo(() => {
+    if (grades.length === 0) return null;
+    return grades.reduce((sum, g) => sum + gradePercent(g), 0) / grades.length;
+  }, [grades]);
+
+  const subjectSummaries = useMemo(
+    () => subjects.map((subject) => {
+      const items = grades.filter((g) => g.subjectId === subject.id);
+      const average = items.length
+        ? items.reduce((sum, g) => sum + gradePercent(g), 0) / items.length
+        : null;
+      return { subject, count: items.length, average };
+    }),
+    [subjects, grades]
+  );
+
+  function openEdit(grade) {
+    setEditingGrade(grade);
+    setShowModal(true);
+  }
+
+  function closeModal() {
+    setShowModal(false);
+    setEditingGrade(null);
+  }
+
+  function handleSave(grade) {
+    onSave(grade);
+    closeModal();
+  }
+
   return (
-    <div className="p-5 md:p-8 flex flex-col items-center text-center mt-10">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: "#EEECFC" }}>
-        <Lock size={22} color="#3D2FE0" />
+    <div className="p-5 md:p-8">
+      <div className="flex items-start justify-between gap-3 mb-5">
+        <div>
+          <h1 className="font-display text-2xl font-semibold">My Grades</h1>
+          <p className="text-sm text-slate-500 mt-1">Track scores and see your current performance per subject.</p>
+        </div>
+        <button
+          onClick={() => { setEditingGrade(null); setShowModal(true); }}
+          disabled={subjects.length === 0}
+          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0"
+          style={{ background: "#3D2FE0" }}
+        >
+          <Plus size={15} /> Add Grade
+        </button>
       </div>
-      <h1 className="font-display text-xl font-semibold mb-2">My Grades is a Premium feature</h1>
-      <p className="text-sm text-slate-500 max-w-xs mb-5">Track grades per subject and get your GPA calculated automatically — no manual math.</p>
+
+      {subjects.length === 0 ? (
+        <EmptyRow text="Add a subject first before recording grades." />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
+              <div className="text-xs text-slate-500 mb-1">Overall Average</div>
+              <div className="font-display text-2xl font-semibold">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
+              <div className="text-[11px] text-slate-400 mt-1">Across {grades.length} recorded {grades.length === 1 ? "grade" : "grades"}</div>
+            </div>
+            <div className="md:col-span-2 rounded-xl bg-white border border-[#E4E4F0] p-4">
+              <div className="text-xs text-slate-500 mb-2">Subject Averages</div>
+              <div className="flex flex-wrap gap-2">
+                {subjectSummaries.map(({ subject, count, average }) => (
+                  <button
+                    key={subject.id}
+                    onClick={() => setSubjectFilter(subject.id)}
+                    className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-left"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ background: subject.color }} />
+                      <span className="text-xs font-medium">{subject.name}</span>
+                    </div>
+                    <div className="text-sm font-semibold mt-0.5">{average === null ? "—" : `${average.toFixed(1)}%`}</div>
+                    <div className="text-[10px] text-slate-400">{count} {count === 1 ? "entry" : "entries"}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 mb-4">
+            <select
+              value={subjectFilter}
+              onChange={(e) => setSubjectFilter(e.target.value)}
+              className="rounded-lg border border-[#E4E4F0] bg-white px-3 py-2 text-sm outline-none"
+            >
+              <option value="all">All Subjects</option>
+              {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {subjectFilter !== "all" && (
+              <button onClick={() => setSubjectFilter("all")} className="text-xs font-medium text-[#3D2FE0]">Clear filter</button>
+            )}
+          </div>
+
+          {visibleGrades.length === 0 ? (
+            <EmptyRow text={grades.length === 0 ? "No grades yet — add your first score." : "No grades recorded for this subject yet."} />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {visibleGrades.map((g) => {
+                const percent = gradePercent(g);
+                return (
+                  <div key={g.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subjectMap[g.subjectId]?.color || "#94A3B8" }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{g.title}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{subjectMap[g.subjectId]?.name || "Unknown Subject"} · {g.category}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-sm font-semibold">{g.score}/{g.totalScore}</div>
+                      <div className="text-[11px] text-slate-500">{percent.toFixed(1)}%</div>
+                    </div>
+                    <button onClick={() => openEdit(g)} className="p-1.5 text-slate-400" aria-label="Edit grade"><Edit2 size={13} /></button>
+                    <button onClick={() => onDelete(g.id)} className="p-1.5 text-slate-400" aria-label="Delete grade"><Trash2 size={13} /></button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {showModal && (
+        <GradeModal
+          grade={editingGrade}
+          subjects={subjects}
+          onClose={closeModal}
+          onSave={handleSave}
+        />
+      )}
+    </div>
+  );
+}
+
+function GradeModal({ grade, subjects, onClose, onSave }) {
+  const [form, setForm] = useState(
+    grade || {
+      title: "",
+      subjectId: (subjects[0] && subjects[0].id) || "",
+      category: "Quiz",
+      score: "",
+      totalScore: "100",
+    }
+  );
+
+  const score = Number(form.score);
+  const total = Number(form.totalScore);
+  const validNumbers = Number.isFinite(score) && Number.isFinite(total) && score >= 0 && total > 0 && score <= total;
+  const canSave = form.title.trim() && form.subjectId && validNumbers;
+  const preview = validNumbers ? (score / total) * 100 : null;
+
+  return (
+    <ModalShell title={grade ? "Edit Grade" : "Add Grade"} onClose={onClose}>
+      <Field label="Title *">
+        <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Quiz 1" />
+      </Field>
+      <Field label="Subject *">
+        <select className={inputCls} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
+          {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Category">
+        <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+          {GRADE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Score *">
+          <input type="number" min="0" step="0.01" className={inputCls} value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} placeholder="e.g. 18" />
+        </Field>
+        <Field label="Total Score *">
+          <input type="number" min="0.01" step="0.01" className={inputCls} value={form.totalScore} onChange={(e) => setForm({ ...form, totalScore: e.target.value })} placeholder="e.g. 20" />
+        </Field>
+      </div>
+      {form.score !== "" && form.totalScore !== "" && (
+        <div className={`rounded-lg px-3 py-2 text-xs mb-3 ${validNumbers ? "bg-[#EEECFC] text-[#3D2FE0]" : "bg-red-50 text-red-600"}`}>
+          {validNumbers ? `Percentage: ${preview.toFixed(1)}%` : "Score must be between 0 and the total score."}
+        </div>
+      )}
       <button
-        onClick={() => window.alert("Premium isn't available yet — this is where checkout will go once billing is wired up.")}
-        className="rounded-xl px-5 py-2.5 text-sm font-semibold text-white"
+        disabled={!canSave}
+        onClick={() => onSave({ ...form, title: form.title.trim(), score, totalScore: total })}
+        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
         style={{ background: "#3D2FE0" }}
       >
-        Upgrade to Premium
+        {grade ? "Save Changes" : "Add Grade"}
       </button>
-    </div>
+    </ModalShell>
   );
 }
 
