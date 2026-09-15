@@ -842,7 +842,7 @@ function ProModal({ onClose }) {
               >
                 <p className="text-xs font-bold text-slate-500">MONTHLY</p>
                 <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">
-                  ₱59
+                  ₱29
                 </p>
                 <p className="text-xs text-slate-400">per month</p>
               </button>
@@ -861,7 +861,7 @@ function ProModal({ onClose }) {
                 </span>
                 <p className="text-xs font-bold text-slate-500">YEARLY</p>
                 <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">
-                  ₱499
+                  ₱299
                 </p>
                 <p className="text-xs text-slate-400">per year</p>
               </button>
