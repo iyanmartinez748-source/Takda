@@ -29,6 +29,31 @@ function getInitials(name, email = "") {
 ========================= */
 
 function LandingPage({ onLogin, onSignup }) {
+  const [legalPage, setLegalPage] = useState(null);
+
+  const legalContent = {
+    privacy: {
+      title: "Privacy Policy",
+      body: [
+        "Takda collects account information such as your email address and the profile details you choose to provide so the app can provide your student workspace.",
+        "Academic information you add, such as subjects, activities, grades, calendar items, and notes, is used to provide Takda's features and is associated with your account.",
+        "Takda uses service providers, including Supabase for authentication and data storage and Vercel for website hosting. We do not sell your personal information.",
+        "You are responsible for the information you choose to enter. Avoid storing highly sensitive information that is not necessary for managing your schoolwork.",
+        "This policy may be updated as Takda develops. Material changes should be reflected on this page."
+      ]
+    },
+    terms: {
+      title: "Terms of Service",
+      body: [
+        "Takda is a student productivity tool for organizing academic tasks and information. By using Takda, you agree to use the service lawfully and responsibly.",
+        "You are responsible for maintaining the security of your account and for the content you add to your workspace.",
+        "Takda is provided on an as-available basis. While we work to keep the service reliable, uninterrupted availability or permanent preservation of every item cannot be guaranteed.",
+        "Do not misuse the service, attempt unauthorized access, interfere with other users, or upload unlawful or harmful content.",
+        "Features and these terms may change as Takda grows. Continued use after an update means you accept the updated terms."
+      ]
+    }
+  };
+
   const features = [
     ["📚", "Subjects", "Keep your classes, schedules, teachers, and rooms organized."],
     ["✅", "Activities", "Track assignments, projects, quizzes, and deadlines in one place."],
@@ -39,7 +64,29 @@ function LandingPage({ onLogin, onSignup }) {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F7F8FC] text-[#1B1B2F]">
+    <div className="min-h-screen bg-[#F7F8FC] text-[#1B1B2F]" style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');`}</style>
+
+      {legalPage && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/40 p-4">
+          <div className="flex min-h-full items-center justify-center">
+            <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-xl sm:p-8">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#3D2FE0]">Takda</p>
+                  <h2 className="mt-1 text-2xl font-extrabold">{legalContent[legalPage].title}</h2>
+                </div>
+                <button type="button" onClick={() => setLegalPage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-[#F5F6FA] text-xl text-slate-500" aria-label="Close">×</button>
+              </div>
+              <div className="mt-6 space-y-4 text-sm leading-7 text-slate-600">
+                {legalContent[legalPage].body.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+              </div>
+              <p className="mt-6 text-xs text-slate-400">Last updated: September 2026</p>
+              <button type="button" onClick={() => setLegalPage(null)} className="mt-6 w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-bold text-white sm:w-auto sm:px-6">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-40 border-b border-[#E4E4F0] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5">
@@ -142,9 +189,24 @@ function LandingPage({ onLogin, onSignup }) {
       </main>
 
       <footer className="border-t border-[#E4E4F0] bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p>© {new Date().getFullYear()} Takda. Built for students.</p>
-          <p>Plan • Track • Finish</p>
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <img src="/takda-icon.png" alt="Takda" className="h-9 w-9 rounded-xl object-cover" />
+              <div>
+                <p className="text-sm font-extrabold text-[#1B1B2F]">Takda</p>
+                <p className="text-xs text-slate-400">Plan • Track • Finish</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
+              <button type="button" onClick={() => setLegalPage("privacy")} className="hover:text-[#3D2FE0]">Privacy Policy</button>
+              <button type="button" onClick={() => setLegalPage("terms")} className="hover:text-[#3D2FE0]">Terms of Service</button>
+              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">Contact / Support</a>
+            </div>
+          </div>
+          <div className="mt-6 border-t border-[#E4E4F0] pt-5 text-xs text-slate-400">
+            © {new Date().getFullYear()} Takda. Built for students.
+          </div>
         </div>
       </footer>
     </div>
