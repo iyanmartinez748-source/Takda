@@ -411,27 +411,64 @@ export default async function handler(req, res) {
        7. VERIFY PAYMENT INFORMATION
     ===================================================== */
 
-    const payment =
-      attributes?.payments?.[0] || null;
-
-    const paymentId =
-      payment?.id ||
-      attributes?.payment_intent?.id ||
-      null;
+    const payments =
+      Array.isArray(attributes?.payments)
+        ? attributes.payments
+        : [];
 
     /*
-      The webhook event itself represents a successful
-      Checkout Session payment.
+      Require an actual PayMongo Payment object
+      whose status is "paid".
 
-      When PayMongo includes payment status, make sure
-      it is actually paid.
+      Do not activate Takda Pro based only on the
+      webhook event name or Payment Intent status.
     */
+
+    const payment =
+      payments.find(
+        (item) =>
+          item?.attributes?.status === "paid"
+      ) || null;
+
+    if (!payment?.id) {
+      console.error(
+        "Paid PayMongo payment object not found."
+      );
+
+      return res.status(400).json({
+        error: "Confirmed paid payment not found.",
+      });
+    }
+
+    const paymentId =
+      payment.id;
 
     const paymentStatus =
       payment?.attributes?.status;
 
+    const paymentAmount =
+      Number(payment?.attributes?.amount);
+
+    const paymentCurrency =
+      String(
+        payment?.attributes?.currency || ""
+      ).toUpperCase();
+
+    /*
+      Takda server-side prices:
+
+      Monthly = PHP 29.00 = 2900 centavos
+      Yearly  = PHP 299.00 = 29900 centavos
+    */
+
+    const expectedAmount =
+      order.plan === "monthly"
+        ? 2900
+        : order.plan === "yearly"
+        ? 29900
+        : null;
+
     if (
-      paymentStatus &&
       paymentStatus !== "paid"
     ) {
       console.error(
@@ -444,7 +481,55 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =====================================================
+    if (
+      !expectedAmount ||
+      !Number.isInteger(paymentAmount) ||
+      paymentAmount !== expectedAmount
+    ) {
+      console.error(
+        "PayMongo payment amount mismatch.",
+        {
+          expectedAmount,
+          paymentAmount,
+        }
+      );
+
+      return res.status(400).json({
+        error: "Payment amount mismatch.",
+      });
+    }
+
+    if (paymentCurrency !== "PHP") {
+      console.error(
+        "PayMongo payment currency mismatch:",
+        paymentCurrency
+      );
+
+      return res.status(400).json({
+        error: "Payment currency mismatch.",
+      });
+    }
+
+    /*
+      Also verify that the amount stored in Takda's
+      own order matches the server-side plan price.
+    */
+
+    if (
+      Number(order.amount) !== expectedAmount
+    ) {
+      console.error(
+        "Takda order amount mismatch.",
+        {
+          expectedAmount,
+          orderAmount: order.amount,
+        }
+      );
+
+      return res.status(400).json({
+        error: "Takda order amount mismatch.",
+      });
+    }
        8. FAST IDEMPOTENCY CHECK
 
        The database RPC below is the authoritative
