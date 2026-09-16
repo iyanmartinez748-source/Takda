@@ -208,9 +208,10 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const stats = useMemo(() => {
     const pending = enrichedActivities.filter((a) => a.computedStatus !== "completed").length;
     const completed = enrichedActivities.filter((a) => a.computedStatus === "completed").length;
-    const dueToday = enrichedActivities.filter((a) => a.urgencyKey === "today" || a.urgencyKey === "overdue").length;
-    return { subjects: subjects.length, pending, completed, dueToday };
-  }, [enrichedActivities, subjects]);
+    // Reuse focusLists so "Due Today" has one definition across the whole
+    // Dashboard — this must never include overdue activities.
+    return { subjects: subjects.length, pending, completed, dueToday: focusLists.dueToday.length };
+  }, [enrichedActivities, subjects, focusLists]);
 
   const contextMessage = useMemo(() => {
     const overdueCount = focusLists.overdue.length;
