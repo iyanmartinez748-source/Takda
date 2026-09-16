@@ -529,17 +529,7 @@ export default async function handler(req, res) {
       return res.status(400).json({
         error: "Takda order amount mismatch.",
       });
-    }
-       8. FAST IDEMPOTENCY CHECK
-
-       The database RPC below is the authoritative
-       idempotency protection.
-
-       This check simply avoids unnecessary work for
-       already-processed orders.
-    ===================================================== */
-
-    if (order.status === "paid") {
+    
       return res.status(200).json({
         received: true,
         alreadyProcessed: true,
