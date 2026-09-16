@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     }
 
     const response = await fetch(
-      `https://api.paymongo.com/v2/checkout_sessions/${encodeURIComponent(id)}`,
+      `https://api.paymongo.com/v1/checkout_sessions/${encodeURIComponent(id)}`,
       {
         method: "GET",
         headers: {
@@ -48,8 +48,6 @@ export default async function handler(req, res) {
 
     const attributes = data?.data?.attributes || {};
 
-    // Return only useful diagnostic information.
-    // Never return the PayMongo secret key.
     return res.status(200).json({
       id: data?.data?.id || null,
       type: data?.data?.type || null,
