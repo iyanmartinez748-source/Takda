@@ -12,6 +12,9 @@ const COLORS = ["#3D2FE0", "#FF5A5F", "#16A34A", "#F59E0B", "#0EA5A4", "#DB2777"
 const TYPES = ["Assignment", "Quiz", "Exam", "Project", "Presentation", "Report", "Research", "Reading", "Other"];
 const PRIORITIES = ["Low", "Medium", "High"];
 
+const FREE_SUBJECT_LIMIT = 7;
+const FREE_ACTIVITY_LIMIT = 20;
+
 const uid = () => crypto.randomUUID();
 
 function loadFont() {
@@ -105,7 +108,7 @@ function PriorityTag({ priority }) {
   );
 }
 
-export default function TakdaApp() {
+export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [ready, setReady] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -122,6 +125,7 @@ export default function TakdaApp() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [saveError, setSaveError] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [limitNotice, setLimitNotice] = useState(null);
 
   useEffect(() => { loadFont(); }, []);
 
@@ -218,7 +222,26 @@ export default function TakdaApp() {
     return "Good Evening";
   }, []);
 
+  function requestAddSubject() {
+    if (!isPro && subjects.length >= FREE_SUBJECT_LIMIT) {
+      setLimitNotice("subjects");
+      return;
+    }
+    setEditingSubject(null);
+    setShowAddSubject(true);
+  }
+
   function saveSubject(subj) {
+    const isNewSubject = !subj.id;
+    if (isNewSubject && !isPro && subjects.length >= FREE_SUBJECT_LIMIT) {
+      // Block before persistence — the free limit may have been reached by
+      // the time the modal is submitted (e.g. another tab). Existing
+      // subjects are left untouched.
+      setShowAddSubject(false);
+      setEditingSubject(null);
+      setLimitNotice("subjects");
+      return;
+    }
     if (subj.id) {
       setSubjects((prev) => prev.map((s) => (s.id === subj.id ? subj : s)));
     } else {
@@ -247,7 +270,28 @@ export default function TakdaApp() {
     setShowAddActivity(true);
   }
 
+  // subjectId is optional so callers that don't pre-select a subject (the
+  // mobile FAB) leave defaultSubjectForActivity exactly as before.
+  function requestAddActivity(subjectId) {
+    if (!isPro && activities.length >= FREE_ACTIVITY_LIMIT) {
+      setLimitNotice("activities");
+      return;
+    }
+    if (subjectId !== undefined) setDefaultSubjectForActivity(subjectId);
+    setShowAddActivity(true);
+  }
+
   function saveActivity(act) {
+    const isNewActivity = !act.id;
+    if (isNewActivity && !isPro && activities.length >= FREE_ACTIVITY_LIMIT) {
+      // Block before persistence, same as subjects — editing an existing
+      // activity never hits this branch since it always has an id.
+      setShowAddActivity(false);
+      setEditingActivity(null);
+      setDefaultSubjectForActivity(null);
+      setLimitNotice("activities");
+      return;
+    }
     const prepared = {
       ...act,
       completedAt: act.status === "completed" ? (act.completedAt || new Date().toISOString()) : null,
@@ -319,7 +363,7 @@ export default function TakdaApp() {
         ::-webkit-scrollbar-thumb { background: #D8D8ED; border-radius: 4px; }
       `}</style>
 
-      <Sidebar view={view} setView={setView} onAddSubject={() => setShowAddSubject(true)} />
+      <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} />
 
       <div className="flex-1 flex flex-col min-h-[640px] max-h-[85vh] md:max-h-[720px] overflow-hidden">
         <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
@@ -337,7 +381,7 @@ export default function TakdaApp() {
               recentlyCompleted={recentlyCompleted}
               onToggle={toggleComplete}
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
-              onAddSubject={() => setShowAddSubject(true)}
+              onAddSubject={requestAddSubject}
             />
           )}
 
@@ -346,7 +390,7 @@ export default function TakdaApp() {
               subjects={subjects}
               activities={enrichedActivities}
               onOpen={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
-              onAdd={() => setShowAddSubject(true)}
+              onAdd={requestAddSubject}
             />
           )}
 
@@ -361,7 +405,7 @@ export default function TakdaApp() {
               onToggle={toggleComplete}
               onEditActivity={openEditActivity}
               onDeleteActivity={deleteActivity}
-              onAddActivity={() => { setDefaultSubjectForActivity(activeSubjectId); setShowAddActivity(true); }}
+              onAddActivity={() => requestAddActivity(activeSubjectId)}
               onAddNote={(body) => setNotes((prev) => [...prev, { id: uid(), subjectId: activeSubjectId, body, updatedAt: new Date().toISOString() }])}
               onDeleteNote={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
             />
@@ -395,17 +439,21 @@ export default function TakdaApp() {
           )}
 
           {view === "grades" && (
-            <GradesView
-              grades={grades}
-              subjects={subjects}
-              subjectMap={subjectMap}
-              onSave={saveGrade}
-              onDelete={deleteGrade}
-            />
+            isPro ? (
+              <GradesView
+                grades={grades}
+                subjects={subjects}
+                subjectMap={subjectMap}
+                onSave={saveGrade}
+                onDelete={deleteGrade}
+              />
+            ) : (
+              <GradeLockedView onUpgrade={onUpgrade} />
+            )
           )}
         </div>
 
-        <MobileNav view={view} setView={setView} onFab={() => setShowAddActivity(true)} onMore={() => setShowMore(true)} />
+        <MobileNav view={view} setView={setView} onFab={() => requestAddActivity()} onMore={() => setShowMore(true)} />
       </div>
 
       {showMore && (
@@ -432,6 +480,53 @@ export default function TakdaApp() {
           onSave={saveActivity}
         />
       )}
+
+      {limitNotice && (
+        <LimitReachedModal
+          kind={limitNotice}
+          onClose={() => setLimitNotice(null)}
+          onUpgrade={onUpgrade}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Free plan limit notice ---------------- */
+function LimitReachedModal({ kind, onClose, onUpgrade }) {
+  const message =
+    kind === "subjects"
+      ? `You’ve reached the Free plan limit of ${FREE_SUBJECT_LIMIT} subjects. Upgrade to Takda Pro for unlimited subjects.`
+      : `You’ve reached the Free plan limit of ${FREE_ACTIVITY_LIMIT} tasks. Upgrade to Takda Pro for unlimited tasks.`;
+
+  return (
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="takda-pro-badge inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide">
+          <span aria-hidden="true">✦</span> PRO
+        </span>
+        <h3 className="font-display mt-3 text-lg font-semibold text-[#1B1B2F]">Free plan limit reached</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-500">{message}</p>
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-[#E4E4F0] py-2.5 text-sm font-semibold text-slate-500"
+          >
+            Not now
+          </button>
+          <button
+            type="button"
+            onClick={() => { onClose(); onUpgrade?.(); }}
+            className="flex-1 rounded-xl bg-[#3D2FE0] py-2.5 text-sm font-bold text-white"
+          >
+            Upgrade to Pro
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -464,7 +559,7 @@ function Sidebar({ view, setView, onAddSubject }) {
             <button
               key={it.key}
               onClick={() => setView(it.key)}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-left"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left"
               style={{
                 background: active ? "#EEECFC" : "transparent",
                 color: active ? "#3D2FE0" : "#475569",
@@ -516,7 +611,7 @@ function NavBtn({ it, active, onClick }) {
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-0.5 px-3 py-1 flex-1" style={{ color: active ? "#3D2FE0" : "#94A3B8" }}>
       <Icon size={20} />
-      <span className="text-[10px] font-medium">{it.label}</span>
+      <span className="text-[10px] font-semibold">{it.label}</span>
     </button>
   );
 }
@@ -619,7 +714,7 @@ function StatCard({ icon: Icon, label, value, color }) {
     <div className="rounded-xl bg-white border border-[#E4E4F0] p-3 flex flex-col gap-1.5">
       <Icon size={16} style={{ color }} />
       <div className="font-display text-xl font-semibold leading-none">{value}</div>
-      <div className="text-[11px] text-slate-500 leading-none">{label}</div>
+      <div className="text-[11px] font-semibold text-slate-500 leading-none">{label}</div>
     </div>
   );
 }
@@ -695,7 +790,7 @@ function SubjectsView({ subjects, activities, onOpen, onAdd }) {
                 </div>
                 {s.teacher && <div className="text-xs text-slate-500 mb-1 flex items-center gap-1"><User size={12} />{s.teacher}</div>}
                 {s.schedule && <div className="text-xs text-slate-500 mb-3 flex items-center gap-1"><Clock size={12} />{s.schedule}</div>}
-                <div className="flex gap-4 text-xs font-medium">
+                <div className="flex gap-4 text-xs font-semibold">
                   <span className="text-amber-600">{pending} Pending</span>
                   <span className="text-emerald-600">{completed} Completed</span>
                 </div>
@@ -923,7 +1018,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
-            className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap"
+            className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap"
             style={{ background: statusFilter === s ? "#3D2FE0" : "white", color: statusFilter === s ? "white" : "#475569", border: "1px solid #E4E4F0" }}
           >
             {s.replace("_", " ")}
@@ -958,6 +1053,32 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
 }
 
 /* ---------------- Grades ---------------- */
+function GradeLockedView({ onUpgrade }) {
+  return (
+    <div className="p-5 md:p-8">
+      <div className="mx-auto max-w-md rounded-2xl border border-[#E4E4F0] bg-white p-8 text-center shadow-sm">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#F5F1E4]">
+          <Lock size={20} className="text-amber-700" />
+        </div>
+        <span className="takda-pro-badge inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide">
+          <span aria-hidden="true">✦</span> PRO
+        </span>
+        <h2 className="font-display mt-4 text-xl font-semibold text-[#1B1B2F]">Grade Tracker</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          Track your scores, percentages, and subject averages with Takda Pro.
+        </p>
+        <button
+          type="button"
+          onClick={onUpgrade}
+          className="mt-6 w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-bold text-white"
+        >
+          Upgrade to Pro
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const GRADE_CATEGORIES = ["Quiz", "Assignment", "Exam", "Project", "Presentation", "Report", "Research", "Other"];
 
 function gradePercent(grade) {

@@ -14,3 +14,38 @@ html, body, #root {
 body {
   font-family: Inter, system-ui, sans-serif;
 }
+
+/* Takda Pro badge — premium graphite/champagne pill with a subtle shine sweep */
+.takda-pro-badge {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: linear-gradient(135deg, #1b1b22, #2c2c36);
+  color: #e8cf9a;
+  border: 1px solid rgba(232, 207, 154, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 10px rgba(232, 207, 154, 0.18);
+}
+
+.takda-pro-badge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(115deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: translateX(-160%);
+  animation: takda-pro-shine 3.4s ease-in-out infinite;
+}
+
+@keyframes takda-pro-shine {
+  0%, 55% { transform: translateX(-160%); }
+  100% { transform: translateX(260%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .takda-pro-badge::after {
+    animation: none;
+    display: none;
+  }
+}
