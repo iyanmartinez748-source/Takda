@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import TakdaApp from "./App";
 import { supabase } from "./lib/supabase";
@@ -783,6 +783,18 @@ function getTakdaPlan(profile) {
   : "free";
 }
 
+function ProBadge({ compact }) {
+  return (
+    <span
+      className={`takda-pro-badge rounded-full font-extrabold tracking-wide ${
+        compact ? "px-2 py-0.5 text-[9px]" : "px-2 py-1 text-[10px]"
+      }`}
+    >
+      <span aria-hidden="true">✦</span> PRO
+    </span>
+  );
+}
+
 function ProModal({ onClose }) {
   const [billing, setBilling] = useState("yearly");
   const [loading, setLoading] = useState(false);
@@ -1014,15 +1026,13 @@ function ProfileMenu({
           profile={profile}
           email={user.email}
         />
-        <span
-          className={`hidden rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide sm:inline-flex ${
-            isPro
-              ? "bg-amber-100 text-amber-700"
-              : "bg-slate-100 text-slate-500"
-          }`}
-        >
-          {isPro ? "⭐ PRO" : "FREE"}
-        </span>
+        {isPro ? (
+          <ProBadge />
+        ) : (
+          <span className="hidden rounded-full bg-slate-100 px-2 py-1 text-[10px] font-extrabold tracking-wide text-slate-500 sm:inline-flex">
+            FREE
+          </span>
+        )}
       </button>
 
       {open && (
@@ -1039,15 +1049,13 @@ function ProfileMenu({
                   <p className="truncate text-sm font-semibold text-[#1B1B2F]">
                     {profile?.full_name || "Takda Student"}
                   </p>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold tracking-wide ${
-                      isPro
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
-                    {isPro ? "⭐ PRO" : "FREE"}
-                  </span>
+                  {isPro ? (
+                    <ProBadge compact />
+                  ) : (
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-extrabold tracking-wide text-slate-500">
+                      FREE
+                    </span>
+                  )}
                 </div>
 
                 <p className="truncate text-xs text-slate-400">
@@ -1546,6 +1554,30 @@ function Root() {
 
   const [publicScreen, setPublicScreen] = useState("landing");
 
+  // getTakdaPlan(profile) compares profile.pro_until to Date.now(), so its
+  // result only changes when something forces a re-render. Recheck on an
+  // interval and when the tab regains focus/visibility so a session left
+  // open past expiration drops back to Free without a page reload.
+  const [planCheckTick, setPlanCheckTick] = useState(0);
+
+  useEffect(() => {
+    const recheckPlan = () => setPlanCheckTick((t) => t + 1);
+    const intervalId = setInterval(recheckPlan, 60000);
+    document.addEventListener("visibilitychange", recheckPlan);
+    window.addEventListener("focus", recheckPlan);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", recheckPlan);
+      window.removeEventListener("focus", recheckPlan);
+    };
+  }, []);
+
+  const isPro = useMemo(
+    () => getTakdaPlan(profile) === "pro",
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [profile, planCheckTick]
+  );
+
   async function checkProfile(user) {
     if (!user) {
       setProfile(null);
@@ -1757,7 +1789,7 @@ function Root() {
 
         </div>
 
-        <TakdaApp />
+        <TakdaApp isPro={isPro} onUpgrade={() => setShowPro(true)} />
 
       </div>
 
