@@ -215,6 +215,27 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return { subjects: subjects.length, pending, completed, dueToday };
   }, [enrichedActivities, subjects]);
 
+  // Derived-only breakdown for the "Focus for Today" dashboard section —
+  // computed from enrichedActivities, never stored.
+  const focusCounts = useMemo(() => {
+    const open = enrichedActivities.filter((a) => a.computedStatus !== "completed");
+    return {
+      overdue: open.filter((a) => a.urgencyKey === "overdue").length,
+      dueToday: open.filter((a) => a.urgencyKey === "today").length,
+      upcoming: open.filter((a) => ["tomorrow", "week", "later"].includes(a.urgencyKey)).length,
+    };
+  }, [enrichedActivities]);
+
+  const contextMessage = useMemo(() => {
+    if (focusCounts.overdue > 0) {
+      return `You have ${focusCounts.overdue} overdue ${focusCounts.overdue === 1 ? "task" : "tasks"} — take care of ${focusCounts.overdue === 1 ? "it" : "these"} first.`;
+    }
+    if (focusCounts.dueToday > 0) {
+      return `You have ${focusCounts.dueToday} ${focusCounts.dueToday === 1 ? "task" : "tasks"} due today.`;
+    }
+    return "You're all caught up for today.";
+  }, [focusCounts]);
+
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 12) return "Good Morning";
@@ -375,6 +396,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           {view === "dashboard" && (
             <Dashboard
               greeting={greeting}
+              contextMessage={contextMessage}
+              focusCounts={focusCounts}
               stats={stats}
               todayList={todayList}
               upcomingList={upcomingList}
@@ -653,20 +676,15 @@ function MoreSheet({ onClose, onNavigate }) {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ greeting, stats, todayList, upcomingList, recentlyCompleted, onToggle, onOpenSubject, onAddSubject }) {
+function Dashboard({ greeting, contextMessage, focusCounts, stats, todayList, upcomingList, recentlyCompleted, onToggle, onOpenSubject, onAddSubject }) {
   return (
     <div className="p-5 md:p-8">
       <div className="mb-6">
         <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
-        <p className="text-sm text-slate-500 mt-1">Here's your academic overview.</p>
+        <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 md:gap-3 mb-7">
-        <StatCard icon={BookOpen} label="Subjects" value={stats.subjects} color="#3D2FE0" />
-        <StatCard icon={Circle} label="Pending" value={stats.pending} color="#F59E0B" />
-        <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} color="#16A34A" />
-        <StatCard icon={AlertCircle} label="Due Today" value={stats.dueToday} color="#FF5A5F" />
-      </div>
+      <FocusForToday counts={focusCounts} />
 
       <SectionHeader title="Today's Tasks" />
       {todayList.length === 0 ? (
@@ -684,22 +702,24 @@ function Dashboard({ greeting, stats, todayList, upcomingList, recentlyCompleted
         <EmptyRow text="No upcoming deadlines yet." />
       ) : (
         <div className="flex flex-col gap-2 mb-7">
-          {upcomingList.map((a) => (
-            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+          {upcomingList.map((a, i) => (
+            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
           ))}
         </div>
       )}
 
-      <SectionHeader title="Recently Completed" />
+      <SectionHeader title="Recently Completed" muted />
       {recentlyCompleted.length === 0 ? (
         <EmptyRow text="Completed tasks will show up here." />
       ) : (
-        <div className="flex flex-col gap-2 mb-4">
+        <div className="flex flex-col gap-2 mb-4 opacity-80">
           {recentlyCompleted.map((a) => (
             <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
           ))}
         </div>
       )}
+
+      <StatsStrip stats={stats} />
 
       {stats.subjects === 0 && (
         <button onClick={onAddSubject} className="mt-4 w-full rounded-xl border border-dashed border-[#C7C7E8] text-[#3D2FE0] py-3 text-sm font-medium">
@@ -710,53 +730,120 @@ function Dashboard({ greeting, stats, todayList, upcomingList, recentlyCompleted
   );
 }
 
-function StatCard({ icon: Icon, label, value, color }) {
+const FOCUS_TILE_STYLE = {
+  overdue: { bg: "#FEF2F2", border: "#FBD5D5", text: "#B91C1C" },
+  dueToday: { bg: "#FFFBEB", border: "#FDE9B0", text: "#92400E" },
+  upcoming: { bg: "#F0FDF4", border: "#CDEFD8", text: "#166534" },
+};
+
+function FocusForToday({ counts }) {
+  const tiles = [
+    { key: "overdue", label: "Overdue", value: counts.overdue },
+    { key: "dueToday", label: "Due Today", value: counts.dueToday },
+    { key: "upcoming", label: "Upcoming", value: counts.upcoming },
+  ];
   return (
-    <div className="rounded-xl bg-white border border-[#E4E4F0] p-3 flex flex-col gap-1.5">
-      <Icon size={16} style={{ color }} />
-      <div className="font-display text-xl font-semibold leading-none">{value}</div>
-      <div className="text-[11px] font-semibold text-slate-500 leading-none">{label}</div>
+    <div className="mb-7">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Focus for Today</h2>
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
+        {tiles.map((tile) => {
+          const active = tile.value > 0;
+          const style = FOCUS_TILE_STYLE[tile.key];
+          return (
+            <div
+              key={tile.key}
+              className="rounded-xl border p-3 md:p-3.5 flex flex-col gap-1"
+              style={active ? { background: style.bg, borderColor: style.border } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
+            >
+              <span className="font-display text-2xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+                {tile.value}
+              </span>
+              <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
+                {tile.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function SectionHeader({ title }) {
-  return <h2 className="text-sm font-semibold text-slate-700 mb-2.5 mt-1">{title}</h2>;
+function StatsStrip({ stats }) {
+  const items = [
+    { label: "Subjects", value: stats.subjects },
+    { label: "Pending", value: stats.pending },
+    { label: "Completed", value: stats.completed },
+    { label: "Due Today", value: stats.dueToday },
+  ];
+  return (
+    <div className="flex items-stretch rounded-xl border border-[#E4E4F0] bg-white divide-x divide-[#E4E4F0] mb-7">
+      {items.map((it) => (
+        <div key={it.label} className="flex-1 px-2 py-2.5 text-center">
+          <div className="font-display text-lg font-semibold leading-none">{it.value}</div>
+          <div className="text-[10px] font-semibold text-slate-500 mt-1">{it.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionHeader({ title, muted }) {
+  return (
+    <h2 className={`text-sm mb-2.5 mt-1 ${muted ? "font-semibold text-slate-400" : "font-semibold text-slate-700"}`}>
+      {title}
+    </h2>
+  );
 }
 
 function EmptyRow({ text }) {
   return <div className="text-sm text-slate-400 rounded-xl bg-white border border-dashed border-[#E4E4F0] py-4 px-4 mb-7 text-center">{text}</div>;
 }
 
-function ActivityRow({ activity, onToggle, onOpenSubject, compact }) {
+function TypeChip({ type }) {
+  if (!type) return null;
+  return (
+    <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">
+      {type}
+    </span>
+  );
+}
+
+function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) {
   const style = URGENCY_STYLE[activity.urgencyKey] || URGENCY_STYLE.later;
   const done = activity.computedStatus === "completed";
   return (
-    <div className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
+    <div className={`flex items-center gap-3 rounded-xl bg-white border p-3 ${highlight ? "border-[#3D2FE0]" : "border-[#E4E4F0]"}`}>
       <button
         onClick={() => onToggle(activity)}
         className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center"
         style={{ borderColor: done ? "#16A34A" : "#CBD5E1", background: done ? "#16A34A" : "transparent" }}
-        aria-label="Mark complete"
+        aria-label={done ? "Reopen task" : "Mark complete"}
       >
         {done && <Check size={14} color="white" />}
       </button>
       <div className="flex-1 min-w-0">
         <button className="text-left w-full" onClick={() => activity.subjectId && onOpenSubject(activity.subjectId)}>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activity.subject?.color || "#94A3B8" }} />
             <span className="text-[11px] font-medium text-slate-500 truncate">{activity.subject?.name || "General"}</span>
+            <TypeChip type={activity.type} />
             <PriorityTag priority={activity.priority} />
           </div>
-          <div className={`text-sm font-medium truncate ${done ? "line-through text-slate-400" : "text-[#1B1B2F]"}`}>{activity.title}</div>
+          <div className={`text-sm font-medium truncate mt-0.5 ${done ? "line-through text-slate-400" : "text-[#1B1B2F]"}`}>{activity.title}</div>
         </button>
       </div>
-      {!compact && (
-        <span className="shrink-0 text-[11px] font-semibold px-2 py-1 rounded-full" style={{ color: style.text, background: style.bg }}>
-          {style.label}
+      <div className="shrink-0 flex flex-col items-end gap-1">
+        {!compact && (
+          <span className="text-[11px] font-semibold px-2 py-1 rounded-full" style={{ color: style.text, background: style.bg }}>
+            {style.label}
+          </span>
+        )}
+        <span className="text-[11px] text-slate-400 flex items-center gap-1">
+          {compact && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: style.dot }} />}
+          {fmtDate(activity.deadline)}
         </span>
-      )}
-      {compact && <span className="shrink-0 text-[11px] text-slate-400">{fmtDate(activity.deadline)}</span>}
+      </div>
     </div>
   );
 }
