@@ -182,22 +182,19 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [activities, subjectMap]
   );
 
-  const todayList = useMemo(
-    () =>
-      enrichedActivities
-        .filter((a) => a.computedStatus !== "completed" && ["overdue", "today"].includes(a.urgencyKey))
-        .sort((a, b) => new Date(a.deadline) - new Date(b.deadline)),
-    [enrichedActivities]
-  );
-
-  const upcomingList = useMemo(
-    () =>
-      enrichedActivities
-        .filter((a) => a.computedStatus !== "completed" && ["tomorrow", "week", "later"].includes(a.urgencyKey))
-        .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
-        .slice(0, 6),
-    [enrichedActivities]
-  );
+  // Single source of truth for the Dashboard's urgency-based sections —
+  // Overdue and Due Today are kept as separate, non-overlapping lists so
+  // "Today's Tasks" never mixes in items that are actually overdue.
+  // Purely derived from enrichedActivities; nothing here is stored.
+  const focusLists = useMemo(() => {
+    const open = enrichedActivities.filter((a) => a.computedStatus !== "completed");
+    const byDeadlineAsc = (a, b) => new Date(a.deadline) - new Date(b.deadline);
+    return {
+      overdue: open.filter((a) => a.urgencyKey === "overdue").sort(byDeadlineAsc),
+      dueToday: open.filter((a) => a.urgencyKey === "today").sort(byDeadlineAsc),
+      upcoming: open.filter((a) => ["tomorrow", "week", "later"].includes(a.urgencyKey)).sort(byDeadlineAsc),
+    };
+  }, [enrichedActivities]);
 
   const recentlyCompleted = useMemo(
     () =>
@@ -215,26 +212,17 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return { subjects: subjects.length, pending, completed, dueToday };
   }, [enrichedActivities, subjects]);
 
-  // Derived-only breakdown for the "Focus for Today" dashboard section —
-  // computed from enrichedActivities, never stored.
-  const focusCounts = useMemo(() => {
-    const open = enrichedActivities.filter((a) => a.computedStatus !== "completed");
-    return {
-      overdue: open.filter((a) => a.urgencyKey === "overdue").length,
-      dueToday: open.filter((a) => a.urgencyKey === "today").length,
-      upcoming: open.filter((a) => ["tomorrow", "week", "later"].includes(a.urgencyKey)).length,
-    };
-  }, [enrichedActivities]);
-
   const contextMessage = useMemo(() => {
-    if (focusCounts.overdue > 0) {
-      return `You have ${focusCounts.overdue} overdue ${focusCounts.overdue === 1 ? "task" : "tasks"} — take care of ${focusCounts.overdue === 1 ? "it" : "these"} first.`;
+    const overdueCount = focusLists.overdue.length;
+    const dueTodayCount = focusLists.dueToday.length;
+    if (overdueCount > 0) {
+      return `You have ${overdueCount} overdue ${overdueCount === 1 ? "task" : "tasks"} — take care of ${overdueCount === 1 ? "it" : "these"} first.`;
     }
-    if (focusCounts.dueToday > 0) {
-      return `You have ${focusCounts.dueToday} ${focusCounts.dueToday === 1 ? "task" : "tasks"} due today.`;
+    if (dueTodayCount > 0) {
+      return `You have ${dueTodayCount} ${dueTodayCount === 1 ? "task" : "tasks"} due today.`;
     }
     return "You're all caught up for today.";
-  }, [focusCounts]);
+  }, [focusLists]);
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -250,6 +238,13 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     }
     setEditingSubject(null);
     setShowAddSubject(true);
+  }
+
+  // Dashboard "Focus for Today" tiles and "View all" links land here —
+  // reuses the existing Activities view/filter state, no second list.
+  function goToActivities(filterValue) {
+    setStatusFilter(filterValue);
+    setView("activities");
   }
 
   function saveSubject(subj) {
@@ -397,14 +392,13 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
             <Dashboard
               greeting={greeting}
               contextMessage={contextMessage}
-              focusCounts={focusCounts}
+              focusLists={focusLists}
               stats={stats}
-              todayList={todayList}
-              upcomingList={upcomingList}
               recentlyCompleted={recentlyCompleted}
               onToggle={toggleComplete}
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAddSubject={requestAddSubject}
+              onFocusFilter={goToActivities}
             />
           )}
 
@@ -676,7 +670,21 @@ function MoreSheet({ onClose, onNavigate }) {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ greeting, contextMessage, focusCounts, stats, todayList, upcomingList, recentlyCompleted, onToggle, onOpenSubject, onAddSubject }) {
+const DASHBOARD_OVERDUE_VISIBLE = 3;
+const DASHBOARD_DUE_TODAY_VISIBLE = 5;
+const DASHBOARD_UPCOMING_VISIBLE = 6;
+
+function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyCompleted, onToggle, onOpenSubject, onAddSubject, onFocusFilter }) {
+  const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
+  const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
+  const upcomingVisible = focusLists.upcoming.slice(0, DASHBOARD_UPCOMING_VISIBLE);
+
+  const focusCounts = {
+    overdue: focusLists.overdue.length,
+    dueToday: focusLists.dueToday.length,
+    upcoming: focusLists.upcoming.length,
+  };
+
   return (
     <div className="p-5 md:p-8">
       <div className="mb-6">
@@ -684,25 +692,57 @@ function Dashboard({ greeting, contextMessage, focusCounts, stats, todayList, up
         <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
       </div>
 
-      <FocusForToday counts={focusCounts} />
+      <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
 
-      <SectionHeader title="Today's Tasks" />
-      {todayList.length === 0 ? (
-        <EmptyRow text="Nothing urgent right now. Nice." />
+      <SectionHeader
+        title="Needs Attention"
+        action={
+          focusCounts.overdue > 0 && (
+            <ViewAllLink label={`View all overdue (${focusCounts.overdue})`} onClick={() => onFocusFilter("overdue")} />
+          )
+        }
+      />
+      {overdueVisible.length === 0 ? (
+        <DashboardEmptyState icon={CheckCircle2} title="No overdue tasks" subtitle="You're all caught up." />
       ) : (
         <div className="flex flex-col gap-2 mb-7">
-          {todayList.map((a) => (
+          {overdueVisible.map((a) => (
             <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
           ))}
         </div>
       )}
 
-      <SectionHeader title="Upcoming Deadlines" />
-      {upcomingList.length === 0 ? (
-        <EmptyRow text="No upcoming deadlines yet." />
+      <SectionHeader
+        title="Due Today"
+        action={
+          focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
+            <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
+          )
+        }
+      />
+      {dueTodayVisible.length === 0 ? (
+        <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
       ) : (
         <div className="flex flex-col gap-2 mb-7">
-          {upcomingList.map((a, i) => (
+          {dueTodayVisible.map((a) => (
+            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+          ))}
+        </div>
+      )}
+
+      <SectionHeader
+        title="Upcoming Deadlines"
+        action={
+          focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
+            <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
+          )
+        }
+      />
+      {upcomingVisible.length === 0 ? (
+        <DashboardEmptyState title="No upcoming deadlines." />
+      ) : (
+        <div className="flex flex-col gap-2 mb-7">
+          {upcomingVisible.map((a, i) => (
             <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
           ))}
         </div>
@@ -710,7 +750,7 @@ function Dashboard({ greeting, contextMessage, focusCounts, stats, todayList, up
 
       <SectionHeader title="Recently Completed" muted />
       {recentlyCompleted.length === 0 ? (
-        <EmptyRow text="Completed tasks will show up here." />
+        <DashboardEmptyState title="Completed tasks will show up here." />
       ) : (
         <div className="flex flex-col gap-2 mb-4 opacity-80">
           {recentlyCompleted.map((a) => (
@@ -736,7 +776,9 @@ const FOCUS_TILE_STYLE = {
   upcoming: { bg: "#F0FDF4", border: "#CDEFD8", text: "#166534" },
 };
 
-function FocusForToday({ counts }) {
+const FOCUS_TILE_FILTER = { overdue: "overdue", dueToday: "today", upcoming: "upcoming" };
+
+function FocusForToday({ counts, onSelect }) {
   const tiles = [
     { key: "overdue", label: "Overdue", value: counts.overdue },
     { key: "dueToday", label: "Due Today", value: counts.dueToday },
@@ -745,23 +787,26 @@ function FocusForToday({ counts }) {
   return (
     <div className="mb-7">
       <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Focus for Today</h2>
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
+      <div className="grid grid-cols-3 gap-2">
         {tiles.map((tile) => {
           const active = tile.value > 0;
           const style = FOCUS_TILE_STYLE[tile.key];
           return (
-            <div
+            <button
               key={tile.key}
-              className="rounded-xl border p-3 md:p-3.5 flex flex-col gap-1"
+              type="button"
+              onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
+              className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
               style={active ? { background: style.bg, borderColor: style.border } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
+              aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
             >
-              <span className="font-display text-2xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+              <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
                 {tile.value}
               </span>
               <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
                 {tile.label}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -788,11 +833,38 @@ function StatsStrip({ stats }) {
   );
 }
 
-function SectionHeader({ title, muted }) {
+function SectionHeader({ title, muted, action }) {
   return (
-    <h2 className={`text-sm mb-2.5 mt-1 ${muted ? "font-semibold text-slate-400" : "font-semibold text-slate-700"}`}>
-      {title}
-    </h2>
+    <div className="flex items-center justify-between gap-2 mb-2.5 mt-1">
+      <h2 className={`text-sm ${muted ? "font-semibold text-slate-400" : "font-semibold text-slate-700"}`}>
+        {title}
+      </h2>
+      {action}
+    </div>
+  );
+}
+
+function ViewAllLink({ label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[#3D2FE0] hover:underline focus:outline-none focus-visible:underline"
+    >
+      {label} →
+    </button>
+  );
+}
+
+function DashboardEmptyState({ icon: Icon, title, subtitle }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 mb-7">
+      {Icon && <Icon size={14} className="text-emerald-500 shrink-0" />}
+      <p className="text-xs text-slate-500">
+        <span className="font-semibold text-slate-600">{title}</span>
+        {subtitle && <span> — {subtitle}</span>}
+      </p>
+    </div>
   );
 }
 
@@ -1086,10 +1158,20 @@ function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
 }
 
 /* ---------------- All activities (search/filter) ---------------- */
+// "today" and "upcoming" are urgency-based quick filters (reusing the same
+// urgencyKey already computed on each activity) rather than a computedStatus
+// value, so they're matched separately here — no new activity data needed.
+function matchesActivityFilter(a, filter) {
+  if (filter === "all") return true;
+  if (filter === "today") return a.computedStatus !== "completed" && a.urgencyKey === "today";
+  if (filter === "upcoming") return a.computedStatus !== "completed" && ["tomorrow", "week", "later"].includes(a.urgencyKey);
+  return a.computedStatus === filter;
+}
+
 function AllActivities({ activities, query, setQuery, statusFilter, setStatusFilter, onToggle, onEdit, onDelete, onAdd }) {
   const filtered = activities
     .filter((a) => a.title.toLowerCase().includes(query.toLowerCase()) || (a.subject?.name || "").toLowerCase().includes(query.toLowerCase()))
-    .filter((a) => statusFilter === "all" || a.computedStatus === statusFilter)
+    .filter((a) => matchesActivityFilter(a, statusFilter))
     .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
 
   return (
@@ -1107,7 +1189,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
         </div>
       </div>
       <div className="flex gap-1.5 mb-4 overflow-x-auto">
-        {["all", "pending", "in_progress", "completed", "overdue"].map((s) => (
+        {["all", "overdue", "today", "upcoming", "pending", "in_progress", "completed"].map((s) => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
