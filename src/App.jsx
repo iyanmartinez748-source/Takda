@@ -435,6 +435,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onToggle={toggleComplete}
               onEdit={openEditActivity}
               onDelete={deleteActivity}
+              onAdd={() => requestAddActivity()}
             />
           )}
 
@@ -998,7 +999,7 @@ function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
 }
 
 /* ---------------- All activities (search/filter) ---------------- */
-function AllActivities({ activities, query, setQuery, statusFilter, setStatusFilter, onToggle, onEdit, onDelete }) {
+function AllActivities({ activities, query, setQuery, statusFilter, setStatusFilter, onToggle, onEdit, onDelete, onAdd }) {
   const filtered = activities
     .filter((a) => a.title.toLowerCase().includes(query.toLowerCase()) || (a.subject?.name || "").toLowerCase().includes(query.toLowerCase()))
     .filter((a) => statusFilter === "all" || a.computedStatus === statusFilter)
@@ -1006,7 +1007,12 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
 
   return (
     <div className="p-5 md:p-8">
-      <h1 className="font-display text-2xl font-semibold mb-5">All Activities</h1>
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <h1 className="font-display text-2xl font-semibold">All Activities</h1>
+        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0" style={{ background: "#3D2FE0" }}>
+          <Plus size={15} /> Add Activity
+        </button>
+      </div>
       <div className="flex items-center gap-2 mb-3">
         <div className="flex-1 flex items-center gap-2 rounded-lg border border-[#E4E4F0] bg-white px-3 py-2">
           <Search size={15} className="text-slate-400" />
