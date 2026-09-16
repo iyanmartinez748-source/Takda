@@ -1,15 +1,22 @@
 import crypto from "crypto";
 
 /*
+  Takda PayMongo Webhook
+
   IMPORTANT:
-  PayMongo requires the RAW request body for signature verification.
-  Vercel/Next-style API parsing is disabled for this endpoint.
+  PayMongo signature verification requires the RAW request body.
+  Do not enable automatic body parsing for this endpoint.
 */
+
 export const config = {
   api: {
     bodyParser: false,
   },
 };
+
+/* =========================================================
+   HELPERS
+========================================================= */
 
 async function getRawBody(req) {
   const chunks = [];
@@ -80,6 +87,10 @@ async function supabaseRequest(
   });
 }
 
+/* =========================================================
+   WEBHOOK HANDLER
+========================================================= */
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -93,10 +104,6 @@ export default async function handler(req, res) {
   const SUPABASE_SERVICE_ROLE_KEY =
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  /*
-    We will add this to Vercel after PayMongo
-    generates the webhook secret.
-  */
   const PAYMONGO_WEBHOOK_SECRET =
     process.env.PAYMONGO_WEBHOOK_SECRET;
 
@@ -115,9 +122,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    /* =========================================
-       1. GET RAW PAYMONGO REQUEST BODY
-    ========================================= */
+    /* =====================================================
+       1. READ RAW BODY
+    ===================================================== */
 
     const rawBody = await getRawBody(req);
 
@@ -127,9 +134,9 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       2. READ PAYMONGO SIGNATURE
-    ========================================= */
+    /* =====================================================
+       2. VERIFY PAYMONGO SIGNATURE
+    ===================================================== */
 
     const signatureHeader =
       req.headers["paymongo-signature"];
@@ -152,15 +159,15 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       3. OPTIONAL REPLAY PROTECTION
-
-       Reject webhook timestamps older than
-       5 minutes.
-    ========================================= */
-
     const timestamp = Number(t);
     const now = Math.floor(Date.now() / 1000);
+
+    /*
+      Reject old webhook requests.
+
+      This reduces replay risk.
+      PayMongo retries normally generate a fresh signed request.
+    */
 
     if (
       !Number.isFinite(timestamp) ||
@@ -175,13 +182,6 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       4. GENERATE EXPECTED HMAC SHA-256
-
-       PayMongo:
-       timestamp + "." + raw JSON payload
-    ========================================= */
-
     const signedPayload =
       `${t}.${rawBody}`;
 
@@ -195,12 +195,11 @@ export default async function handler(req, res) {
         .digest("hex");
 
     /*
-      TEST webhooks use te.
-      LIVE webhooks use li.
+      te = TEST signature
+      li = LIVE signature
 
-      During development we accept a valid
-      signature from either field, but it MUST
-      cryptographically match our webhook secret.
+      A signature must cryptographically match
+      the webhook secret.
     */
 
     const validTestSignature =
@@ -228,9 +227,9 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       5. PARSE JSON ONLY AFTER VERIFICATION
-    ========================================= */
+    /* =====================================================
+       3. PARSE JSON AFTER SIGNATURE VERIFICATION
+    ===================================================== */
 
     let event;
 
@@ -246,8 +245,8 @@ export default async function handler(req, res) {
       event?.data?.attributes?.type;
 
     /*
-      We only care about successful
-      Hosted Checkout payments.
+      Takda currently processes only successful
+      Checkout Session payments.
     */
 
     if (
@@ -260,9 +259,9 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       6. GET CHECKOUT SESSION FROM EVENT
-    ========================================= */
+    /* =====================================================
+       4. READ CHECKOUT SESSION
+    ===================================================== */
 
     const checkoutSession =
       event?.data?.attributes?.data;
@@ -289,6 +288,13 @@ export default async function handler(req, res) {
       metadata?.takda_reference ||
       attributes?.reference_number;
 
+    /*
+      PayMongo's manually generated Test Event uses
+      generic sample data and may not contain Takda metadata.
+
+      It must never activate a subscription.
+    */
+
     if (
       !checkoutSessionId ||
       !takdaOrderId ||
@@ -296,12 +302,14 @@ export default async function handler(req, res) {
       !takdaPlan ||
       !takdaReference
     ) {
-      console.error(
-        "Paid checkout missing Takda metadata."
+      console.log(
+        "Paid checkout ignored: missing Takda metadata."
       );
 
-      return res.status(400).json({
-        error: "Missing Takda payment metadata.",
+      return res.status(200).json({
+        received: true,
+        ignored: true,
+        reason: "missing_takda_metadata",
       });
     }
 
@@ -309,16 +317,20 @@ export default async function handler(req, res) {
       takdaPlan !== "monthly" &&
       takdaPlan !== "yearly"
     ) {
+      console.error(
+        "Invalid Takda plan metadata."
+      );
+
       return res.status(400).json({
         error: "Invalid Takda plan metadata.",
       });
     }
 
-    /* =========================================
-       7. LOAD THE INTERNAL TAKDA ORDER
+    /* =====================================================
+       5. LOAD TAKDA ORDER
 
-       We do NOT trust metadata alone.
-    ========================================= */
+       Never trust PayMongo metadata alone.
+    ===================================================== */
 
     const orderResponse =
       await supabaseRequest(
@@ -333,8 +345,12 @@ export default async function handler(req, res) {
       );
 
     if (!orderResponse.ok) {
+      const errorText =
+        await orderResponse.text();
+
       console.error(
-        "Unable to read Takda order."
+        "Unable to read Takda order:",
+        errorText
       );
 
       return res.status(500).json({
@@ -345,7 +361,8 @@ export default async function handler(req, res) {
     const orders =
       await orderResponse.json();
 
-    const order = orders?.[0];
+    const order =
+      orders?.[0];
 
     if (!order) {
       console.error(
@@ -358,15 +375,14 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       8. VERIFY ORDER ↔ PAYMENT MATCH
-    ========================================= */
+    /* =====================================================
+       6. VERIFY ORDER ↔ PAYMONGO PAYMENT
+    ===================================================== */
 
     if (
       order.user_id !== takdaUserId ||
       order.plan !== takdaPlan ||
-      order.reference_number !==
-        takdaReference
+      order.reference_number !== takdaReference
     ) {
       console.error(
         "Takda payment/order mismatch."
@@ -376,11 +392,6 @@ export default async function handler(req, res) {
         error: "Payment order mismatch.",
       });
     }
-
-    /*
-      If create-checkout already stored a
-      checkout session ID, it must match.
-    */
 
     if (
       order.checkout_session_id &&
@@ -396,15 +407,52 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       9. IDEMPOTENCY
+    /* =====================================================
+       7. VERIFY PAYMENT INFORMATION
+    ===================================================== */
 
-       PayMongo may send the same webhook
-       more than once.
+    const payment =
+      attributes?.payments?.[0] || null;
 
-       If already PAID, acknowledge it without
-       extending Pro again.
-    ========================================= */
+    const paymentId =
+      payment?.id ||
+      attributes?.payment_intent?.id ||
+      null;
+
+    /*
+      The webhook event itself represents a successful
+      Checkout Session payment.
+
+      When PayMongo includes payment status, make sure
+      it is actually paid.
+    */
+
+    const paymentStatus =
+      payment?.attributes?.status;
+
+    if (
+      paymentStatus &&
+      paymentStatus !== "paid"
+    ) {
+      console.error(
+        "Checkout payment is not marked paid:",
+        paymentStatus
+      );
+
+      return res.status(400).json({
+        error: "Payment is not paid.",
+      });
+    }
+
+    /* =====================================================
+       8. FAST IDEMPOTENCY CHECK
+
+       The database RPC below is the authoritative
+       idempotency protection.
+
+       This check simply avoids unnecessary work for
+       already-processed orders.
+    ===================================================== */
 
     if (order.status === "paid") {
       return res.status(200).json({
@@ -414,8 +462,8 @@ export default async function handler(req, res) {
     }
 
     if (order.status !== "pending") {
-      console.error(
-        "Order is not pending:",
+      console.log(
+        "Takda order ignored because status is:",
         order.status
       );
 
@@ -425,192 +473,122 @@ export default async function handler(req, res) {
       });
     }
 
-    /* =========================================
-       10. GET CURRENT TAKDA PROFILE
-    ========================================= */
+    /* =====================================================
+       9. ATOMIC TAKDA PRO ACTIVATION
 
-    const profileResponse =
+       activate_takda_pro() performs:
+
+       - row locking
+       - duplicate protection
+       - profile activation
+       - subscription extension
+       - order finalization
+
+       inside ONE PostgreSQL transaction.
+
+       If any database operation fails,
+       the entire transaction rolls back.
+    ===================================================== */
+
+    const activationResponse =
       await supabaseRequest(
         SUPABASE_URL,
         SUPABASE_SERVICE_ROLE_KEY,
-        `profiles?id=eq.${encodeURIComponent(
-          order.user_id
-        )}&select=id,plan,pro_until`,
+        "rpc/activate_takda_pro",
         {
-          method: "GET",
-        }
-      );
-
-    if (!profileResponse.ok) {
-      console.error(
-        "Unable to read Takda profile."
-      );
-
-      return res.status(500).json({
-        error: "Unable to activate Takda Pro.",
-      });
-    }
-
-    const profiles =
-      await profileResponse.json();
-
-    const profile =
-      profiles?.[0];
-
-    if (!profile) {
-      return res.status(404).json({
-        error: "Takda profile not found.",
-      });
-    }
-
-    /* =========================================
-       11. CALCULATE NEW PRO EXPIRATION
-
-       Existing active Pro:
-       extend from current expiration.
-
-       Otherwise:
-       start from now.
-    ========================================= */
-
-    const nowDate = new Date();
-
-    const currentProUntil =
-      profile.pro_until
-        ? new Date(profile.pro_until)
-        : null;
-
-    const hasActivePro =
-      currentProUntil &&
-      !Number.isNaN(
-        currentProUntil.getTime()
-      ) &&
-      currentProUntil.getTime() >
-        nowDate.getTime();
-
-    const newProUntil =
-      hasActivePro
-        ? new Date(currentProUntil)
-        : new Date(nowDate);
-
-    if (order.plan === "monthly") {
-      newProUntil.setUTCMonth(
-        newProUntil.getUTCMonth() + 1
-      );
-    } else {
-      newProUntil.setUTCFullYear(
-        newProUntil.getUTCFullYear() + 1
-      );
-    }
-
-    /* =========================================
-       12. ACTIVATE TAKDA PRO
-    ========================================= */
-
-    const updateProfileResponse =
-      await supabaseRequest(
-        SUPABASE_URL,
-        SUPABASE_SERVICE_ROLE_KEY,
-        `profiles?id=eq.${encodeURIComponent(
-          order.user_id
-        )}`,
-        {
-          method: "PATCH",
+          method: "POST",
 
           headers: {
-            Prefer: "return=minimal",
+            Prefer: "return=representation",
           },
 
           body: JSON.stringify({
-            plan: "pro",
-            pro_until:
-              newProUntil.toISOString(),
-          }),
-        }
-      );
-
-    if (!updateProfileResponse.ok) {
-      console.error(
-        "Failed to activate Takda Pro."
-      );
-
-      return res.status(500).json({
-        error: "Unable to activate Takda Pro.",
-      });
-    }
-
-    /* =========================================
-       13. MARK ORDER AS PAID
-    ========================================= */
-
-    const paymentId =
-      attributes?.payments?.[0]?.id ||
-      attributes?.payment_intent?.id ||
-      null;
-
-    const updateOrderResponse =
-      await supabaseRequest(
-        SUPABASE_URL,
-        SUPABASE_SERVICE_ROLE_KEY,
-        `pro_orders?id=eq.${encodeURIComponent(
-          order.id
-        )}`,
-        {
-          method: "PATCH",
-
-          headers: {
-            Prefer: "return=minimal",
-          },
-
-          body: JSON.stringify({
-            status: "paid",
-
-            checkout_session_id:
+            p_order_id: order.id,
+            p_user_id: order.user_id,
+            p_checkout_session_id:
               checkoutSessionId,
-
-            payment_id:
+            p_payment_id:
               paymentId,
-
-            paid_at:
-              new Date().toISOString(),
+            p_plan:
+              order.plan,
           }),
         }
       );
 
-    if (!updateOrderResponse.ok) {
+    const activationText =
+      await activationResponse.text();
+
+    if (!activationResponse.ok) {
+      console.error(
+        "Atomic Takda Pro activation failed:",
+        activationText
+      );
+
       /*
-        Important:
-        Profile was already upgraded.
+        Return 500 so PayMongo can retry.
 
-        Returning 500 allows PayMongo to retry.
-        On retry the order is still pending,
-        but extending Pro again would be dangerous.
-
-        This case should be investigated in logs.
+        Because activation is now transactional,
+        a failed transaction cannot leave the
+        profile upgraded while the order remains
+        pending.
       */
 
-      console.error(
-        "PRO activated but order status update failed."
-      );
-
       return res.status(500).json({
-        error:
-          "Order finalization failed.",
+        error: "Unable to activate Takda Pro.",
       });
     }
 
-    /* =========================================
-       14. SUCCESS
-    ========================================= */
+    let activationResult = null;
+
+    if (activationText) {
+      try {
+        activationResult =
+          JSON.parse(activationText);
+      } catch {
+        activationResult = null;
+      }
+    }
+
+    /* =====================================================
+       10. SUCCESS
+    ===================================================== */
+
+    if (
+      activationResult?.already_processed ===
+      true
+    ) {
+      console.log(
+        `Takda order ${order.id} was already processed.`
+      );
+
+      return res.status(200).json({
+        received: true,
+        alreadyProcessed: true,
+      });
+    }
+
+    if (
+      activationResult?.ignored === true
+    ) {
+      console.log(
+        `Takda order ${order.id} was ignored by activation RPC.`
+      );
+
+      return res.status(200).json({
+        received: true,
+        ignored: true,
+      });
+    }
 
     console.log(
-      `Takda Pro activated for order ${order.id}`
+      `Takda Pro atomically activated for order ${order.id}`
     );
 
     return res.status(200).json({
       received: true,
       processed: true,
     });
+
   } catch (error) {
     console.error(
       "Takda PayMongo webhook error:",
