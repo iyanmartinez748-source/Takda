@@ -778,9 +778,9 @@ function getTakdaPlan(profile) {
     !Number.isNaN(proUntil.getTime()) &&
     proUntil.getTime() > Date.now();
 
-  return plan === "pro" && (!profile?.pro_until || hasActiveProDate)
-    ? "pro"
-    : "free";
+  return plan === "pro" && hasActiveProDate
+  ? "pro"
+  : "free";
 }
 
 function ProModal({ onClose }) {
