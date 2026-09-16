@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
@@ -16,6 +16,50 @@ const FREE_SUBJECT_LIMIT = 7;
 const FREE_ACTIVITY_LIMIT = 20;
 
 const uid = () => crypto.randomUUID();
+
+// Small, self-contained count-up used only for the Focus for Today numbers.
+// Presentation only: it never feeds back into any count/state, always ends
+// on the exact `value` passed in, and does nothing (snaps instantly) for
+// prefers-reduced-motion or on first mount. Bounded steps + a single
+// interval cleared on every effect re-run/unmount — no RAF loop, no
+// long-running timer, no leak.
+function useCountUp(value, duration = 320) {
+  const [display, setDisplay] = useState(value);
+  const prevValue = useRef(value);
+
+  useEffect(() => {
+    const from = prevValue.current;
+    const to = value;
+    prevValue.current = value;
+
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    if (from === to || reduceMotion) {
+      setDisplay(to);
+      return;
+    }
+
+    const steps = 10;
+    const stepMs = duration / steps;
+    let step = 0;
+
+    const id = setInterval(() => {
+      step += 1;
+      if (step >= steps) {
+        setDisplay(to);
+        clearInterval(id);
+        return;
+      }
+      setDisplay(Math.round(from + (to - from) * (step / steps)));
+    }, stepMs);
+
+    return () => clearInterval(id);
+  }, [value, duration]);
+
+  return display;
+}
 
 function loadFont() {
   if (typeof document !== "undefined" && !document.getElementById("takda-font")) {
@@ -592,7 +636,7 @@ function Sidebar({ view, setView, onAddSubject }) {
       </nav>
       <button
         onClick={onAddSubject}
-        className="mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white"
+        className="mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
         style={{ background: "#3D2FE0" }}
       >
         <Plus size={16} /> Add Subject
@@ -628,7 +672,7 @@ function MobileNav({ view, setView, onFab, onMore }) {
 function NavBtn({ it, active, onClick }) {
   const Icon = it.icon;
   return (
-    <button onClick={onClick} className="flex flex-col items-center gap-0.5 px-3 py-1 flex-1" style={{ color: active ? "#3D2FE0" : "#94A3B8" }}>
+    <button onClick={onClick} className="flex flex-col items-center gap-0.5 px-3 py-1 flex-1 transition-colors duration-200 ease-out" style={{ color: active ? "#3D2FE0" : "#94A3B8" }}>
       <Icon size={20} />
       <span className="text-[10px] font-semibold">{it.label}</span>
     </button>
@@ -687,7 +731,7 @@ function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyComple
   };
 
   return (
-    <div className="p-5 md:p-8">
+    <div className="p-5 md:p-8 takda-dashboard-enter">
       <div className="mb-6">
         <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
         <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
@@ -779,6 +823,26 @@ const FOCUS_TILE_STYLE = {
 
 const FOCUS_TILE_FILTER = { overdue: "overdue", dueToday: "today", upcoming: "upcoming" };
 
+function FocusTile({ tile, active, style, onSelect }) {
+  const displayValue = useCountUp(tile.value);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
+      className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+      style={active ? { background: style.bg, borderColor: style.border } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
+      aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
+    >
+      <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+        {displayValue}
+      </span>
+      <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
+        {tile.label}
+      </span>
+    </button>
+  );
+}
+
 function FocusForToday({ counts, onSelect }) {
   const tiles = [
     { key: "overdue", label: "Overdue", value: counts.overdue },
@@ -789,27 +853,9 @@ function FocusForToday({ counts, onSelect }) {
     <div className="mb-7">
       <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Focus for Today</h2>
       <div className="grid grid-cols-3 gap-2">
-        {tiles.map((tile) => {
-          const active = tile.value > 0;
-          const style = FOCUS_TILE_STYLE[tile.key];
-          return (
-            <button
-              key={tile.key}
-              type="button"
-              onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
-              className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
-              style={active ? { background: style.bg, borderColor: style.border } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
-              aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
-            >
-              <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
-                {tile.value}
-              </span>
-              <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
-                {tile.label}
-              </span>
-            </button>
-          );
-        })}
+        {tiles.map((tile) => (
+          <FocusTile key={tile.key} tile={tile} active={tile.value > 0} style={FOCUS_TILE_STYLE[tile.key]} onSelect={onSelect} />
+        ))}
       </div>
     </div>
   );
@@ -860,7 +906,7 @@ function ViewAllLink({ label, onClick }) {
 function DashboardEmptyState({ icon: Icon, title, subtitle }) {
   return (
     <div className="flex items-center gap-2.5 rounded-lg bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 mb-7">
-      {Icon && <Icon size={14} className="text-emerald-500 shrink-0" />}
+      {Icon && <Icon size={14} className="text-emerald-500 shrink-0 takda-emptystate-icon" />}
       <p className="text-xs text-slate-500">
         <span className="font-semibold text-slate-600">{title}</span>
         {subtitle && <span> — {subtitle}</span>}
@@ -886,14 +932,20 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
   const style = URGENCY_STYLE[activity.urgencyKey] || URGENCY_STYLE.later;
   const done = activity.computedStatus === "completed";
   return (
-    <div className={`flex items-center gap-3 rounded-xl bg-white border p-3 ${highlight ? "border-[#3D2FE0]" : "border-[#E4E4F0]"}`}>
+    <div
+      className={`flex items-center gap-3 rounded-xl bg-white border p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px ${highlight ? "border-[#3D2FE0]" : "border-[#E4E4F0] hover:border-slate-300"}`}
+    >
       <button
         onClick={() => onToggle(activity)}
-        className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center"
+        className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out"
         style={{ borderColor: done ? "#16A34A" : "#CBD5E1", background: done ? "#16A34A" : "transparent" }}
         aria-label={done ? "Reopen task" : "Mark complete"}
       >
-        {done && <Check size={14} color="white" />}
+        <Check
+          size={14}
+          color="white"
+          className={`transition-all duration-200 ease-out motion-reduce:transition-none ${done ? "opacity-100 scale-100" : "opacity-0 scale-50"}`}
+        />
       </button>
       <div className="flex-1 min-w-0">
         <button className="text-left w-full" onClick={() => activity.subjectId && onOpenSubject(activity.subjectId)}>
@@ -903,7 +955,7 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
             <TypeChip type={activity.type} />
             <PriorityTag priority={activity.priority} />
           </div>
-          <div className={`text-sm font-medium truncate mt-0.5 ${done ? "line-through text-slate-400" : "text-[#1B1B2F]"}`}>{activity.title}</div>
+          <div className={`text-sm font-medium truncate mt-0.5 transition-colors duration-200 ease-out ${done ? "line-through text-slate-400" : "text-[#1B1B2F]"}`}>{activity.title}</div>
         </button>
       </div>
       <div className="shrink-0 flex flex-col items-end gap-1">
@@ -927,7 +979,7 @@ function SubjectsView({ subjects, activities, onOpen, onAdd }) {
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between mb-5">
         <h1 className="font-display text-2xl font-semibold">My Subjects</h1>
-        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2" style={{ background: "#3D2FE0" }}>
+        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]" style={{ background: "#3D2FE0" }}>
           <Plus size={15} /> Add Subject
         </button>
       </div>
@@ -996,12 +1048,12 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
       ) : (
         <div className="flex flex-col gap-2 mb-7">
           {activities.sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((a) => (
-            <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
-              <button onClick={() => onToggle(a)} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
-                {a.computedStatus === "completed" && <Check size={14} color="white" />}
+            <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
+              <button onClick={() => onToggle(a)} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
+                <Check size={14} color="white" className={`transition-all duration-200 ease-out motion-reduce:transition-none ${a.computedStatus === "completed" ? "opacity-100 scale-100" : "opacity-0 scale-50"}`} />
               </button>
               <div className="flex-1 min-w-0">
-                <div className={`text-sm font-medium truncate ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
+                <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   <span className="text-[11px] text-slate-500">{a.type} · {fmtDate(a.deadline)}</span>
                   <StatusBadge status={a.computedStatus} />
@@ -1020,7 +1072,7 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
         <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
         <button
           onClick={() => { if (noteText.trim()) { onAddNote(noteText.trim()); setNoteText(""); } }}
-          className="rounded-lg px-3 py-2 text-sm font-semibold text-white"
+          className="rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
           style={{ background: "#3D2FE0" }}
         >Save</button>
       </div>
@@ -1130,7 +1182,7 @@ function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
         <button
           onClick={() => { if (text.trim()) { onAdd(subjectId || null, text.trim()); setText(""); } }}
-          className="self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white"
+          className="self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
           style={{ background: "#3D2FE0" }}
         >Save note</button>
       </div>
@@ -1179,7 +1231,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-5">
         <h1 className="font-display text-2xl font-semibold">All Activities</h1>
-        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0" style={{ background: "#3D2FE0" }}>
+        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]" style={{ background: "#3D2FE0" }}>
           <Plus size={15} /> Add Activity
         </button>
       </div>
@@ -1206,12 +1258,12 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((a) => (
-            <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
-              <button onClick={() => onToggle(a)} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
-                {a.computedStatus === "completed" && <Check size={14} color="white" />}
+            <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
+              <button onClick={() => onToggle(a)} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
+                <Check size={14} color="white" className={`transition-all duration-200 ease-out motion-reduce:transition-none ${a.computedStatus === "completed" ? "opacity-100 scale-100" : "opacity-0 scale-50"}`} />
               </button>
               <div className="flex-1 min-w-0">
-                <div className={`text-sm font-medium truncate ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
+                <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   <span className="text-[11px] text-slate-500">{a.subject?.name || "General"} · {a.type} · {fmtDate(a.deadline)}</span>
                   <StatusBadge status={a.computedStatus} />
@@ -1315,7 +1367,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
         <button
           onClick={() => { setEditingGrade(null); setShowModal(true); }}
           disabled={subjects.length === 0}
-          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0"
+          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0 transition duration-150 ease-out hover:opacity-90 disabled:hover:opacity-40 motion-safe:active:scale-[0.98] disabled:active:scale-100"
           style={{ background: "#3D2FE0" }}
         >
           <Plus size={15} /> Add Grade
