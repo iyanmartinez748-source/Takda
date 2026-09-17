@@ -17,31 +17,24 @@ export default defineConfig({
       // layer to reason about.
       devOptions: { enabled: false },
       includeAssets: ["takda-icon.png", "apple-touch-icon.png"],
-      manifest: {
-        name: "Takda — Student Academic Planner",
-        short_name: "Takda",
-        description:
-          "A student academic planner for managing subjects, activities, deadlines, notes, calendar, and grades.",
-        start_url: "/",
-        display: "standalone",
-        orientation: "any",
-        background_color: "#F5F6FA",
-        theme_color: "#3D2FE0",
-        icons: [
-          { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-          { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-        ],
-      },
+      // manifest: false — the web app manifest is authored as a static file
+      // (public/manifest.webmanifest) and linked explicitly from index.html
+      // instead of being generated/injected by this plugin. The plugin's
+      // auto-injection always adds its own <link rel="manifest"> with no way
+      // to opt out while still generating the file, which produced a
+      // duplicate manifest link once we added an explicit one. Authoring it
+      // as a static file guarantees exactly one manifest link in every
+      // build, independent of the plugin's HTML-transform behavior.
+      manifest: false,
       workbox: {
-        // Only the static build output (JS/CSS/HTML/icons) is precached.
-        // No runtimeCaching entries are configured anywhere in this file,
-        // so Supabase requests (a different origin entirely) and every
-        // /api/* serverless endpoint (not part of this static build output
-        // in the first place) are never seen or touched by the service
-        // worker's fetch handling — they reach the network exactly as if
-        // no service worker were installed.
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,woff2}"],
+        // Only the static build output (JS/CSS/HTML/icons/manifest) is
+        // precached. No runtimeCaching entries are configured anywhere in
+        // this file, so Supabase requests (a different origin entirely) and
+        // every /api/* serverless endpoint (not part of this static build
+        // output in the first place) are never seen or touched by the
+        // service worker's fetch handling — they reach the network exactly
+        // as if no service worker were installed.
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,woff2,webmanifest}"],
         navigateFallback: "/index.html",
         // Defense-in-depth: even though /api/* calls are fetch()-based
         // (not full-page navigations) and would never hit this route,
