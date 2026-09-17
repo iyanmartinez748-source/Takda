@@ -61,6 +61,19 @@ function toGrade(row) {
   };
 }
 
+function toSemester(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    schoolYear: row.school_year || "",
+    startDate: row.start_date || null,
+    endDate: row.end_date || null,
+    isActive: row.is_active || false,
+    archivedAt: row.archived_at || null,
+    createdAt: row.created_at,
+  };
+}
+
 async function deleteRemovedRows(table, userId, desiredIds) {
   const { data: existingRows, error: fetchError } = await supabase
     .from(table)
@@ -250,7 +263,7 @@ export function installSupabaseStorageAdapter() {
         return null;
       }
 
-      const [subjectsRes, activitiesRes, notesRes, gradesRes] =
+      const [subjectsRes, activitiesRes, notesRes, gradesRes, semestersRes] =
         await Promise.all([
           supabase
             .from("subjects")
@@ -275,14 +288,24 @@ export function installSupabaseStorageAdapter() {
             .select("*")
             .eq("user_id", user.id)
             .order("created_at"),
+
+          // Read-only in this phase — semesters have no write/delete path
+          // yet. RLS already scopes this to the signed-in user; the
+          // explicit .eq("user_id", ...) matches the pattern used above.
+          supabase
+            .from("semesters")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at"),
         ]);
 
       if (subjectsRes.error) throw subjectsRes.error;
       if (activitiesRes.error) throw activitiesRes.error;
       if (notesRes.error) throw notesRes.error;
       if (gradesRes.error) throw gradesRes.error;
+      if (semestersRes.error) throw semestersRes.error;
 
-      // Only after ALL four tables successfully load
+      // Only after ALL five tables successfully load
       // do we allow database synchronization.
       hydratedUserId = user.id;
 
@@ -292,6 +315,7 @@ export function installSupabaseStorageAdapter() {
           activities: (activitiesRes.data || []).map(toActivity),
           notes: (notesRes.data || []).map(toNote),
           grades: (gradesRes.data || []).map(toGrade),
+          semesters: (semestersRes.data || []).map(toSemester),
         }),
       };
     },
