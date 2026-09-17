@@ -1210,7 +1210,7 @@ function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
   );
 }
 
-/* ---------------- All activities (search/filter) ---------------- */
+/* ---------------- All activities (search/filter/sort) ---------------- */
 // "today" and "upcoming" are urgency-based quick filters (reusing the same
 // urgencyKey already computed on each activity) rather than a computedStatus
 // value, so they're matched separately here — no new activity data needed.
@@ -1221,57 +1221,180 @@ function matchesActivityFilter(a, filter) {
   return a.computedStatus === filter;
 }
 
+const ACTIVITY_FILTER_KEYS = ["all", "overdue", "today", "upcoming", "pending", "in_progress", "completed"];
+
+function compareByDeadline(a, b) {
+  return new Date(a.deadline) - new Date(b.deadline);
+}
+
+// Mirrors the tiering already implied by urgency()/URGENCY_STYLE elsewhere in
+// this file — no new date math, just an order to sort those existing tiers by.
+const URGENCY_SORT_RANK = { overdue: 0, today: 1, tomorrow: 2, week: 3, later: 4, done: 5 };
+
+const ACTIVITY_SORT_OPTIONS = [
+  { key: "smart", label: "Smart" },
+  { key: "deadline_asc", label: "Deadline: Earliest" },
+  { key: "deadline_desc", label: "Deadline: Latest" },
+  { key: "priority_desc", label: "Priority: High to Low" },
+  { key: "priority_asc", label: "Priority: Low to High" },
+  { key: "recent", label: "Recently Added" },
+];
+
+function sortActivitiesBy(list, sortKey) {
+  switch (sortKey) {
+    case "deadline_asc":
+      return [...list].sort(compareByDeadline);
+    case "deadline_desc":
+      return [...list].sort((a, b) => compareByDeadline(b, a));
+    case "priority_desc":
+      return [...list].sort((a, b) => (PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority)) || compareByDeadline(a, b));
+    case "priority_asc":
+      return [...list].sort((a, b) => (PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority)) || compareByDeadline(a, b));
+    case "recent":
+      // storageAdapter loads activities ordered by created_at, and new ones
+      // are always appended (never inserted mid-array), so the array's
+      // existing order already reflects creation order — just reverse it.
+      return [...list].reverse();
+    case "smart":
+    default:
+      return [...list].sort((a, b) => {
+        const rankDiff = (URGENCY_SORT_RANK[a.urgencyKey] ?? 4) - (URGENCY_SORT_RANK[b.urgencyKey] ?? 4);
+        if (rankDiff !== 0) return rankDiff;
+        const deadlineDiff = compareByDeadline(a, b);
+        if (deadlineDiff !== 0) return deadlineDiff;
+        return PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority);
+      });
+  }
+}
+
+function getActivitiesEmptyState({ hasAny, statusFilter, query }) {
+  if (!hasAny) {
+    return { title: "No activities yet.", subtitle: "Add your first academic task to get started." };
+  }
+  const trimmed = query.trim();
+  if (trimmed) {
+    return { title: `No activities found for "${trimmed}".`, subtitle: "Try another search or clear your filters." };
+  }
+  if (statusFilter === "overdue") {
+    return { icon: CheckCircle2, title: "You're all caught up.", subtitle: "No overdue activities." };
+  }
+  if (statusFilter === "today") {
+    return { icon: CheckCircle2, title: "Nothing due today." };
+  }
+  if (statusFilter === "upcoming") {
+    return { title: "No upcoming deadlines." };
+  }
+  return { title: "No activities match this filter." };
+}
+
 function AllActivities({ activities, query, setQuery, statusFilter, setStatusFilter, onToggle, onEdit, onDelete, onAdd }) {
-  const filtered = activities
-    .filter((a) => a.title.toLowerCase().includes(query.toLowerCase()) || (a.subject?.name || "").toLowerCase().includes(query.toLowerCase()))
-    .filter((a) => matchesActivityFilter(a, statusFilter))
-    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+  const [sortBy, setSortBy] = useState("smart");
+
+  // Same definitions as the Dashboard's Focus for Today (matchesActivityFilter
+  // reuses computedStatus/urgencyKey, already computed once per activity) —
+  // counts here can never drift from what tapping a tab actually shows.
+  const filterCounts = useMemo(() => {
+    const counts = {};
+    ACTIVITY_FILTER_KEYS.forEach((key) => {
+      counts[key] = activities.filter((a) => matchesActivityFilter(a, key)).length;
+    });
+    return counts;
+  }, [activities]);
+
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return activities;
+    return activities.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        (a.type || "").toLowerCase().includes(q) ||
+        (a.subject?.name || "").toLowerCase().includes(q)
+    );
+  }, [activities, query]);
+
+  const filtered = useMemo(
+    () => sortActivitiesBy(searched.filter((a) => matchesActivityFilter(a, statusFilter)), sortBy),
+    [searched, statusFilter, sortBy]
+  );
+
+  const emptyState = getActivitiesEmptyState({ hasAny: activities.length > 0, statusFilter, query });
 
   return (
     <div className="p-5 md:p-8">
-      <div className="flex items-center justify-between gap-3 mb-5">
+      <div className="flex items-center justify-between gap-3 mb-1.5">
         <h1 className="font-display text-2xl font-semibold">All Activities</h1>
         <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]" style={{ background: "#3D2FE0" }}>
           <Plus size={15} /> Add Activity
         </button>
       </div>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="flex-1 flex items-center gap-2 rounded-lg border border-[#E4E4F0] bg-white px-3 py-2">
-          <Search size={15} className="text-slate-400" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activities…" className="flex-1 outline-none text-sm" />
+      <p className="text-xs text-slate-500 mb-4">
+        {filterCounts.overdue} Overdue • {filterCounts.today} Today • {filterCounts.upcoming} Upcoming
+      </p>
+
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <div className="flex-1 min-w-[160px] flex items-center gap-2 rounded-lg border border-[#E4E4F0] bg-white px-3 py-2 transition-colors duration-150 focus-within:border-[#3D2FE0]">
+          <Search size={15} className="text-slate-400 shrink-0" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activities…" className="flex-1 min-w-0 outline-none text-sm" />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="shrink-0 text-slate-300 hover:text-slate-500 transition-colors duration-150"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          aria-label="Sort activities"
+          className="shrink-0 rounded-lg border border-[#E4E4F0] bg-white px-2.5 py-2 text-xs font-medium text-slate-600 outline-none transition-colors duration-150 focus:border-[#3D2FE0]"
+        >
+          {ACTIVITY_SORT_OPTIONS.map((opt) => (
+            <option key={opt.key} value={opt.key}>{opt.label}</option>
+          ))}
+        </select>
       </div>
+
       <div className="flex gap-1.5 mb-4 overflow-x-auto">
-        {["all", "overdue", "today", "upcoming", "pending", "in_progress", "completed"].map((s) => (
+        {ACTIVITY_FILTER_KEYS.map((s) => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
-            className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap"
+            className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
             style={{ background: statusFilter === s ? "#3D2FE0" : "white", color: statusFilter === s ? "white" : "#475569", border: "1px solid #E4E4F0" }}
           >
-            {s.replace("_", " ")}
+            {s.replace("_", " ")} {filterCounts[s]}
           </button>
         ))}
       </div>
       {filtered.length === 0 ? (
-        <EmptyRow text="No activities match your search or filter — try clearing them." />
+        <DashboardEmptyState icon={emptyState.icon} title={emptyState.title} subtitle={emptyState.subtitle} />
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((a) => (
             <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
-              <button onClick={() => onToggle(a)} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
+              <button
+                onClick={() => onToggle(a)}
+                className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-emerald-400"
+                style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}
+                aria-label={a.computedStatus === "completed" ? "Reopen task" : "Mark complete"}
+              >
                 <Check size={14} color="white" className={`transition-all duration-200 ease-out motion-reduce:transition-none ${a.computedStatus === "completed" ? "opacity-100 scale-100" : "opacity-0 scale-50"}`} />
               </button>
               <div className="flex-1 min-w-0">
                 <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
-                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                  <span className="text-[11px] text-slate-500">{a.subject?.name || "General"} · {a.type} · {fmtDate(a.deadline)}</span>
-                  <StatusBadge status={a.computedStatus} />
+                <div className="text-[11px] text-slate-500 truncate mt-0.5">{a.subject?.name || "General"} · {a.type}</div>
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  <span className="text-[11px] text-slate-400">{fmtDate(a.deadline)}</span>
                   <PriorityTag priority={a.priority} />
+                  <StatusBadge status={a.computedStatus} />
                 </div>
               </div>
-              <button onClick={() => onEdit(a)} className="p-1.5 text-slate-400"><Edit2 size={13} /></button>
-              <button onClick={() => onDelete(a.id)} className="p-1.5 text-slate-400"><Trash2 size={13} /></button>
+              <button onClick={() => onEdit(a)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150" aria-label="Edit activity"><Edit2 size={13} /></button>
+              <button onClick={() => onDelete(a.id)} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150" aria-label="Delete activity"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
