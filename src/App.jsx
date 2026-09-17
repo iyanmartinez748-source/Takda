@@ -89,6 +89,15 @@ function parseLocalDate(dateStr) {
 function toDate(d) {
   return d instanceof Date ? d : parseLocalDate(d);
 }
+// The reverse of parseLocalDate: formats a Date's own local Y/M/D into
+// "YYYY-MM-DD" without any UTC conversion, so a calendar day selected in the
+// UI always maps back to the same "YYYY-MM-DD" deadline string.
+function formatLocalDate(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function computeStatus(activity) {
   if (activity.status === "completed") return "completed";
@@ -165,6 +174,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [editingSubject, setEditingSubject] = useState(null);
   const [editingActivity, setEditingActivity] = useState(null);
   const [defaultSubjectForActivity, setDefaultSubjectForActivity] = useState(null);
+  const [defaultDeadlineForActivity, setDefaultDeadlineForActivity] = useState(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [saveError, setSaveError] = useState(false);
@@ -332,13 +342,16 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   // subjectId is optional so callers that don't pre-select a subject (the
-  // mobile FAB) leave defaultSubjectForActivity exactly as before.
-  function requestAddActivity(subjectId) {
+  // mobile FAB) leave defaultSubjectForActivity exactly as before. deadline
+  // is optional the same way — only the Calendar's "+ Add Activity" passes
+  // one, to prefill (not lock) the selected date.
+  function requestAddActivity(subjectId, deadline) {
     if (!isPro && activities.length >= FREE_ACTIVITY_LIMIT) {
       setLimitNotice("activities");
       return;
     }
     if (subjectId !== undefined) setDefaultSubjectForActivity(subjectId);
+    setDefaultDeadlineForActivity(deadline || null);
     setShowAddActivity(true);
   }
 
@@ -350,6 +363,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       setShowAddActivity(false);
       setEditingActivity(null);
       setDefaultSubjectForActivity(null);
+      setDefaultDeadlineForActivity(null);
       setLimitNotice("activities");
       return;
     }
@@ -365,6 +379,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     setShowAddActivity(false);
     setEditingActivity(null);
     setDefaultSubjectForActivity(null);
+    setDefaultDeadlineForActivity(null);
   }
 
   function toggleComplete(act) {
@@ -474,7 +489,12 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           )}
 
           {view === "calendar" && (
-            <CalendarView activities={enrichedActivities} onToggle={toggleComplete} onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }} />
+            <CalendarView
+              activities={enrichedActivities}
+              onToggle={toggleComplete}
+              onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
+              onAddActivity={(deadline) => requestAddActivity(undefined, deadline)}
+            />
           )}
 
           {view === "notes" && (
@@ -539,7 +559,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           activity={editingActivity}
           subjects={subjects}
           defaultSubjectId={defaultSubjectForActivity}
-          onClose={() => { setShowAddActivity(false); setEditingActivity(null); setDefaultSubjectForActivity(null); }}
+          defaultDeadline={defaultDeadlineForActivity}
+          onClose={() => { setShowAddActivity(false); setEditingActivity(null); setDefaultSubjectForActivity(null); setDefaultDeadlineForActivity(null); }}
           onSave={saveActivity}
         />
       )}
@@ -1090,7 +1111,15 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
 }
 
 /* ---------------- Calendar ---------------- */
-function CalendarView({ activities, onToggle, onOpenSubject }) {
+const CALENDAR_DOT_LIMIT = 3;
+// Same soft-tint palette already used for FOCUS_TILE_STYLE on the Dashboard —
+// reused values, not a new color scheme.
+const CALENDAR_DAY_TONE = {
+  overdue: { bg: "#FEF2F2", border: "#FBD5D5" },
+  completed: { bg: "#F0FDF4", border: "#CDEFD8" },
+};
+
+function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
   const [cursor, setCursor] = useState(startOfDay(new Date()));
   const [selected, setSelected] = useState(startOfDay(new Date()));
 
@@ -1099,8 +1128,12 @@ function CalendarView({ activities, onToggle, onOpenSubject }) {
   const firstDay = new Date(year, month, 1);
   const startWeekday = firstDay.getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = startOfDay(new Date());
 
-  const byDay = useMemo(() => {
+  // One pass over all activities, keyed by calendar day — every date cell
+  // and the selected-day agenda both read from this instead of re-filtering
+  // the full activity list on every render.
+  const activitiesByDate = useMemo(() => {
     const m = {};
     activities.forEach((a) => {
       const key = parseLocalDate(a.deadline).toDateString();
@@ -1109,20 +1142,85 @@ function CalendarView({ activities, onToggle, onOpenSubject }) {
     return m;
   }, [activities]);
 
-  const cells = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  const cells = useMemo(() => {
+    const list = [];
+    for (let i = 0; i < startWeekday; i++) list.push(null);
+    for (let d = 1; d <= daysInMonth; d++) list.push(new Date(year, month, d));
+    return list;
+  }, [year, month, startWeekday, daysInMonth]);
 
-  const selectedList = (byDay[selected.toDateString()] || []).sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+  // Metrics for the currently displayed month only — never another month's
+  // activities, and never a duplicate definition of overdue/completed.
+  const monthSummary = useMemo(() => {
+    const inMonth = activities.filter((a) => {
+      const due = parseLocalDate(a.deadline);
+      return due.getFullYear() === year && due.getMonth() === month;
+    });
+    return {
+      total: inMonth.length,
+      overdue: inMonth.filter((a) => a.computedStatus === "overdue").length,
+      completed: inMonth.filter((a) => a.computedStatus === "completed").length,
+    };
+  }, [activities, year, month]);
+
+  const selectedKey = selected.toDateString();
+  const selectedList = useMemo(() => {
+    const items = activitiesByDate[selectedKey] || [];
+    // Active items first (already share one urgency badge via ActivityRow
+    // since they share the same deadline); completed items settle to the end.
+    return items.slice().sort((a, b) => {
+      const doneDiff = (a.computedStatus === "completed" ? 1 : 0) - (b.computedStatus === "completed" ? 1 : 0);
+      return doneDiff !== 0 ? doneDiff : new Date(a.deadline) - new Date(b.deadline);
+    });
+  }, [activitiesByDate, selectedKey]);
+
+  function goToToday() {
+    setCursor(today);
+    setSelected(today);
+  }
 
   return (
     <div className="p-5 md:p-8">
-      <h1 className="font-display text-2xl font-semibold mb-5">Calendar</h1>
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={() => setCursor(new Date(year, month - 1, 1))} className="p-2 rounded-lg bg-white border border-[#E4E4F0]"><ChevronLeft size={16} /></button>
-        <span className="font-display text-lg font-semibold">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
-        <button onClick={() => setCursor(new Date(year, month + 1, 1))} className="p-2 rounded-lg bg-white border border-[#E4E4F0]"><ChevronRight size={16} /></button>
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <h1 className="font-display text-2xl font-semibold">Calendar</h1>
+        <button
+          onClick={() => onAddActivity(formatLocalDate(selected))}
+          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
+          style={{ background: "#3D2FE0" }}
+        >
+          <Plus size={15} /> Add Activity
+        </button>
       </div>
+      <p className="text-xs text-slate-500 mb-4">
+        {monthSummary.total} {monthSummary.total === 1 ? "deadline" : "deadlines"} • {monthSummary.overdue} overdue • {monthSummary.completed} completed
+      </p>
+
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={() => setCursor(new Date(year, month - 1, 1))}
+          aria-label="Previous month"
+          className="p-2 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="font-display text-lg font-semibold">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
+          <button
+            onClick={goToToday}
+            className="text-[11px] font-semibold px-2 py-1 rounded-full border border-[#E4E4F0] text-slate-500 transition-colors duration-150 hover:border-[#3D2FE0] hover:text-[#3D2FE0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+          >
+            Today
+          </button>
+        </div>
+        <button
+          onClick={() => setCursor(new Date(year, month + 1, 1))}
+          aria-label="Next month"
+          className="p-2 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+
       <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-400 mb-1">
         {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i}>{d}</div>)}
       </div>
@@ -1130,32 +1228,64 @@ function CalendarView({ activities, onToggle, onOpenSubject }) {
         {cells.map((d, i) => {
           if (!d) return <div key={i} />;
           const key = d.toDateString();
-          const items = byDay[key] || [];
-          const isSelected = d.toDateString() === selected.toDateString();
-          const isToday = d.toDateString() === new Date().toDateString();
+          const items = activitiesByDate[key] || [];
+          const isSelected = key === selectedKey;
+          const isToday = key === today.toDateString();
+          const hasOverdue = items.some((a) => a.computedStatus === "overdue");
+          const hasActive = items.some((a) => a.computedStatus !== "completed");
+          const hasOnlyCompleted = items.length > 0 && !hasActive;
+
+          let cellStyle = { background: "#FFFFFF", borderColor: "#E4E4F0", color: "#1B1B2F" };
+          if (hasOverdue) cellStyle = { background: CALENDAR_DAY_TONE.overdue.bg, borderColor: CALENDAR_DAY_TONE.overdue.border, color: "#1B1B2F" };
+          else if (hasOnlyCompleted) cellStyle = { background: CALENDAR_DAY_TONE.completed.bg, borderColor: CALENDAR_DAY_TONE.completed.border, color: "#1B1B2F" };
+          if (isToday && !isSelected) cellStyle.borderColor = "#3D2FE0";
+          // Selected always wins outright rather than stacking with the
+          // today/overdue/completed tint, so the two states never collide.
+          if (isSelected) cellStyle = { background: "#3D2FE0", borderColor: "#3D2FE0", color: "#FFFFFF" };
+
+          const visibleDots = items.slice(0, items.length > CALENDAR_DOT_LIMIT ? CALENDAR_DOT_LIMIT - 1 : CALENDAR_DOT_LIMIT);
+          const overflowCount = items.length > CALENDAR_DOT_LIMIT ? items.length - visibleDots.length : 0;
+
+          const dateLabel = d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+          const activityLabel = items.length > 0 ? `, ${items.length} ${items.length === 1 ? "activity" : "activities"}` : "";
+
           return (
             <button
               key={i}
               onClick={() => setSelected(startOfDay(d))}
-              className="aspect-square rounded-lg flex flex-col items-center justify-center relative text-xs"
-              style={{
-                background: isSelected ? "#3D2FE0" : "white",
-                color: isSelected ? "white" : "#1B1B2F",
-                border: isToday && !isSelected ? "1.5px solid #3D2FE0" : "1px solid #E4E4F0",
-              }}
+              aria-label={`${dateLabel}${activityLabel}`}
+              aria-pressed={isSelected}
+              className="aspect-square rounded-lg flex flex-col items-center justify-center relative text-xs border transition-colors duration-150 ease-out motion-safe:transition-transform motion-safe:hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+              style={{ background: cellStyle.background, color: cellStyle.color, borderColor: cellStyle.borderColor, borderWidth: isToday && !isSelected ? 1.5 : 1 }}
             >
               {d.getDate()}
               {items.length > 0 && (
-                <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "white" : "#FF5A5F" }} />
+                <span className="absolute bottom-1 flex items-center gap-0.5">
+                  {visibleDots.map((a, dotIndex) => (
+                    <span
+                      key={a.id || dotIndex}
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: isSelected ? "#FFFFFF" : (a.subject?.color || "#94A3B8") }}
+                    />
+                  ))}
+                  {overflowCount > 0 && (
+                    <span className="text-[8px] font-bold leading-none ml-0.5" style={{ color: isSelected ? "#FFFFFF" : "#64748B" }}>
+                      +{overflowCount}
+                    </span>
+                  )}
+                </span>
               )}
             </button>
           );
         })}
       </div>
 
-      <h2 className="text-sm font-semibold text-slate-700 mb-2.5">{fmtDateFull(selected)}</h2>
+      <div className="flex items-baseline justify-between mb-2.5">
+        <h2 className="text-sm font-semibold text-slate-700">{fmtDateFull(selected)}</h2>
+        <span className="text-xs text-slate-400">{selectedList.length} {selectedList.length === 1 ? "activity" : "activities"}</span>
+      </div>
       {selectedList.length === 0 ? (
-        <EmptyRow text="Nothing scheduled this day." />
+        <DashboardEmptyState title="No activities on this date." subtitle="Your schedule is clear." />
       ) : (
         <div className="flex flex-col gap-2">
           {selectedList.map((a) => (
@@ -1698,14 +1828,14 @@ function SubjectModal({ subject, onClose, onSave }) {
   );
 }
 
-function ActivityModal({ activity, subjects, defaultSubjectId, onClose, onSave }) {
+function ActivityModal({ activity, subjects, defaultSubjectId, defaultDeadline, onClose, onSave }) {
   const [form, setForm] = useState(
     activity || {
       title: "",
       subjectId: defaultSubjectId || (subjects[0] && subjects[0].id) || "",
       type: "Assignment",
       description: "",
-      deadline: new Date().toISOString().slice(0, 10),
+      deadline: defaultDeadline || formatLocalDate(new Date()),
       priority: "Medium",
       status: "pending",
       notes: "",
