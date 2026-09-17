@@ -541,6 +541,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
       {showMore && (
         <MoreSheet
+          view={view}
           onClose={() => setShowMore(false)}
           onNavigate={(key) => { setView(key); setShowMore(false); }}
         />
@@ -675,11 +676,11 @@ function MobileNav({ view, setView, onFab, onMore }) {
   const rightItems = [{ key: "calendar", label: "Calendar", icon: CalendarIcon }];
   const moreActive = ["notes", "activities", "grades"].includes(view);
   return (
-    <div className="md:hidden absolute bottom-0 left-0 right-0 bg-white border-t border-[#E4E4F0] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
+    <div className="md:hidden absolute bottom-0 left-0 right-0 bg-white border-t border-[#E4E4F0] shadow-[0_-2px_10px_rgba(15,23,42,0.05)] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
-        className="w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0"
+        className="w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0]"
         style={{ background: "#3D2FE0" }}
         aria-label="Add activity"
       >
@@ -693,38 +694,66 @@ function MobileNav({ view, setView, onFab, onMore }) {
 function NavBtn({ it, active, onClick }) {
   const Icon = it.icon;
   return (
-    <button onClick={onClick} className="flex flex-col items-center gap-0.5 px-3 py-1 flex-1 transition-colors duration-200 ease-out" style={{ color: active ? "#3D2FE0" : "#94A3B8" }}>
-      <Icon size={20} />
-      <span className="text-[10px] font-semibold">{it.label}</span>
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
+      style={{ color: active ? "#3D2FE0" : "#94A3B8" }}
+    >
+      <span className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out ${active ? "bg-[#EEECFC]" : ""}`}>
+        <Icon size={19} />
+      </span>
+      <span className="text-[10px] font-semibold truncate max-w-full">{it.label}</span>
     </button>
   );
 }
 
 /* ---------------- Mobile "More" sheet — reaches Notes / Activities / Grades ---------------- */
-function MoreSheet({ onClose, onNavigate }) {
+function MoreSheet({ view, onClose, onNavigate }) {
   const items = [
     { key: "activities", label: "All Activities", icon: Search, desc: "Search and filter everything" },
     { key: "notes", label: "Notes", icon: StickyNote, desc: "Quick notes per subject" },
-    { key: "grades", label: "My Grades", icon: Lock, desc: "Premium — GPA & grade tracker" },
+    { key: "grades", label: "My Grades", icon: Lock, desc: "Premium — grades & performance insights" },
   ];
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="md:hidden absolute inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
+    <div
+      className="md:hidden absolute inset-0 bg-black/40 flex items-end justify-center z-50"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="More options"
+    >
       <div className="bg-white w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display text-lg font-semibold">More</h3>
-          <button onClick={onClose} className="p-1.5 text-slate-400"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
         </div>
         <div className="flex flex-col gap-2">
           {items.map((it) => {
             const Icon = it.icon;
+            const active = view === it.key;
             return (
-              <button key={it.key} onClick={() => onNavigate(it.key)} className="flex items-center gap-3 rounded-xl border border-[#E4E4F0] p-3 text-left">
+              <button
+                key={it.key}
+                onClick={() => onNavigate(it.key)}
+                aria-current={active ? "page" : undefined}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ease-out hover:border-slate-300 motion-safe:active:scale-[0.99] ${active ? "border-[#3D2FE0] bg-[#F7F6FF]" : "border-[#E4E4F0]"}`}
+              >
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#EEECFC" }}>
                   <Icon size={16} color="#3D2FE0" />
                 </div>
-                <div>
-                  <div className="text-sm font-medium">{it.label}</div>
-                  <div className="text-[11px] text-slate-500">{it.desc}</div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{it.label}</div>
+                  <div className="text-[11px] text-slate-500 truncate">{it.desc}</div>
                 </div>
               </button>
             );
@@ -1044,14 +1073,14 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
   return (
     <div className="p-5 md:p-8">
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-slate-500 mb-4"><ArrowLeft size={15} /> Subjects</button>
-      <div className="flex items-start justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <span className="w-3.5 h-3.5 rounded-full" style={{ background: subject.color }} />
-          <h1 className="font-display text-2xl font-semibold">{subject.name}</h1>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: subject.color }} />
+          <h1 className="font-display text-2xl font-semibold truncate">{subject.name}</h1>
         </div>
-        <div className="flex gap-2">
-          <button onClick={onEditSubject} className="p-2 rounded-lg bg-white border border-[#E4E4F0]"><Edit2 size={14} /></button>
-          <button onClick={onDeleteSubject} className="p-2 rounded-lg bg-white border border-[#E4E4F0] text-red-500"><Trash2 size={14} /></button>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={onEditSubject} aria-label="Edit subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50"><Edit2 size={14} /></button>
+          <button onClick={onDeleteSubject} aria-label="Delete subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] text-red-500 transition-colors duration-150 hover:bg-red-50"><Trash2 size={14} /></button>
         </div>
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-6">
@@ -1061,8 +1090,8 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
       </div>
 
       <div className="flex items-center justify-between mb-2.5">
-        <h2 className="text-sm font-semibold text-slate-700">Activities ({pending.length} pending, {completed.length} completed)</h2>
-        <button onClick={onAddActivity} className="flex items-center gap-1 text-xs font-semibold" style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
+        <h2 className="text-sm font-semibold text-slate-700 min-w-0 truncate">Activities ({pending.length} pending, {completed.length} completed)</h2>
+        <button onClick={onAddActivity} className="flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1" style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
         <EmptyRow text="No activities for this subject yet." />
@@ -1081,8 +1110,8 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
                   <PriorityTag priority={a.priority} />
                 </div>
               </div>
-              <button onClick={() => onEditActivity(a)} className="p-1.5 text-slate-400"><Edit2 size={13} /></button>
-              <button onClick={() => onDeleteActivity(a.id)} className="p-1.5 text-slate-400"><Trash2 size={13} /></button>
+              <button onClick={() => onEditActivity(a)} aria-label="Edit activity" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><Edit2 size={13} /></button>
+              <button onClick={() => onDeleteActivity(a.id)} aria-label="Delete activity" className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
@@ -1101,8 +1130,8 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
         {notes.length === 0 && <div className="text-sm text-slate-400">No notes yet.</div>}
         {notes.slice().reverse().map((n) => (
           <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm flex items-start justify-between gap-2">
-            <span>{n.body}</span>
-            <button onClick={() => onDeleteNote(n.id)} className="text-slate-300 shrink-0"><X size={14} /></button>
+            <span className="flex-1 min-w-0 break-words">{n.body}</span>
+            <button onClick={() => onDeleteNote(n.id)} aria-label="Delete note" className="shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"><X size={14} /></button>
           </div>
         ))}
       </div>
@@ -1199,15 +1228,15 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
         <button
           onClick={() => setCursor(new Date(year, month - 1, 1))}
           aria-label="Previous month"
-          className="p-2 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+          className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
         >
           <ChevronLeft size={16} />
         </button>
-        <div className="flex items-center gap-2">
-          <span className="font-display text-lg font-semibold">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-display text-lg font-semibold truncate">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
           <button
             onClick={goToToday}
-            className="text-[11px] font-semibold px-2 py-1 rounded-full border border-[#E4E4F0] text-slate-500 transition-colors duration-150 hover:border-[#3D2FE0] hover:text-[#3D2FE0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+            className="shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[#E4E4F0] text-slate-500 transition-colors duration-150 hover:border-[#3D2FE0] hover:text-[#3D2FE0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
           >
             Today
           </button>
@@ -1215,7 +1244,7 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
         <button
           onClick={() => setCursor(new Date(year, month + 1, 1))}
           aria-label="Next month"
-          className="p-2 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+          className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
         >
           <ChevronRight size={16} />
         </button>
@@ -1323,8 +1352,8 @@ function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
           {notes.slice().reverse().map((n) => (
             <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm">
               <div className="flex items-start justify-between gap-2">
-                <span>{n.body}</span>
-                <button onClick={() => onDelete(n.id)} className="text-slate-300 shrink-0"><X size={14} /></button>
+                <span className="flex-1 min-w-0 break-words">{n.body}</span>
+                <button onClick={() => onDelete(n.id)} aria-label="Delete note" className="shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"><X size={14} /></button>
               </div>
               {n.subjectId && subjectMap[n.subjectId] && (
                 <div className="flex items-center gap-1 mt-1.5">
@@ -1470,7 +1499,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="shrink-0 text-slate-300 hover:text-slate-500 transition-colors duration-150"
+              className="shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"
             >
               <X size={14} />
             </button>
@@ -1493,7 +1522,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
-            className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
+            className="px-3 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
             style={{ background: statusFilter === s ? "#3D2FE0" : "white", color: statusFilter === s ? "white" : "#475569", border: "1px solid #E4E4F0" }}
           >
             {s.replace("_", " ")} {filterCounts[s]}
@@ -1803,7 +1832,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             {subjectFilter !== "all" && (
-              <button onClick={() => setSubjectFilter("all")} className="text-xs font-medium text-[#3D2FE0] transition-colors duration-150 hover:underline">Clear filter</button>
+              <button onClick={() => setSubjectFilter("all")} className="text-xs font-medium text-[#3D2FE0] transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1">Clear filter</button>
             )}
           </div>
 
@@ -1920,12 +1949,26 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
 
 /* ---------------- Modals ---------------- */
 function ModalShell({ title, onClose, children }) {
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="absolute inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4" onClick={onClose}>
+    <div
+      className="absolute inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E4F0] sticky top-0 bg-white">
           <h3 className="font-display text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="p-1.5 text-slate-400"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
         </div>
         <div className="p-5">{children}</div>
       </div>
