@@ -1569,6 +1569,21 @@ function gradePercent(grade) {
   return (score / total) * 100;
 }
 
+// Keeps progress-bar widths on a safe 0–100 visual range without ever
+// altering the actual displayed percentage text, which stays whatever
+// gradePercent() computed (even if that's above 100 from a data mistake).
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+// Same urgency-tier-style ranking approach used elsewhere in this file:
+// urgency/deadline classification is untouched — this is a purely local
+// ordering rule for the Subject Performance list.
+function sortSubjectPerformance(list) {
+  return list.slice().sort((a, b) => (a.average - b.average) || a.subject.name.localeCompare(b.subject.name));
+}
+
 function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
   const [showModal, setShowModal] = useState(false);
   const [editingGrade, setEditingGrade] = useState(null);
@@ -1579,11 +1594,16 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
     [grades, subjectFilter]
   );
 
+  // Established Takda formula, unchanged: simple mean of gradePercent()
+  // across all grades. Invalid/zero-total entries still count as 0 in the
+  // sum (gradePercent's own safety net) rather than being excluded — that
+  // is existing, established behavior and is preserved here as-is.
   const overallAverage = useMemo(() => {
     if (grades.length === 0) return null;
     return grades.reduce((sum, g) => sum + gradePercent(g), 0) / grades.length;
   }, [grades]);
 
+  // Same per-subject formula as before Phase 4 — untouched.
   const subjectSummaries = useMemo(
     () => subjects.map((subject) => {
       const items = grades.filter((g) => g.subjectId === subject.id);
@@ -1594,6 +1614,64 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
     }),
     [subjects, grades]
   );
+
+  const subjectsWithGrades = useMemo(
+    () => subjectSummaries.filter((s) => s.count > 0),
+    [subjectSummaries]
+  );
+
+  const subjectPerformance = useMemo(
+    () => sortSubjectPerformance(subjectsWithGrades),
+    [subjectsWithGrades]
+  );
+
+  // Deterministic, data-only insights — no predictions, no invented metrics.
+  // Capped at 3, and only ever built from numbers already computed above.
+  const insights = useMemo(() => {
+    if (grades.length === 0) return [];
+    const list = [];
+    list.push(
+      `You have recorded ${grades.length} grade ${grades.length === 1 ? "entry" : "entries"} across ${subjectsWithGrades.length} ${subjectsWithGrades.length === 1 ? "subject" : "subjects"}.`
+    );
+    if (subjectsWithGrades.length >= 2) {
+      const lowest = subjectPerformance[0];
+      const highest = subjectPerformance[subjectPerformance.length - 1];
+      list.push(`${lowest.subject.name} currently has your lowest recorded average at ${lowest.average.toFixed(1)}%.`);
+      list.push(`Your highest recorded subject average is ${highest.average.toFixed(1)}% in ${highest.subject.name}.`);
+    } else {
+      const only = subjectsWithGrades[0];
+      list.push(`You have recorded ${only.count} grade ${only.count === 1 ? "entry" : "entries"} in ${only.subject.name}.`);
+    }
+    return list.slice(0, 3);
+  }, [grades.length, subjectsWithGrades, subjectPerformance]);
+
+  // Category breakdown for the currently selected subject only — showing it
+  // across multiple subjects at once would misleadingly blend unrelated
+  // categories. Uses the exact same simple averaging as everything else;
+  // no category weighting is introduced. Omitted when there's nothing to
+  // meaningfully break down (all one category, or viewing "All Subjects").
+  const categorySummary = useMemo(() => {
+    if (subjectFilter === "all") return [];
+    const groups = {};
+    grades
+      .filter((g) => g.subjectId === subjectFilter)
+      .forEach((g) => {
+        const cat = g.category || "Other";
+        (groups[cat] = groups[cat] || []).push(g);
+      });
+    const categories = Object.keys(groups);
+    if (categories.length <= 1) return [];
+    return categories
+      .map((category) => {
+        const items = groups[category];
+        return {
+          category,
+          count: items.length,
+          average: items.reduce((sum, g) => sum + gradePercent(g), 0) / items.length,
+        };
+      })
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }, [grades, subjectFilter]);
 
   function openEdit(grade) {
     setEditingGrade(grade);
@@ -1615,7 +1693,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
       <div className="flex items-start justify-between gap-3 mb-5">
         <div>
           <h1 className="font-display text-2xl font-semibold">My Grades</h1>
-          <p className="text-sm text-slate-500 mt-1">Track scores and see your current performance per subject.</p>
+          <p className="text-sm text-slate-500 mt-1">Track your recorded scores and subject performance.</p>
         </div>
         <button
           onClick={() => { setEditingGrade(null); setShowModal(true); }}
@@ -1629,68 +1707,140 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
 
       {subjects.length === 0 ? (
         <EmptyRow text="Add a subject first before recording grades." />
+      ) : grades.length === 0 ? (
+        <DashboardEmptyState
+          icon={CheckCircle2}
+          title="No grades yet."
+          subtitle="Recorded grades will appear here once you add your first score."
+        />
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Academic Overview</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
-              <div className="text-xs text-slate-500 mb-1">Overall Average</div>
+              <div className="text-xs text-slate-500 mb-1">Overall Recorded Average</div>
               <div className="font-display text-2xl font-semibold">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
-              <div className="text-[11px] text-slate-400 mt-1">Across {grades.length} recorded {grades.length === 1 ? "grade" : "grades"}</div>
+              {overallAverage !== null && (
+                <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
+                    style={{ width: `${clampPercent(overallAverage)}%`, background: "#3D2FE0" }}
+                    role="progressbar"
+                    aria-valuenow={Math.round(overallAverage)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Overall recorded average"
+                  />
+                </div>
+              )}
+              <div className="text-[11px] text-slate-400 mt-1.5">Based on grades recorded in Takda</div>
             </div>
-            <div className="md:col-span-2 rounded-xl bg-white border border-[#E4E4F0] p-4">
-              <div className="text-xs text-slate-500 mb-2">Subject Averages</div>
-              <div className="flex flex-wrap gap-2">
-                {subjectSummaries.map(({ subject, count, average }) => (
+            <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
+              <div className="text-xs text-slate-500 mb-1">Subjects With Grades</div>
+              <div className="font-display text-2xl font-semibold">{subjectsWithGrades.length}</div>
+              <div className="text-[11px] text-slate-400 mt-1.5">Out of {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}</div>
+            </div>
+            <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
+              <div className="text-xs text-slate-500 mb-1">Total Grade Entries</div>
+              <div className="font-display text-2xl font-semibold">{grades.length}</div>
+              <div className="text-[11px] text-slate-400 mt-1.5">Recorded across all subjects</div>
+            </div>
+          </div>
+
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Academic Insights</h2>
+          <div className="flex flex-col gap-2 mb-6">
+            {insights.map((text, i) => (
+              <div key={i} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F]">
+                {text}
+              </div>
+            ))}
+          </div>
+
+          {subjectPerformance.length > 0 && (
+            <>
+              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Subject Performance</h2>
+              <div className="flex flex-col gap-2 mb-6">
+                {subjectPerformance.map(({ subject, count, average }) => (
                   <button
                     key={subject.id}
                     onClick={() => setSubjectFilter(subject.id)}
-                    className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-left"
+                    className="text-left rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full" style={{ background: subject.color }} />
-                      <span className="text-xs font-medium">{subject.name}</span>
+                    <div className="flex items-center justify-between gap-3 mb-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subject.color || "#94A3B8" }} />
+                        <span className="text-sm font-medium truncate">{subject.name}</span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-semibold">{average.toFixed(1)}%</div>
+                        <div className="text-[10px] text-slate-400">{count} {count === 1 ? "entry" : "entries"}</div>
+                      </div>
                     </div>
-                    <div className="text-sm font-semibold mt-0.5">{average === null ? "—" : `${average.toFixed(1)}%`}</div>
-                    <div className="text-[10px] text-slate-400">{count} {count === 1 ? "entry" : "entries"}</div>
+                    <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
+                        style={{ width: `${clampPercent(average)}%`, background: subject.color || "#94A3B8" }}
+                        role="progressbar"
+                        aria-valuenow={Math.round(average)}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${subject.name} recorded average`}
+                      />
+                    </div>
                   </button>
                 ))}
               </div>
-            </div>
-          </div>
+            </>
+          )}
 
           <div className="flex items-center gap-2 mb-4">
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="rounded-lg border border-[#E4E4F0] bg-white px-3 py-2 text-sm outline-none"
+              className="rounded-lg border border-[#E4E4F0] bg-white px-3 py-2 text-sm outline-none transition-colors duration-150 focus:border-[#3D2FE0]"
             >
               <option value="all">All Subjects</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             {subjectFilter !== "all" && (
-              <button onClick={() => setSubjectFilter("all")} className="text-xs font-medium text-[#3D2FE0]">Clear filter</button>
+              <button onClick={() => setSubjectFilter("all")} className="text-xs font-medium text-[#3D2FE0] transition-colors duration-150 hover:underline">Clear filter</button>
             )}
           </div>
 
+          {categorySummary.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {categorySummary.map(({ category, average, count }) => (
+                <div key={category} className="rounded-lg border border-[#E4E4F0] bg-white px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{category}</div>
+                  <div className="text-sm font-semibold mt-0.5">{average.toFixed(1)}%</div>
+                  <div className="text-[10px] text-slate-400">{count} {count === 1 ? "entry" : "entries"}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {visibleGrades.length === 0 ? (
-            <EmptyRow text={grades.length === 0 ? "No grades yet — add your first score." : "No grades recorded for this subject yet."} />
+            <DashboardEmptyState title="No grades recorded yet." />
           ) : (
             <div className="flex flex-col gap-2">
               {visibleGrades.map((g) => {
                 const percent = gradePercent(g);
                 return (
-                  <div key={g.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
+                  <div
+                    key={g.id}
+                    className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+                  >
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subjectMap[g.subjectId]?.color || "#94A3B8" }} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{g.title}</div>
-                      <div className="text-[11px] text-slate-500 truncate">{subjectMap[g.subjectId]?.name || "Unknown Subject"} · {g.category}</div>
+                      <div className="text-[11px] text-slate-500 truncate mt-0.5">{subjectMap[g.subjectId]?.name || "Unknown Subject"} · {g.category}</div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-sm font-semibold">{g.score}/{g.totalScore}</div>
                       <div className="text-[11px] text-slate-500">{percent.toFixed(1)}%</div>
                     </div>
-                    <button onClick={() => openEdit(g)} className="p-1.5 text-slate-400" aria-label="Edit grade"><Edit2 size={13} /></button>
-                    <button onClick={() => onDelete(g.id)} className="p-1.5 text-slate-400" aria-label="Delete grade"><Trash2 size={13} /></button>
+                    <button onClick={() => openEdit(g)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150" aria-label="Edit grade"><Edit2 size={13} /></button>
+                    <button onClick={() => onDelete(g.id)} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150" aria-label="Delete grade"><Trash2 size={13} /></button>
                   </div>
                 );
               })}
