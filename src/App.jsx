@@ -484,6 +484,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onDeleteActivity={deleteActivity}
               onAddActivity={() => requestAddActivity(activeSubjectId)}
               onAddNote={(body) => setNotes((prev) => [...prev, { id: uid(), subjectId: activeSubjectId, body, updatedAt: new Date().toISOString() }])}
+              onEditNote={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
               onDeleteNote={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
             />
           )}
@@ -502,6 +503,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               notes={notes}
               subjectMap={subjectMap}
               onAdd={(subjectId, body) => setNotes((prev) => [...prev, { id: uid(), subjectId, body, updatedAt: new Date().toISOString() }])}
+              onEdit={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
               onDelete={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
               subjects={subjects}
             />
@@ -1066,8 +1068,10 @@ function SubjectsView({ subjects, activities, onOpen, onAdd }) {
   );
 }
 
-function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onDeleteNote }) {
+function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote }) {
   const [noteText, setNoteText] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editNoteText, setEditNoteText] = useState("");
   const pending = activities.filter((a) => a.computedStatus !== "completed");
   const completed = activities.filter((a) => a.computedStatus === "completed");
   return (
@@ -1129,9 +1133,35 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
       <div className="flex flex-col gap-2">
         {notes.length === 0 && <div className="text-sm text-slate-400">No notes yet.</div>}
         {notes.slice().reverse().map((n) => (
-          <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm flex items-start justify-between gap-2">
-            <span className="flex-1 min-w-0 break-words">{n.body}</span>
-            <button onClick={() => onDeleteNote(n.id)} aria-label="Delete note" className="shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"><X size={14} /></button>
+          <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm">
+            {editingNoteId === n.id ? (
+              <div className="flex flex-col gap-2">
+                <textarea
+                  value={editNoteText}
+                  onChange={(e) => setEditNoteText(e.target.value)}
+                  rows={3}
+                  autoFocus
+                  className="w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
+                />
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50">Cancel</button>
+                  <button
+                    onClick={() => { if (editNoteText.trim()) { onEditNote(n.id, editNoteText.trim()); setEditingNoteId(null); setEditNoteText(""); } }}
+                    disabled={!editNoteText.trim()}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-50"
+                    style={{ background: "#3D2FE0" }}
+                  >Save Changes</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start justify-between gap-2">
+                <span className="flex-1 min-w-0 break-words">{n.body}</span>
+                <div className="flex shrink-0 gap-1">
+                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><Edit2 size={13} /></button>
+                  <button onClick={() => onDeleteNote(n.id)} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150"><Trash2 size={13} /></button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1327,9 +1357,11 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
 }
 
 /* ---------------- Notes ---------------- */
-function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
+function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects }) {
   const [subjectId, setSubjectId] = useState("");
   const [text, setText] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
   return (
     <div className="p-5 md:p-8">
       <h1 className="font-display text-2xl font-semibold mb-5">Notes</h1>
@@ -1351,15 +1383,41 @@ function NotesView({ notes, subjectMap, onAdd, onDelete, subjects }) {
         <div className="flex flex-col gap-2">
           {notes.slice().reverse().map((n) => (
             <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm">
-              <div className="flex items-start justify-between gap-2">
-                <span className="flex-1 min-w-0 break-words">{n.body}</span>
-                <button onClick={() => onDelete(n.id)} aria-label="Delete note" className="shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"><X size={14} /></button>
-              </div>
-              {n.subjectId && subjectMap[n.subjectId] && (
-                <div className="flex items-center gap-1 mt-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: subjectMap[n.subjectId].color }} />
-                  <span className="text-[11px] text-slate-500">{subjectMap[n.subjectId].name}</span>
+              {editingId === n.id ? (
+                <div className="flex flex-col gap-2">
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    rows={3}
+                    autoFocus
+                    className="w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
+                  />
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button onClick={() => { setEditingId(null); setEditText(""); }} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50">Cancel</button>
+                    <button
+                      onClick={() => { if (editText.trim()) { onEdit(n.id, editText.trim()); setEditingId(null); setEditText(""); } }}
+                      disabled={!editText.trim()}
+                      className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-50"
+                      style={{ background: "#3D2FE0" }}
+                    >Save Changes</button>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="flex-1 min-w-0 break-words">{n.body}</span>
+                    <div className="flex shrink-0 gap-1">
+                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(n.id)} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                  {n.subjectId && subjectMap[n.subjectId] && (
+                    <div className="flex items-center gap-1 mt-1.5 min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: subjectMap[n.subjectId].color }} />
+                      <span className="text-[11px] text-slate-500 truncate">{subjectMap[n.subjectId].name}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ))}
