@@ -269,10 +269,26 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [semesters, selectedSemesterId]
   );
   const isSelectedSemesterArchived = !!selectedSemester?.archivedAt;
-  // Creation is only ever allowed while viewing the same semester that is
-  // currently active — including the "no active semester" (null) case,
-  // which covers legacy/no-semester-system users unchanged.
-  const canCreateInSelectedSemester = selectedSemesterId === activeSemesterId;
+  // Creation-gating matrix (backward-compatible with pre-Stage-4D behavior):
+  //   1. Zero semesters at all           -> allowed (legacy/no-adoption users
+  //      keep creating semesterId-null records exactly as before).
+  //   2. Semesters exist but none active -> blocked (must explicitly
+  //      activate one — a plain selectedSemesterId === activeSemesterId
+  //      check would wrongly allow this, since both sides are null).
+  //   3. Viewing the active semester     -> allowed.
+  //   4. Viewing anything else (another
+  //      inactive semester, an archived
+  //      semester, or Unassigned once
+  //      semesters exist)                -> blocked.
+  const canCreateInSelectedSemester =
+    semesters.length === 0 ||
+    (activeSemesterId !== null && selectedSemesterId === activeSemesterId);
+
+  const semesterCreationBlockedReason = canCreateInSelectedSemester
+    ? ""
+    : semesters.length > 0 && activeSemesterId === null
+    ? "Set a semester as active to add new academic records."
+    : "Switch to your active semester to add new academic records.";
 
   function isSemesterArchived(semesterId) {
     if (semesterId == null) return false;
@@ -400,7 +416,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
   function requestAddSubject() {
     if (!canCreateInSelectedSemester) {
-      setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new subjects.");
+      setSemesterNotice(semesterCreationBlockedReason);
       return;
     }
     if (!isPro && activeSemesterSubjectCount >= FREE_SUBJECT_LIMIT) {
@@ -424,7 +440,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       if (!canCreateInSelectedSemester) {
         setShowAddSubject(false);
         setEditingSubject(null);
-        setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new subjects.");
+        setSemesterNotice(semesterCreationBlockedReason);
         return;
       }
       if (!isPro && activeSemesterSubjectCount >= FREE_SUBJECT_LIMIT) {
@@ -482,7 +498,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // one, to prefill (not lock) the selected date.
   function requestAddActivity(subjectId, deadline) {
     if (!canCreateInSelectedSemester) {
-      setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new activities.");
+      setSemesterNotice(semesterCreationBlockedReason);
       return;
     }
     if (!isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
@@ -502,7 +518,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         setEditingActivity(null);
         setDefaultSubjectForActivity(null);
         setDefaultDeadlineForActivity(null);
-        setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new activities.");
+        setSemesterNotice(semesterCreationBlockedReason);
         return;
       }
       if (!isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
@@ -599,7 +615,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     }
 
     if (!canCreateInSelectedSemester) {
-      setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new grades.");
+      setSemesterNotice(semesterCreationBlockedReason);
       return false;
     }
 
@@ -672,7 +688,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // subjectId aborts creation.
   function addNoteToSubject(body) {
     if (!canCreateInSelectedSemester) {
-      setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new notes.");
+      setSemesterNotice(semesterCreationBlockedReason);
       return false;
     }
     let semesterId;
@@ -688,7 +704,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
   function addNote(subjectId, body) {
     if (!canCreateInSelectedSemester) {
-      setSemesterNotice("You're viewing a semester that isn't currently active. Switch to your active semester to add new notes.");
+      setSemesterNotice(semesterCreationBlockedReason);
       return false;
     }
     let semesterId;
