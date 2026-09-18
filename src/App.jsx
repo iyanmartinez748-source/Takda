@@ -335,14 +335,16 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   );
 
   // Free-plan limits are scoped to the ACTIVE semester only (never the
-  // selected/viewed one, and never a global count) — a legacy null
-  // semesterId only ever counts here when there is no active semester.
+  // selected/viewed one, and never a global count). When there is no
+  // active semester, the count is always 0 — legacy null-semesterId
+  // records never count toward this quota, even though they're the ones
+  // shown in the Unassigned bucket.
   const activeSemesterSubjectCount = useMemo(
-    () => subjects.filter((s) => (s.semesterId ?? null) === activeSemesterId).length,
+    () => (activeSemesterId ? subjects.filter((s) => s.semesterId === activeSemesterId).length : 0),
     [subjects, activeSemesterId]
   );
   const activeSemesterActivityCount = useMemo(
-    () => activities.filter((a) => (a.semesterId ?? null) === activeSemesterId).length,
+    () => (activeSemesterId ? activities.filter((a) => a.semesterId === activeSemesterId).length : 0),
     [activities, activeSemesterId]
   );
 
@@ -628,8 +630,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // storageAdapter RPC calls (already safe/atomic/RLS-scoped from Stages
   // 4A/4B) and reconcile local `semesters` state on success. Activating a
   // semester also moves the view to it, so the user immediately sees what
-  // they just made active — archiving does NOT move the view, so the user
-  // keeps looking at the (now read-only) semester they just archived.
+  // they just made active. Archiving only moves the view when the archived
+  // semester was the one being viewed — every other selection is untouched.
   async function handleCreateSemester(payload) {
     const created = await createSemester(payload);
     setSemesters((prev) => [...prev, created]);
@@ -652,6 +654,16 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   async function handleArchiveSemester(semesterId) {
     const archived = await archiveSemester(semesterId);
     setSemesters((prev) => prev.map((s) => (s.id === semesterId ? archived : s)));
+    if (selectedSemesterId === semesterId) {
+      // The semester being archived can never remain active, so the only
+      // way another one is still active afterward is if it already was
+      // (i.e. some semester other than the one just archived) — otherwise
+      // there is now no active semester at all, and the view falls back
+      // to Unassigned (null). Archiving never activates a different
+      // semester on its own.
+      const stillActiveId = semesters.find((s) => s.id !== semesterId && s.isActive)?.id ?? null;
+      setSelectedSemesterId(stillActiveId);
+    }
     return archived;
   }
 
