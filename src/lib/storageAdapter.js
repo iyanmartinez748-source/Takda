@@ -15,6 +15,19 @@ async function getUser() {
   return user;
 }
 
+// Semester writes must always fail loudly when nobody is signed in,
+// unlike getUser()'s callers elsewhere in this file (get()/performSave())
+// which treat "no user" as a normal not-logged-in-yet state.
+async function requireUser() {
+  const user = await getUser();
+
+  if (!user) {
+    throw new Error("Takda: an authenticated user is required for this operation.");
+  }
+
+  return user;
+}
+
 function toSubject(row) {
   return {
     id: row.id,
@@ -72,6 +85,19 @@ function toSemester(row) {
     archivedAt: row.archived_at || null,
     createdAt: row.created_at,
   };
+}
+
+// A function declared RETURNS public.semesters typically comes back from
+// supabase-js as a single object, not an array — but this normalizes
+// either shape defensively rather than assuming one.
+function normalizeRpcSemesterRow(data) {
+  const row = Array.isArray(data) ? data[0] : data;
+
+  if (!row) {
+    throw new Error("Takda: expected a semester row back from the database but received none.");
+  }
+
+  return row;
 }
 
 async function deleteRemovedRows(table, userId, desiredIds) {
@@ -249,6 +275,112 @@ async function performSave(value) {
   );
 
   return true;
+}
+
+// -------------------------
+// DEDICATED SEMESTER WRITE METHODS
+// -------------------------
+// Deliberately separate from get()/set()/performSave(): semesters are
+// never part of the generic subjects/activities/notes/grades snapshot
+// sync, so there is no deleteRemovedRows("semesters", ...) and no way
+// for a semester to be removed just because it's absent from some
+// array. Activation and archiving are never raw UPDATEs — they call
+// the Stage 4A database functions, which own that logic atomically.
+
+export async function createSemester({ name, schoolYear, startDate, endDate } = {}) {
+  const user = await requireUser();
+
+  const trimmedName = (name || "").trim();
+
+  if (!trimmedName) {
+    throw new Error("Takda: a semester name is required.");
+  }
+
+  const { data, error } = await supabase
+    .from("semesters")
+    .insert({
+      user_id: user.id,
+      name: trimmedName,
+      school_year: schoolYear || null,
+      start_date: startDate || null,
+      end_date: endDate || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Takda SEMESTER create error:", error);
+    throw error;
+  }
+
+  return toSemester(data);
+}
+
+export async function updateSemesterMetadata(semesterId, { name, schoolYear, startDate, endDate } = {}) {
+  await requireUser();
+
+  if (!semesterId) {
+    throw new Error("Takda: a semesterId is required to update semester metadata.");
+  }
+
+  const trimmedName = (name || "").trim();
+
+  if (!trimmedName) {
+    throw new Error("Takda: a semester name is required.");
+  }
+
+  const { data, error } = await supabase.rpc("update_semester_metadata", {
+    p_semester_id: semesterId,
+    p_name: trimmedName,
+    p_school_year: schoolYear || null,
+    p_start_date: startDate || null,
+    p_end_date: endDate || null,
+  });
+
+  if (error) {
+    console.error("Takda SEMESTER metadata update error:", error);
+    throw error;
+  }
+
+  return toSemester(normalizeRpcSemesterRow(data));
+}
+
+export async function activateSemester(semesterId) {
+  await requireUser();
+
+  if (!semesterId) {
+    throw new Error("Takda: a semesterId is required to activate a semester.");
+  }
+
+  const { data, error } = await supabase.rpc("activate_semester", {
+    p_semester_id: semesterId,
+  });
+
+  if (error) {
+    console.error("Takda SEMESTER activate error:", error);
+    throw error;
+  }
+
+  return toSemester(normalizeRpcSemesterRow(data));
+}
+
+export async function archiveSemester(semesterId) {
+  await requireUser();
+
+  if (!semesterId) {
+    throw new Error("Takda: a semesterId is required to archive a semester.");
+  }
+
+  const { data, error } = await supabase.rpc("archive_semester", {
+    p_semester_id: semesterId,
+  });
+
+  if (error) {
+    console.error("Takda SEMESTER archive error:", error);
+    throw error;
+  }
+
+  return toSemester(normalizeRpcSemesterRow(data));
 }
 
 export function installSupabaseStorageAdapter() {
