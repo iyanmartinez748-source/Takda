@@ -3,8 +3,14 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag
+  MoreHorizontal, Flag, ChevronDown
 } from "lucide-react";
+import {
+  createSemester,
+  updateSemesterMetadata,
+  activateSemester,
+  archiveSemester,
+} from "./lib/storageAdapter";
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
 
@@ -184,6 +190,14 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [saveError, setSaveError] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [limitNotice, setLimitNotice] = useState(null);
+  // Stage 4D: which semester is currently being VIEWED. Deliberately a
+  // separate piece of state from activeSemesterId (which governs where new
+  // records get created and Free-plan quota) — the two are never conflated.
+  // null means the "Unassigned / Previous Data" bucket.
+  const [selectedSemesterId, setSelectedSemesterId] = useState(null);
+  const [showSemesterManager, setShowSemesterManager] = useState(false);
+  const [semesterNotice, setSemesterNotice] = useState("");
+  const hasInitializedSelectedSemesterRef = useRef(false);
 
   useEffect(() => { loadFont(); }, []);
 
@@ -237,6 +251,50 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [semesters]
   );
 
+  // Stage 4D: selectedSemesterId starts in sync with activeSemesterId the
+  // first time hydration completes, then becomes fully user-controlled —
+  // it never silently follows activeSemesterId again after that (e.g.
+  // activating a different semester elsewhere does not yank the user's
+  // current view out from under them; only the explicit switcher, or the
+  // Manager's own "Set as Active" action, changes it after this).
+  useEffect(() => {
+    if (!ready) return;
+    if (hasInitializedSelectedSemesterRef.current) return;
+    hasInitializedSelectedSemesterRef.current = true;
+    setSelectedSemesterId(activeSemesterId);
+  }, [ready, activeSemesterId]);
+
+  const selectedSemester = useMemo(
+    () => (selectedSemesterId ? semesters.find((s) => s.id === selectedSemesterId) || null : null),
+    [semesters, selectedSemesterId]
+  );
+  const isSelectedSemesterArchived = !!selectedSemester?.archivedAt;
+  // Creation-gating matrix (backward-compatible with pre-Stage-4D behavior):
+  //   1. Zero semesters at all           -> allowed (legacy/no-adoption users
+  //      keep creating semesterId-null records exactly as before).
+  //   2. Semesters exist but none active -> blocked (must explicitly
+  //      activate one — a plain selectedSemesterId === activeSemesterId
+  //      check would wrongly allow this, since both sides are null).
+  //   3. Viewing the active semester     -> allowed.
+  //   4. Viewing anything else (another
+  //      inactive semester, an archived
+  //      semester, or Unassigned once
+  //      semesters exist)                -> blocked.
+  const canCreateInSelectedSemester =
+    semesters.length === 0 ||
+    (activeSemesterId !== null && selectedSemesterId === activeSemesterId);
+
+  const semesterCreationBlockedReason = canCreateInSelectedSemester
+    ? ""
+    : semesters.length > 0 && activeSemesterId === null
+    ? "Set a semester as active to add new academic records."
+    : "Switch to your active semester to add new academic records.";
+
+  function isSemesterArchived(semesterId) {
+    if (semesterId == null) return false;
+    return !!semesters.find((s) => s.id === semesterId)?.archivedAt;
+  }
+
   // Creation-time semester inheritance only — never used for edits. A
   // subject-linked record always inherits that subject's own semesterId,
   // including null for a legacy subject, rather than the active semester,
@@ -269,36 +327,73 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [activities, subjectMap]
   );
 
+  // Stage 4D: view-level-only filtering by the currently SELECTED semester.
+  // These derived arrays are for display alone — the save effect below still
+  // sends the full, unfiltered subjects/activities/notes/grades arrays to
+  // window.storage.set(), because storageAdapter's deleteRemovedRows()
+  // deletes any row absent from what it's given. Passing a filtered array
+  // there would permanently delete every hidden record.
+  const viewSubjects = useMemo(
+    () => subjects.filter((s) => (s.semesterId ?? null) === selectedSemesterId),
+    [subjects, selectedSemesterId]
+  );
+  const viewEnrichedActivities = useMemo(
+    () => enrichedActivities.filter((a) => (a.semesterId ?? null) === selectedSemesterId),
+    [enrichedActivities, selectedSemesterId]
+  );
+  const viewNotes = useMemo(
+    () => notes.filter((n) => (n.semesterId ?? null) === selectedSemesterId),
+    [notes, selectedSemesterId]
+  );
+  const viewGrades = useMemo(
+    () => grades.filter((g) => (g.semesterId ?? null) === selectedSemesterId),
+    [grades, selectedSemesterId]
+  );
+
+  // Free-plan limits are scoped to the ACTIVE semester only (never the
+  // selected/viewed one, and never a global count). When there is no
+  // active semester, the count is always 0 — legacy null-semesterId
+  // records never count toward this quota, even though they're the ones
+  // shown in the Unassigned bucket.
+  const activeSemesterSubjectCount = useMemo(
+    () => (activeSemesterId ? subjects.filter((s) => s.semesterId === activeSemesterId).length : 0),
+    [subjects, activeSemesterId]
+  );
+  const activeSemesterActivityCount = useMemo(
+    () => (activeSemesterId ? activities.filter((a) => a.semesterId === activeSemesterId).length : 0),
+    [activities, activeSemesterId]
+  );
+
   // Single source of truth for the Dashboard's urgency-based sections —
   // Overdue and Due Today are kept as separate, non-overlapping lists so
   // "Today's Tasks" never mixes in items that are actually overdue.
-  // Purely derived from enrichedActivities; nothing here is stored.
+  // Purely derived from viewEnrichedActivities; nothing here is stored.
   const focusLists = useMemo(() => {
-    const open = enrichedActivities.filter((a) => a.computedStatus !== "completed");
+    const open = viewEnrichedActivities.filter((a) => a.computedStatus !== "completed");
     const byDeadlineAsc = (a, b) => new Date(a.deadline) - new Date(b.deadline);
     return {
       overdue: open.filter((a) => a.urgencyKey === "overdue").sort(byDeadlineAsc),
       dueToday: open.filter((a) => a.urgencyKey === "today").sort(byDeadlineAsc),
       upcoming: open.filter((a) => ["tomorrow", "week", "later"].includes(a.urgencyKey)).sort(byDeadlineAsc),
     };
-  }, [enrichedActivities]);
+  }, [viewEnrichedActivities]);
 
   const recentlyCompleted = useMemo(
     () =>
-      enrichedActivities
+      viewEnrichedActivities
         .filter((a) => a.computedStatus === "completed")
         .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0))
         .slice(0, 5),
-    [enrichedActivities]
+    [viewEnrichedActivities]
   );
 
   const stats = useMemo(() => {
-    const pending = enrichedActivities.filter((a) => a.computedStatus !== "completed").length;
-    const completed = enrichedActivities.filter((a) => a.computedStatus === "completed").length;
+    const pending = viewEnrichedActivities.filter((a) => a.computedStatus !== "completed").length;
+    const completed = viewEnrichedActivities.filter((a) => a.computedStatus === "completed").length;
     // Reuse focusLists so "Due Today" has one definition across the whole
     // Dashboard — this must never include overdue activities.
-    return { subjects: subjects.length, pending, completed, dueToday: focusLists.dueToday.length };
-  }, [enrichedActivities, subjects, focusLists]);
+    return { subjects: viewSubjects.length, pending, completed, dueToday: focusLists.dueToday.length };
+  }, [viewEnrichedActivities, viewSubjects, focusLists]);
 
   const contextMessage = useMemo(() => {
     const overdueCount = focusLists.overdue.length;
@@ -320,7 +415,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }, []);
 
   function requestAddSubject() {
-    if (!isPro && subjects.length >= FREE_SUBJECT_LIMIT) {
+    if (!canCreateInSelectedSemester) {
+      setSemesterNotice(semesterCreationBlockedReason);
+      return;
+    }
+    if (!isPro && activeSemesterSubjectCount >= FREE_SUBJECT_LIMIT) {
       setLimitNotice("subjects");
       return;
     }
@@ -337,28 +436,44 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
   function saveSubject(subj) {
     const isNewSubject = !subj.id;
-    if (isNewSubject && !isPro && subjects.length >= FREE_SUBJECT_LIMIT) {
-      // Block before persistence — the free limit may have been reached by
-      // the time the modal is submitted (e.g. another tab). Existing
-      // subjects are left untouched.
-      setShowAddSubject(false);
-      setEditingSubject(null);
-      setLimitNotice("subjects");
-      return;
-    }
-    if (subj.id) {
+    if (isNewSubject) {
+      if (!canCreateInSelectedSemester) {
+        setShowAddSubject(false);
+        setEditingSubject(null);
+        setSemesterNotice(semesterCreationBlockedReason);
+        return;
+      }
+      if (!isPro && activeSemesterSubjectCount >= FREE_SUBJECT_LIMIT) {
+        // Block before persistence — the free limit may have been reached by
+        // the time the modal is submitted (e.g. another tab). Existing
+        // subjects are left untouched.
+        setShowAddSubject(false);
+        setEditingSubject(null);
+        setLimitNotice("subjects");
+        return;
+      }
+      setSubjects((prev) => [...prev, { ...subj, id: uid(), semesterId: activeSemesterId ?? null }]);
+    } else {
+      if (isSemesterArchived(subj.semesterId)) {
+        setShowAddSubject(false);
+        setEditingSubject(null);
+        setSemesterNotice("This semester is archived, so its records are read-only.");
+        return;
+      }
       // Edit: subj already carries its original semesterId (the modal
       // seeds its form from the full existing subject), so nothing here
       // needs to touch it — a plain replace preserves it unchanged.
       setSubjects((prev) => prev.map((s) => (s.id === subj.id ? subj : s)));
-    } else {
-      setSubjects((prev) => [...prev, { ...subj, id: uid(), semesterId: activeSemesterId ?? null }]);
     }
     setShowAddSubject(false);
     setEditingSubject(null);
   }
 
   function deleteSubject(id) {
+    if (isSemesterArchived(subjectMap[id]?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
     if (!window.confirm("Delete this subject? Its activities and notes will be deleted too.")) return;
     setSubjects((prev) => prev.filter((s) => s.id !== id));
     setActivities((prev) => prev.filter((a) => a.subjectId !== id));
@@ -382,7 +497,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // is optional the same way — only the Calendar's "+ Add Activity" passes
   // one, to prefill (not lock) the selected date.
   function requestAddActivity(subjectId, deadline) {
-    if (!isPro && activities.length >= FREE_ACTIVITY_LIMIT) {
+    if (!canCreateInSelectedSemester) {
+      setSemesterNotice(semesterCreationBlockedReason);
+      return;
+    }
+    if (!isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
       setLimitNotice("activities");
       return;
     }
@@ -393,14 +512,31 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
   function saveActivity(act) {
     const isNewActivity = !act.id;
-    if (isNewActivity && !isPro && activities.length >= FREE_ACTIVITY_LIMIT) {
-      // Block before persistence, same as subjects — editing an existing
-      // activity never hits this branch since it always has an id.
+    if (isNewActivity) {
+      if (!canCreateInSelectedSemester) {
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setSemesterNotice(semesterCreationBlockedReason);
+        return;
+      }
+      if (!isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
+        // Block before persistence, same as subjects — editing an existing
+        // activity never hits this branch since it always has an id.
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setLimitNotice("activities");
+        return;
+      }
+    } else if (isSemesterArchived(act.semesterId)) {
       setShowAddActivity(false);
       setEditingActivity(null);
       setDefaultSubjectForActivity(null);
       setDefaultDeadlineForActivity(null);
-      setLimitNotice("activities");
+      setSemesterNotice("This semester is archived, so its records are read-only.");
       return;
     }
     const prepared = {
@@ -433,6 +569,10 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   function toggleComplete(act) {
+    if (isSemesterArchived(act.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
     setActivities((prev) =>
       prev.map((a) => {
         if (a.id !== act.id) return a;
@@ -447,6 +587,10 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   function deleteActivity(id) {
+    if (isSemesterArchived(activities.find((a) => a.id === id)?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
     if (!window.confirm("Delete this activity?")) return;
     setActivities((prev) => prev.filter((a) => a.id !== id));
   }
@@ -459,11 +603,20 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     };
 
     if (prepared.id) {
+      if (isSemesterArchived(prepared.semesterId)) {
+        setSemesterNotice("This semester is archived, so its records are read-only.");
+        return false;
+      }
       // Edit: prepared already carries its original semesterId (the modal
       // seeds its form from the full existing grade), so a plain replace
       // preserves it unchanged.
       setGrades((prev) => prev.map((g) => (g.id === prepared.id ? prepared : g)));
       return true;
+    }
+
+    if (!canCreateInSelectedSemester) {
+      setSemesterNotice(semesterCreationBlockedReason);
+      return false;
     }
 
     let semesterId;
@@ -481,14 +634,63 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   function deleteGrade(id) {
+    if (isSemesterArchived(grades.find((g) => g.id === id)?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
     if (!window.confirm("Delete this grade?")) return;
     setGrades((prev) => prev.filter((g) => g.id !== id));
+  }
+
+  // Stage 4D: dedicated semester write handlers. These wrap the existing
+  // storageAdapter RPC calls (already safe/atomic/RLS-scoped from Stages
+  // 4A/4B) and reconcile local `semesters` state on success. Activating a
+  // semester also moves the view to it, so the user immediately sees what
+  // they just made active. Archiving only moves the view when the archived
+  // semester was the one being viewed — every other selection is untouched.
+  async function handleCreateSemester(payload) {
+    const created = await createSemester(payload);
+    setSemesters((prev) => [...prev, created]);
+    return created;
+  }
+
+  async function handleUpdateSemester(semesterId, payload) {
+    const updated = await updateSemesterMetadata(semesterId, payload);
+    setSemesters((prev) => prev.map((s) => (s.id === semesterId ? updated : s)));
+    return updated;
+  }
+
+  async function handleActivateSemester(semesterId) {
+    const activated = await activateSemester(semesterId);
+    setSemesters((prev) => prev.map((s) => (s.id === semesterId ? activated : { ...s, isActive: false })));
+    setSelectedSemesterId(semesterId);
+    return activated;
+  }
+
+  async function handleArchiveSemester(semesterId) {
+    const archived = await archiveSemester(semesterId);
+    setSemesters((prev) => prev.map((s) => (s.id === semesterId ? archived : s)));
+    if (selectedSemesterId === semesterId) {
+      // The semester being archived can never remain active, so the only
+      // way another one is still active afterward is if it already was
+      // (i.e. some semester other than the one just archived) — otherwise
+      // there is now no active semester at all, and the view falls back
+      // to Unassigned (null). Archiving never activates a different
+      // semester on its own.
+      const stillActiveId = semesters.find((s) => s.id !== semesterId && s.isActive)?.id ?? null;
+      setSelectedSemesterId(stillActiveId);
+    }
+    return archived;
   }
 
   // Returns true/false so callers only clear their own local text input on
   // success, rather than discarding what the user typed when an invalid
   // subjectId aborts creation.
   function addNoteToSubject(body) {
+    if (!canCreateInSelectedSemester) {
+      setSemesterNotice(semesterCreationBlockedReason);
+      return false;
+    }
     let semesterId;
     try {
       semesterId = semesterIdForNewChild(activeSubjectId);
@@ -501,6 +703,10 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   function addNote(subjectId, body) {
+    if (!canCreateInSelectedSemester) {
+      setSemesterNotice(semesterCreationBlockedReason);
+      return false;
+    }
     let semesterId;
     try {
       semesterId = semesterIdForNewChild(subjectId);
@@ -510,6 +716,23 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     }
     setNotes((prev) => [...prev, { id: uid(), subjectId, body, updatedAt: new Date().toISOString(), semesterId }]);
     return true;
+  }
+
+  function editNote(id, body) {
+    if (isSemesterArchived(notes.find((n) => n.id === id)?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
+    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)));
+  }
+
+  function deleteNote(id) {
+    if (isSemesterArchived(notes.find((n) => n.id === id)?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
+    if (!window.confirm("Delete this note?")) return;
+    setNotes((prev) => prev.filter((n) => n.id !== id));
   }
 
   if (!ready) {
@@ -531,13 +754,26 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         ::-webkit-scrollbar-thumb { background: #D8D8ED; border-radius: 4px; }
       `}</style>
 
-      <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} />
+      <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} canCreate={canCreateInSelectedSemester} />
 
       <div className="flex-1 flex flex-col min-h-[640px] max-h-[85vh] md:max-h-[720px] overflow-hidden">
+        <SemesterBar
+          semesters={semesters}
+          selectedSemesterId={selectedSemesterId}
+          activeSemesterId={activeSemesterId}
+          onSelect={setSelectedSemesterId}
+          onManage={() => setShowSemesterManager(true)}
+        />
         <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
           {saveError && (
             <div className="mx-5 mt-4 md:mx-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-2">
               Your changes couldn't be saved just now — they may not be here after a refresh.
+            </div>
+          )}
+          {semesterNotice && (
+            <div className="mx-5 mt-4 md:mx-8 flex items-start justify-between gap-3 rounded-lg bg-[#F0EEFF] border border-[#DCD9FF] text-[#3D2FE0] text-xs px-3 py-2">
+              <span>{semesterNotice}</span>
+              <button onClick={() => setSemesterNotice("")} aria-label="Dismiss" className="shrink-0 text-[#3D2FE0]"><X size={14} /></button>
             </div>
           )}
           {view === "dashboard" && (
@@ -551,23 +787,25 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAddSubject={requestAddSubject}
               onFocusFilter={goToActivities}
+              canCreate={canCreateInSelectedSemester}
             />
           )}
 
           {view === "subjects" && (
             <SubjectsView
-              subjects={subjects}
-              activities={enrichedActivities}
+              subjects={viewSubjects}
+              activities={viewEnrichedActivities}
               onOpen={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAdd={requestAddSubject}
+              canCreate={canCreateInSelectedSemester}
             />
           )}
 
           {view === "subject-detail" && activeSubjectId && subjectMap[activeSubjectId] && (
             <SubjectDetail
               subject={subjectMap[activeSubjectId]}
-              activities={enrichedActivities.filter((a) => a.subjectId === activeSubjectId)}
-              notes={notes.filter((n) => n.subjectId === activeSubjectId)}
+              activities={viewEnrichedActivities.filter((a) => a.subjectId === activeSubjectId)}
+              notes={viewNotes.filter((n) => n.subjectId === activeSubjectId)}
               onBack={() => setView("subjects")}
               onEditSubject={() => { setEditingSubject(subjectMap[activeSubjectId]); setShowAddSubject(true); }}
               onDeleteSubject={() => deleteSubject(activeSubjectId)}
@@ -576,34 +814,40 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onDeleteActivity={deleteActivity}
               onAddActivity={() => requestAddActivity(activeSubjectId)}
               onAddNote={addNoteToSubject}
-              onEditNote={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
-              onDeleteNote={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
+              onEditNote={editNote}
+              onDeleteNote={deleteNote}
+              canCreate={canCreateInSelectedSemester}
+              readOnly={isSelectedSemesterArchived}
             />
           )}
 
           {view === "calendar" && (
             <CalendarView
-              activities={enrichedActivities}
+              activities={viewEnrichedActivities}
               onToggle={toggleComplete}
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAddActivity={(deadline) => requestAddActivity(undefined, deadline)}
+              canCreate={canCreateInSelectedSemester}
+              readOnly={isSelectedSemesterArchived}
             />
           )}
 
           {view === "notes" && (
             <NotesView
-              notes={notes}
+              notes={viewNotes}
               subjectMap={subjectMap}
               onAdd={addNote}
-              onEdit={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
-              onDelete={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
-              subjects={subjects}
+              onEdit={editNote}
+              onDelete={deleteNote}
+              subjects={viewSubjects}
+              canCreate={canCreateInSelectedSemester}
+              readOnly={isSelectedSemesterArchived}
             />
           )}
 
           {view === "activities" && (
             <AllActivities
-              activities={enrichedActivities}
+              activities={viewEnrichedActivities}
               query={query}
               setQuery={setQuery}
               statusFilter={statusFilter}
@@ -612,17 +856,21 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onEdit={openEditActivity}
               onDelete={deleteActivity}
               onAdd={() => requestAddActivity()}
+              canCreate={canCreateInSelectedSemester}
+              readOnly={isSelectedSemesterArchived}
             />
           )}
 
           {view === "grades" && (
             isPro ? (
               <GradesView
-                grades={grades}
-                subjects={subjects}
+                grades={viewGrades}
+                subjects={viewSubjects}
                 subjectMap={subjectMap}
                 onSave={saveGrade}
                 onDelete={deleteGrade}
+                canCreate={canCreateInSelectedSemester}
+                readOnly={isSelectedSemesterArchived}
               />
             ) : (
               <GradeLockedView onUpgrade={onUpgrade} />
@@ -630,7 +878,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           )}
         </div>
 
-        <MobileNav view={view} setView={setView} onFab={() => requestAddActivity()} onMore={() => setShowMore(true)} />
+        <MobileNav view={view} setView={setView} onFab={() => requestAddActivity()} onMore={() => setShowMore(true)} canCreate={canCreateInSelectedSemester} />
       </div>
 
       {showMore && (
@@ -665,6 +913,18 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           kind={limitNotice}
           onClose={() => setLimitNotice(null)}
           onUpgrade={onUpgrade}
+        />
+      )}
+
+      {showSemesterManager && (
+        <SemesterManagerModal
+          semesters={semesters}
+          activeSemesterId={activeSemesterId}
+          onClose={() => setShowSemesterManager(false)}
+          onCreate={handleCreateSemester}
+          onUpdate={handleUpdateSemester}
+          onActivate={handleActivateSemester}
+          onArchive={handleArchiveSemester}
         />
       )}
     </div>
@@ -710,8 +970,276 @@ function LimitReachedModal({ kind, onClose, onUpgrade }) {
   );
 }
 
+/* ---------------- Semester switcher (global, above the content area) ---------------- */
+function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect, onManage }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  if (semesters.length === 0) {
+    return (
+      <div className="flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0">
+        <span className="text-xs text-slate-500">No semesters set up yet.</span>
+        <button onClick={onManage} className="text-xs font-semibold text-[#3D2FE0] hover:underline">
+          + Set up semesters
+        </button>
+      </div>
+    );
+  }
+
+  const options = [
+    ...semesters
+      .slice()
+      .sort((a, b) => {
+        if (!!a.archivedAt !== !!b.archivedAt) return a.archivedAt ? 1 : -1;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      })
+      .map((s) => ({ id: s.id, label: s.name, isActive: s.isActive, isArchived: !!s.archivedAt })),
+    { id: null, label: "Unassigned / Previous Data", isActive: activeSemesterId === null, isArchived: false },
+  ];
+
+  const current = options.find((o) => o.id === selectedSemesterId) || options[options.length - 1];
+
+  return (
+    <div className="relative flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors duration-150"
+      >
+        <CalendarIcon size={15} className="text-[#3D2FE0] shrink-0" />
+        <span className="text-sm font-semibold truncate">{current.label}</span>
+        {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">Active</span>}
+        {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
+        <ChevronDown size={14} className="text-slate-400 shrink-0" />
+      </button>
+      <button onClick={onManage} className="shrink-0 text-xs font-semibold text-[#3D2FE0] hover:underline">
+        Manage Semesters
+      </button>
+
+      {open && (
+        <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[#E4E4F0] bg-white shadow-lg py-1.5">
+          {options.map((o) => (
+            <button
+              key={o.id ?? "unassigned"}
+              onClick={() => { onSelect(o.id); setOpen(false); }}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors duration-150"
+              style={o.id === selectedSemesterId ? { color: "#3D2FE0", fontWeight: 600 } : undefined}
+            >
+              <span className="truncate">{o.label}</span>
+              <span className="flex items-center gap-1 shrink-0">
+                {o.isActive && <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-600">Active</span>}
+                {o.isArchived && <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Archived</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Semester management modal ---------------- */
+function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, onUpdate, onActivate, onArchive }) {
+  const [mode, setMode] = useState("list");
+  const [formSemester, setFormSemester] = useState(null);
+  const [form, setForm] = useState({ name: "", schoolYear: "", startDate: "", endDate: "" });
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const sorted = useMemo(() => {
+    return semesters.slice().sort((a, b) => {
+      if (!!a.archivedAt !== !!b.archivedAt) return a.archivedAt ? 1 : -1;
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+  }, [semesters]);
+
+  function openCreateForm() {
+    setFormSemester(null);
+    setForm({ name: "", schoolYear: "", startDate: "", endDate: "" });
+    setError("");
+    setMode("form");
+  }
+
+  function openEditForm(semester) {
+    setFormSemester(semester);
+    setForm({
+      name: semester.name,
+      schoolYear: semester.schoolYear || "",
+      startDate: semester.startDate || "",
+      endDate: semester.endDate || "",
+    });
+    setError("");
+    setMode("form");
+  }
+
+  async function submitForm() {
+    if (!form.name.trim()) {
+      setError("A semester name is required.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        name: form.name.trim(),
+        schoolYear: form.schoolYear.trim() || null,
+        startDate: form.startDate || null,
+        endDate: form.endDate || null,
+      };
+      if (formSemester) {
+        await onUpdate(formSemester.id, payload);
+      } else {
+        await onCreate(payload);
+      }
+      setMode("list");
+    } catch (e) {
+      setError(e.message || "Unable to save this semester.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleActivate(id) {
+    setBusyId(id);
+    setError("");
+    try {
+      await onActivate(id);
+    } catch (e) {
+      setError(e.message || "Unable to activate this semester.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleArchive(id) {
+    if (!window.confirm("Archive this semester? Its records become read-only, but nothing is deleted.")) return;
+    setBusyId(id);
+    setError("");
+    try {
+      await onArchive(id);
+    } catch (e) {
+      setError(e.message || "Unable to archive this semester.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <ModalShell title={mode === "form" ? (formSemester ? "Edit Semester" : "New Semester") : "Manage Semesters"} onClose={onClose}>
+      {error && (
+        <div className="mb-3 rounded-lg bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2">{error}</div>
+      )}
+
+      {mode === "list" ? (
+        <>
+          <button
+            onClick={openCreateForm}
+            className="w-full mb-4 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#C7C7E8] text-[#3D2FE0] py-2.5 text-sm font-semibold"
+          >
+            <Plus size={15} /> New Semester
+          </button>
+
+          {sorted.length === 0 ? (
+            <EmptyRow text="No semesters yet — create your first one to get started." />
+          ) : (
+            <div className="flex flex-col gap-2 mb-1">
+              {sorted.map((s) => (
+                <div key={s.id} className="rounded-xl border border-[#E4E4F0] p-3">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold truncate">{s.name}</div>
+                      {(s.schoolYear || s.startDate || s.endDate) && (
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {[s.schoolYear, [s.startDate, s.endDate].filter(Boolean).join(" – ")].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {s.isActive && <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">Active</span>}
+                      {s.archivedAt && <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    <button
+                      onClick={() => openEditForm(s)}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E4F0] text-slate-600 hover:bg-slate-50 transition-colors duration-150"
+                    >
+                      Edit
+                    </button>
+                    {!s.isActive && !s.archivedAt && (
+                      <button
+                        onClick={() => handleActivate(s.id)}
+                        disabled={busyId === s.id}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-white disabled:opacity-50"
+                        style={{ background: "#3D2FE0" }}
+                      >
+                        {busyId === s.id ? "Activating…" : "Set as Active"}
+                      </button>
+                    )}
+                    {!s.archivedAt && (
+                      <button
+                        onClick={() => handleArchive(s.id)}
+                        disabled={busyId === s.id}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E4F0] text-red-500 hover:bg-red-50 transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {busyId === s.id ? "Archiving…" : "Archive"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <Field label="Semester Name *">
+            <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. 1st Semester 2025-2026" />
+          </Field>
+          <Field label="School Year">
+            <input className={inputCls} value={form.schoolYear} onChange={(e) => setForm({ ...form, schoolYear: e.target.value })} placeholder="e.g. 2025-2026" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Start Date">
+              <input type="date" className={inputCls} value={form.startDate || ""} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+            </Field>
+            <Field label="End Date">
+              <input type="date" className={inputCls} value={form.endDate || ""} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+            </Field>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => setMode("list")}
+              className="flex-1 rounded-xl border border-[#E4E4F0] py-2.5 text-sm font-semibold text-slate-500"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!form.name.trim() || saving}
+              onClick={submitForm}
+              className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+              style={{ background: "#3D2FE0" }}
+            >
+              {saving ? "Saving…" : formSemester ? "Save Changes" : "Create Semester"}
+            </button>
+          </div>
+        </>
+      )}
+    </ModalShell>
+  );
+}
+
 /* ---------------- Sidebar (desktop) ---------------- */
-function Sidebar({ view, setView, onAddSubject }) {
+function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
   const items = [
     { key: "dashboard", label: "Dashboard", icon: Home },
     { key: "subjects", label: "Subjects", icon: BookOpen },
@@ -752,7 +1280,9 @@ function Sidebar({ view, setView, onAddSubject }) {
       </nav>
       <button
         onClick={onAddSubject}
-        className="mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
+        disabled={!canCreate}
+        title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
+        className="mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40 disabled:hover:opacity-40"
         style={{ background: "#3D2FE0" }}
       >
         <Plus size={16} /> Add Subject
@@ -762,7 +1292,7 @@ function Sidebar({ view, setView, onAddSubject }) {
 }
 
 /* ---------------- Mobile bottom nav ---------------- */
-function MobileNav({ view, setView, onFab, onMore }) {
+function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
   const leftItems = [
     { key: "dashboard", label: "Home", icon: Home },
     { key: "subjects", label: "Subjects", icon: BookOpen },
@@ -774,9 +1304,11 @@ function MobileNav({ view, setView, onFab, onMore }) {
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
-        className="w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0]"
+        disabled={!canCreate}
+        className="w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] disabled:opacity-40"
         style={{ background: "#3D2FE0" }}
         aria-label="Add activity"
+        title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
       >
         <Plus size={22} />
       </button>
@@ -863,7 +1395,7 @@ const DASHBOARD_OVERDUE_VISIBLE = 3;
 const DASHBOARD_DUE_TODAY_VISIBLE = 5;
 const DASHBOARD_UPCOMING_VISIBLE = 6;
 
-function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyCompleted, onToggle, onOpenSubject, onAddSubject, onFocusFilter }) {
+function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyCompleted, onToggle, onOpenSubject, onAddSubject, onFocusFilter, canCreate = true }) {
   const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
   const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
   const upcomingVisible = focusLists.upcoming.slice(0, DASHBOARD_UPCOMING_VISIBLE);
@@ -950,7 +1482,7 @@ function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyComple
 
       <StatsStrip stats={stats} />
 
-      {stats.subjects === 0 && (
+      {stats.subjects === 0 && canCreate && (
         <button onClick={onAddSubject} className="mt-4 w-full rounded-xl border border-dashed border-[#C7C7E8] text-[#3D2FE0] py-3 text-sm font-medium">
           + Add your first subject to get started
         </button>
@@ -1118,12 +1650,18 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
 }
 
 /* ---------------- Subjects ---------------- */
-function SubjectsView({ subjects, activities, onOpen, onAdd }) {
+function SubjectsView({ subjects, activities, onOpen, onAdd, canCreate = true }) {
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between mb-5">
         <h1 className="font-display text-2xl font-semibold">My Subjects</h1>
-        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]" style={{ background: "#3D2FE0" }}>
+        <button
+          onClick={onAdd}
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
+          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          style={{ background: "#3D2FE0" }}
+        >
           <Plus size={15} /> Add Subject
         </button>
       </div>
@@ -1160,7 +1698,7 @@ function SubjectsView({ subjects, activities, onOpen, onAdd }) {
   );
 }
 
-function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote }) {
+function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote, canCreate = true, readOnly = false }) {
   const [noteText, setNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState("");
@@ -1173,10 +1711,11 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: subject.color }} />
           <h1 className="font-display text-2xl font-semibold truncate">{subject.name}</h1>
+          {readOnly && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
         </div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={onEditSubject} aria-label="Edit subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50"><Edit2 size={14} /></button>
-          <button onClick={onDeleteSubject} aria-label="Delete subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] text-red-500 transition-colors duration-150 hover:bg-red-50"><Trash2 size={14} /></button>
+          <button onClick={onEditSubject} disabled={readOnly} aria-label="Edit subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50 disabled:opacity-40"><Edit2 size={14} /></button>
+          <button onClick={onDeleteSubject} disabled={readOnly} aria-label="Delete subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] text-red-500 transition-colors duration-150 hover:bg-red-50 disabled:opacity-40"><Trash2 size={14} /></button>
         </div>
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-6">
@@ -1187,7 +1726,7 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
 
       <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-sm font-semibold text-slate-700 min-w-0 truncate">Activities ({pending.length} pending, {completed.length} completed)</h2>
-        <button onClick={onAddActivity} className="flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1" style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
+        <button onClick={onAddActivity} disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className="flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 disabled:opacity-40" style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
         <EmptyRow text="No activities for this subject yet." />
@@ -1195,7 +1734,7 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
         <div className="flex flex-col gap-2 mb-7">
           {activities.sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((a) => (
             <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
-              <button onClick={() => onToggle(a)} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
+              <button onClick={() => onToggle(a)} disabled={readOnly} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out disabled:opacity-40" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
                 <Check size={14} color="white" className={`transition-all duration-200 ease-out motion-reduce:transition-none ${a.computedStatus === "completed" ? "opacity-100 scale-100" : "opacity-0 scale-50"}`} />
               </button>
               <div className="flex-1 min-w-0">
@@ -1206,8 +1745,8 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
                   <PriorityTag priority={a.priority} />
                 </div>
               </div>
-              <button onClick={() => onEditActivity(a)} aria-label="Edit activity" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><Edit2 size={13} /></button>
-              <button onClick={() => onDeleteActivity(a.id)} aria-label="Delete activity" className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150"><Trash2 size={13} /></button>
+              <button onClick={() => onEditActivity(a)} disabled={readOnly} aria-label="Edit activity" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+              <button onClick={() => onDeleteActivity(a.id)} disabled={readOnly} aria-label="Delete activity" className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
@@ -1215,10 +1754,12 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
 
       <h2 className="text-sm font-semibold text-slate-700 mb-2.5">Notes</h2>
       <div className="flex gap-2 mb-3">
-        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
+        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} disabled={!canCreate} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400" />
         <button
           onClick={() => { if (noteText.trim() && onAddNote(noteText.trim())) setNoteText(""); }}
-          className="rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add a note." : undefined}
+          className="rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
           style={{ background: "#3D2FE0" }}
         >Save</button>
       </div>
@@ -1249,8 +1790,8 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
               <div className="flex items-start justify-between gap-2">
                 <span className="flex-1 min-w-0 break-words">{n.body}</span>
                 <div className="flex shrink-0 gap-1">
-                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><Edit2 size={13} /></button>
-                  <button onClick={() => onDeleteNote(n.id)} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150"><Trash2 size={13} /></button>
+                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+                  <button onClick={() => onDeleteNote(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
                 </div>
               </div>
             )}
@@ -1270,7 +1811,7 @@ const CALENDAR_DAY_TONE = {
   completed: { bg: "#F0FDF4", border: "#CDEFD8" },
 };
 
-function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
+function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canCreate = true, readOnly = false }) {
   const [cursor, setCursor] = useState(startOfDay(new Date()));
   const [selected, setSelected] = useState(startOfDay(new Date()));
 
@@ -1336,7 +1877,9 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
         <h1 className="font-display text-2xl font-semibold">Calendar</h1>
         <button
           onClick={() => onAddActivity(formatLocalDate(selected))}
-          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
           style={{ background: "#3D2FE0" }}
         >
           <Plus size={15} /> Add Activity
@@ -1449,7 +1992,7 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity }) {
 }
 
 /* ---------------- Notes ---------------- */
-function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects }) {
+function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCreate = true, readOnly = false }) {
   const [subjectId, setSubjectId] = useState("");
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -1458,14 +2001,16 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects }) {
     <div className="p-5 md:p-8">
       <h1 className="font-display text-2xl font-semibold mb-5">Notes</h1>
       <div className="rounded-xl bg-white border border-[#E4E4F0] p-3 mb-6 flex flex-col gap-2">
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none">
+        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} disabled={!canCreate} className="rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400">
           <option value="">General note</option>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} disabled={!canCreate} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none disabled:bg-slate-50 disabled:text-slate-400" />
         <button
           onClick={() => { if (text.trim() && onAdd(subjectId || null, text.trim())) setText(""); }}
-          className="self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add a note." : undefined}
+          className="self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
           style={{ background: "#3D2FE0" }}
         >Save note</button>
       </div>
@@ -1499,8 +2044,8 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects }) {
                   <div className="flex items-start justify-between gap-2">
                     <span className="flex-1 min-w-0 break-words">{n.body}</span>
                     <div className="flex shrink-0 gap-1">
-                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><Edit2 size={14} /></button>
-                      <button onClick={() => onDelete(n.id)} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150"><Trash2 size={14} /></button>
+                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={14} /></button>
                     </div>
                   </div>
                   {n.subjectId && subjectMap[n.subjectId] && (
@@ -1596,7 +2141,7 @@ function getActivitiesEmptyState({ hasAny, statusFilter, query }) {
   return { title: "No activities match this filter." };
 }
 
-function AllActivities({ activities, query, setQuery, statusFilter, setStatusFilter, onToggle, onEdit, onDelete, onAdd }) {
+function AllActivities({ activities, query, setQuery, statusFilter, setStatusFilter, onToggle, onEdit, onDelete, onAdd, canCreate = true, readOnly = false }) {
   const [sortBy, setSortBy] = useState("smart");
 
   // Same definitions as the Dashboard's Focus for Today (matchesActivityFilter
@@ -1632,7 +2177,13 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-1.5">
         <h1 className="font-display text-2xl font-semibold">All Activities</h1>
-        <button onClick={onAdd} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]" style={{ background: "#3D2FE0" }}>
+        <button
+          onClick={onAdd}
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          style={{ background: "#3D2FE0" }}
+        >
           <Plus size={15} /> Add Activity
         </button>
       </div>
@@ -1687,7 +2238,8 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
             <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
               <button
                 onClick={() => onToggle(a)}
-                className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-emerald-400"
+                disabled={readOnly}
+                className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-emerald-400 disabled:opacity-40"
                 style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}
                 aria-label={a.computedStatus === "completed" ? "Reopen task" : "Mark complete"}
               >
@@ -1702,8 +2254,8 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
                   <StatusBadge status={a.computedStatus} />
                 </div>
               </div>
-              <button onClick={() => onEdit(a)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150" aria-label="Edit activity"><Edit2 size={13} /></button>
-              <button onClick={() => onDelete(a.id)} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150" aria-label="Delete activity"><Trash2 size={13} /></button>
+              <button onClick={() => onEdit(a)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit activity"><Edit2 size={13} /></button>
+              <button onClick={() => onDelete(a.id)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete activity"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
@@ -1763,7 +2315,7 @@ function sortSubjectPerformance(list) {
   return list.slice().sort((a, b) => (a.average - b.average) || a.subject.name.localeCompare(b.subject.name));
 }
 
-function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
+function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate = true, readOnly = false }) {
   const [showModal, setShowModal] = useState(false);
   const [editingGrade, setEditingGrade] = useState(null);
   const [subjectFilter, setSubjectFilter] = useState("all");
@@ -1878,7 +2430,8 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
         </div>
         <button
           onClick={() => { setEditingGrade(null); setShowModal(true); }}
-          disabled={subjects.length === 0}
+          disabled={subjects.length === 0 || !canCreate}
+          title={!canCreate ? "Switch to your active semester to add a grade." : undefined}
           className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0 transition duration-150 ease-out hover:opacity-90 disabled:hover:opacity-40 motion-safe:active:scale-[0.98] disabled:active:scale-100"
           style={{ background: "#3D2FE0" }}
         >
@@ -2020,8 +2573,8 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
                       <div className="text-sm font-semibold">{g.score}/{g.totalScore}</div>
                       <div className="text-[11px] text-slate-500">{percent.toFixed(1)}%</div>
                     </div>
-                    <button onClick={() => openEdit(g)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150" aria-label="Edit grade"><Edit2 size={13} /></button>
-                    <button onClick={() => onDelete(g.id)} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150" aria-label="Delete grade"><Trash2 size={13} /></button>
+                    <button onClick={() => openEdit(g)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit grade"><Edit2 size={13} /></button>
+                    <button onClick={() => onDelete(g.id)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete grade"><Trash2 size={13} /></button>
                   </div>
                 );
               })}
