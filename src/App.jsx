@@ -201,6 +201,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // Stage 9A: in-app-only reminders panel. No Notification permission, no
   // service worker involvement — a plain modal like the others below.
   const [showReminders, setShowReminders] = useState(false);
+  // Stage 9A fix: which single urgency group the modal is narrowed to —
+  // "all" shows every group, same as before this fix. UI-only, never
+  // persisted, and always explicitly reset on every open so a filter never
+  // leaks from one modal opening into the next.
+  const [reminderFilter, setReminderFilter] = useState("all");
 
   useEffect(() => { loadFont(); }, []);
 
@@ -477,6 +482,15 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   function goToActivities(filterValue) {
     setStatusFilter(filterValue);
     setView("activities");
+  }
+
+  // Single entry point for every "open the reminders modal" action (bell,
+  // "View all reminders", and each individual urgency chip). Always sets the
+  // filter explicitly before opening, so a previously selected filter can
+  // never leak into the next opening.
+  function openReminders(filter) {
+    setReminderFilter(filter);
+    setShowReminders(true);
   }
 
   // Reminders panel/bell → Subject Detail. Closes the panel first so the
@@ -819,7 +833,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           onSelect={setSelectedSemesterId}
           onManage={() => setShowSemesterManager(true)}
           reminderBadgeCount={reminderBadgeCount}
-          onOpenReminders={() => setShowReminders(true)}
+          onOpenReminders={() => openReminders("all")}
         />
         <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
           {saveError && (
@@ -849,7 +863,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               activeSemesterName={activeSemesterName}
               hasSemesters={semesters.length > 0}
               hasActiveSemesterForReminders={hasActiveSemesterForReminders}
-              onOpenReminders={() => setShowReminders(true)}
+              onOpenReminders={openReminders}
             />
           )}
 
@@ -992,6 +1006,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
       {showReminders && (
         <RemindersModal
+          filter={reminderFilter}
           activeSemesterName={activeSemesterName}
           hasSemesters={semesters.length > 0}
           hasActiveSemesterForReminders={hasActiveSemesterForReminders}
@@ -1046,15 +1061,32 @@ function LimitReachedModal({ kind, onClose, onUpgrade }) {
 }
 
 /* ---------------- Smart Reminders panel (Stage 9A — in-app only) ---------------- */
-function RemindersModal({ activeSemesterName, hasSemesters, hasActiveSemesterForReminders, groups, onToggle, onOpenSubject, onManageSemesters, onClose }) {
-  const title = hasSemesters && activeSemesterName ? `Reminders for ${activeSemesterName}` : "Smart Reminders";
+// Stage 9A fix: maps a single-category filter value to the matching
+// reminderGroups key, its modal title, and its own positive empty-state
+// copy — reusing the exact same groups object, never recalculating it.
+const REMINDER_FILTER_META = {
+  overdue: { groupKey: "overdue", title: "Overdue Reminders", emptyTitle: "No overdue tasks", emptySubtitle: "You're all caught up." },
+  today: { groupKey: "dueToday", title: "Due Today", emptyTitle: "Nothing due today", emptySubtitle: "You're clear for today." },
+  tomorrow: { groupKey: "dueTomorrow", title: "Due Tomorrow", emptyTitle: "Nothing due tomorrow." },
+  soon: { groupKey: "dueSoon", title: "Due Soon", emptyTitle: "Nothing due soon." },
+};
 
-  const sections = [
-    { key: "overdue", label: "Overdue", items: groups.overdue },
-    { key: "dueToday", label: "Due Today", items: groups.dueToday },
-    { key: "dueTomorrow", label: "Due Tomorrow", items: groups.dueTomorrow },
-    { key: "dueSoon", label: "Due Soon", items: groups.dueSoon },
-  ].filter((s) => s.items.length > 0);
+function RemindersModal({ filter = "all", activeSemesterName, hasSemesters, hasActiveSemesterForReminders, groups, onToggle, onOpenSubject, onManageSemesters, onClose }) {
+  const filterMeta = REMINDER_FILTER_META[filter] || null;
+  const filteredItems = filterMeta ? groups[filterMeta.groupKey] : null;
+
+  const title = filterMeta
+    ? `${filterMeta.title}${filteredItems.length > 0 ? ` (${filteredItems.length})` : ""}`
+    : (hasSemesters && activeSemesterName ? `Reminders for ${activeSemesterName}` : "Smart Reminders");
+
+  const sections = filterMeta
+    ? []
+    : [
+        { key: "overdue", label: "Overdue", items: groups.overdue },
+        { key: "dueToday", label: "Due Today", items: groups.dueToday },
+        { key: "dueTomorrow", label: "Due Tomorrow", items: groups.dueTomorrow },
+        { key: "dueSoon", label: "Due Soon", items: groups.dueSoon },
+      ].filter((s) => s.items.length > 0);
 
   return (
     <ModalShell title={title} onClose={onClose}>
@@ -1070,6 +1102,16 @@ function RemindersModal({ activeSemesterName, hasSemesters, hasActiveSemesterFor
             Manage Semesters
           </button>
         </div>
+      ) : filterMeta ? (
+        filteredItems.length === 0 ? (
+          <DashboardEmptyState icon={CheckCircle2} title={filterMeta.emptyTitle} subtitle={filterMeta.emptySubtitle} />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {filteredItems.map((a) => (
+              <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+            ))}
+          </div>
+        )
       ) : sections.length === 0 ? (
         <DashboardEmptyState icon={CheckCircle2} title="You're all caught up." subtitle="No urgent deadlines right now." />
       ) : (
@@ -1581,7 +1623,7 @@ function Dashboard({
         hasActiveSemesterForReminders={hasActiveSemesterForReminders}
         onToggle={onToggle}
         onOpenSubject={onOpenSubject}
-        onViewAll={onOpenReminders}
+        onOpenReminders={onOpenReminders}
       />
 
       <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
@@ -1667,7 +1709,7 @@ function Dashboard({
 // reminderRelevantActivities (active-semester-scoped, never
 // selectedSemesterId), and nothing here writes to storage, requests
 // Notification permission, or touches the service worker.
-function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasActiveSemesterForReminders, onToggle, onOpenSubject, onViewAll }) {
+function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasActiveSemesterForReminders, onToggle, onOpenSubject, onOpenReminders }) {
   const counts = {
     overdue: groups.overdue.length,
     dueToday: groups.dueToday.length,
@@ -1687,13 +1729,13 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
     <div className="mb-7">
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">{captionText}</h2>
-        {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={onViewAll} />}
+        {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={() => onOpenReminders("all")} />}
       </div>
 
       {hasSemesters && !hasActiveSemesterForReminders ? (
         <button
           type="button"
-          onClick={onViewAll}
+          onClick={() => onOpenReminders("all")}
           className="w-full text-left rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-3 text-xs text-slate-500"
         >
           No semester is currently active, so there's nothing to remind you about yet. Activate a semester to start tracking its deadlines here.
@@ -1702,11 +1744,14 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
         <DashboardEmptyState icon={CheckCircle2} title="You're all caught up." />
       ) : (
         <>
+          {/* Each chip narrows the modal to its own urgency group; only
+              "View all reminders" above and the global bell open it showing
+              every group. */}
           <div className="grid grid-cols-4 gap-2 mb-3">
-            <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={onViewAll} />
-            <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={onViewAll} />
-            <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={onViewAll} />
-            <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={onViewAll} />
+            <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onOpenReminders("overdue")} />
+            <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onOpenReminders("today")} />
+            <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onOpenReminders("tomorrow")} />
+            <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={() => onOpenReminders("soon")} />
           </div>
           <div className="flex flex-col gap-2">
             {previewItems.map((a) => (
