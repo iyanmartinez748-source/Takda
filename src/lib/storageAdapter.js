@@ -36,6 +36,7 @@ function toSubject(row) {
     schedule: row.schedule || "",
     room: row.room || "",
     color: row.color || "#3D2FE0",
+    semesterId: row.semester_id ?? null,
   };
 }
 
@@ -51,6 +52,7 @@ function toActivity(row) {
     status: row.status || "pending",
     completedAt: row.completed_at || null,
     notes: "",
+    semesterId: row.semester_id ?? null,
   };
 }
 
@@ -60,6 +62,7 @@ function toNote(row) {
     subjectId: row.subject_id || null,
     body: row.body,
     updatedAt: row.updated_at,
+    semesterId: row.semester_id ?? null,
   };
 }
 
@@ -71,6 +74,7 @@ function toGrade(row) {
     category: row.category || "Quiz",
     score: Number(row.score) || 0,
     totalScore: Number(row.total_score) || 100,
+    semesterId: row.semester_id ?? null,
   };
 }
 
