@@ -242,12 +242,20 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // including null for a legacy subject, rather than the active semester,
   // so a legacy subject's children can never be pulled into whatever
   // semester happens to be active. A general (no-subject) record uses the
-  // active semester. If subjectId is set but no matching subject exists,
-  // this resolves to null rather than guessing the active semester.
+  // active semester. A non-null subjectId that doesn't resolve to a real
+  // subject is a distinct case from "subject found with semesterId null" —
+  // it throws rather than guessing the active semester, so callers can
+  // abort the creation instead of silently mis-assigning it. Callers must
+  // invoke this outside of any setState updater: a throw inside an updater
+  // runs during React's render phase and would crash the app (no error
+  // boundary exists here) instead of safely aborting.
   function semesterIdForNewChild(subjectId) {
     if (!subjectId) return activeSemesterId ?? null;
     const subject = subjects.find((s) => s.id === subjectId);
-    return subject ? (subject.semesterId ?? null) : null;
+    if (!subject) {
+      throw new Error("Selected subject could not be found.");
+    }
+    return subject.semesterId ?? null;
   }
 
   const enrichedActivities = useMemo(
@@ -405,7 +413,18 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       // record a leaves a.semesterId untouched.
       setActivities((prev) => prev.map((a) => (a.id === prepared.id ? { ...a, ...prepared } : a)));
     } else {
-      setActivities((prev) => [...prev, { ...prepared, id: uid(), semesterId: semesterIdForNewChild(prepared.subjectId) }]);
+      let semesterId;
+      try {
+        semesterId = semesterIdForNewChild(prepared.subjectId);
+      } catch (e) {
+        // Invalid subjectId — abort. Nothing is appended, no save is
+        // triggered, and returning here (before the modal-closing calls
+        // below) leaves the modal open with the user's input intact
+        // rather than silently discarding it.
+        console.error("Takda: aborted creating activity —", e.message);
+        return;
+      }
+      setActivities((prev) => [...prev, { ...prepared, id: uid(), semesterId }]);
     }
     setShowAddActivity(false);
     setEditingActivity(null);
@@ -444,14 +463,53 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       // seeds its form from the full existing grade), so a plain replace
       // preserves it unchanged.
       setGrades((prev) => prev.map((g) => (g.id === prepared.id ? prepared : g)));
-    } else {
-      setGrades((prev) => [...prev, { ...prepared, id: uid(), semesterId: semesterIdForNewChild(prepared.subjectId) }]);
+      return true;
     }
+
+    let semesterId;
+    try {
+      semesterId = semesterIdForNewChild(prepared.subjectId);
+    } catch (e) {
+      // Invalid subjectId — abort. Nothing is appended, no save is
+      // triggered. Returning false tells GradesView's handleSave not to
+      // close the modal, so the user's input isn't silently discarded.
+      console.error("Takda: aborted creating grade —", e.message);
+      return false;
+    }
+    setGrades((prev) => [...prev, { ...prepared, id: uid(), semesterId }]);
+    return true;
   }
 
   function deleteGrade(id) {
     if (!window.confirm("Delete this grade?")) return;
     setGrades((prev) => prev.filter((g) => g.id !== id));
+  }
+
+  // Returns true/false so callers only clear their own local text input on
+  // success, rather than discarding what the user typed when an invalid
+  // subjectId aborts creation.
+  function addNoteToSubject(body) {
+    let semesterId;
+    try {
+      semesterId = semesterIdForNewChild(activeSubjectId);
+    } catch (e) {
+      console.error("Takda: aborted creating note —", e.message);
+      return false;
+    }
+    setNotes((prev) => [...prev, { id: uid(), subjectId: activeSubjectId, body, updatedAt: new Date().toISOString(), semesterId }]);
+    return true;
+  }
+
+  function addNote(subjectId, body) {
+    let semesterId;
+    try {
+      semesterId = semesterIdForNewChild(subjectId);
+    } catch (e) {
+      console.error("Takda: aborted creating note —", e.message);
+      return false;
+    }
+    setNotes((prev) => [...prev, { id: uid(), subjectId, body, updatedAt: new Date().toISOString(), semesterId }]);
+    return true;
   }
 
   if (!ready) {
@@ -517,7 +575,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onEditActivity={openEditActivity}
               onDeleteActivity={deleteActivity}
               onAddActivity={() => requestAddActivity(activeSubjectId)}
-              onAddNote={(body) => setNotes((prev) => [...prev, { id: uid(), subjectId: activeSubjectId, body, updatedAt: new Date().toISOString(), semesterId: semesterIdForNewChild(activeSubjectId) }])}
+              onAddNote={addNoteToSubject}
               onEditNote={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
               onDeleteNote={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
             />
@@ -536,7 +594,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
             <NotesView
               notes={notes}
               subjectMap={subjectMap}
-              onAdd={(subjectId, body) => setNotes((prev) => [...prev, { id: uid(), subjectId, body, updatedAt: new Date().toISOString(), semesterId: semesterIdForNewChild(subjectId) }])}
+              onAdd={addNote}
               onEdit={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
               onDelete={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
               subjects={subjects}
@@ -1159,7 +1217,7 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
       <div className="flex gap-2 mb-3">
         <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
         <button
-          onClick={() => { if (noteText.trim()) { onAddNote(noteText.trim()); setNoteText(""); } }}
+          onClick={() => { if (noteText.trim() && onAddNote(noteText.trim())) setNoteText(""); }}
           className="rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
           style={{ background: "#3D2FE0" }}
         >Save</button>
@@ -1406,7 +1464,7 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects }) {
         </select>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
         <button
-          onClick={() => { if (text.trim()) { onAdd(subjectId || null, text.trim()); setText(""); } }}
+          onClick={() => { if (text.trim() && onAdd(subjectId || null, text.trim())) setText(""); }}
           className="self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98]"
           style={{ background: "#3D2FE0" }}
         >Save note</button>
@@ -1805,8 +1863,10 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete }) {
   }
 
   function handleSave(grade) {
-    onSave(grade);
-    closeModal();
+    // onSave (TakdaApp's saveGrade) returns false if creation was aborted
+    // (e.g. an unresolvable subjectId) — only close the modal on success,
+    // so an aborted save doesn't silently discard the user's input.
+    if (onSave(grade)) closeModal();
   }
 
   return (
