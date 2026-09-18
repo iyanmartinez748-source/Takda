@@ -167,6 +167,10 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [activities, setActivities] = useState([]);
   const [notes, setNotes] = useState([]);
   const [grades, setGrades] = useState([]);
+  // Stage 4C2C: hydrated for creation-time assignment only. Not part of
+  // the save effect below — storageAdapter's row builders still omit
+  // semester_id entirely, so nothing here is persisted yet.
+  const [semesters, setSemesters] = useState([]);
   const [view, setView] = useState("dashboard");
   const [activeSubjectId, setActiveSubjectId] = useState(null);
   const [showAddSubject, setShowAddSubject] = useState(false);
@@ -194,6 +198,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           setActivities(parsed.activities || []);
           setNotes(parsed.notes || []);
           setGrades(parsed.grades || []);
+          setSemesters(parsed.semesters || []);
         }
       } catch (e) {
         // no existing data yet
@@ -224,6 +229,26 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     subjects.forEach((s) => (m[s.id] = s));
     return m;
   }, [subjects]);
+
+  // Stage 4C2C: derived only, never guessed. No active semester (including
+  // "no semesters exist at all") resolves to null, exactly like today.
+  const activeSemesterId = useMemo(
+    () => semesters.find((semester) => semester.isActive)?.id ?? null,
+    [semesters]
+  );
+
+  // Creation-time semester inheritance only — never used for edits. A
+  // subject-linked record always inherits that subject's own semesterId,
+  // including null for a legacy subject, rather than the active semester,
+  // so a legacy subject's children can never be pulled into whatever
+  // semester happens to be active. A general (no-subject) record uses the
+  // active semester. If subjectId is set but no matching subject exists,
+  // this resolves to null rather than guessing the active semester.
+  function semesterIdForNewChild(subjectId) {
+    if (!subjectId) return activeSemesterId ?? null;
+    const subject = subjects.find((s) => s.id === subjectId);
+    return subject ? (subject.semesterId ?? null) : null;
+  }
 
   const enrichedActivities = useMemo(
     () =>
@@ -314,9 +339,12 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       return;
     }
     if (subj.id) {
+      // Edit: subj already carries its original semesterId (the modal
+      // seeds its form from the full existing subject), so nothing here
+      // needs to touch it — a plain replace preserves it unchanged.
       setSubjects((prev) => prev.map((s) => (s.id === subj.id ? subj : s)));
     } else {
-      setSubjects((prev) => [...prev, { ...subj, id: uid() }]);
+      setSubjects((prev) => [...prev, { ...subj, id: uid(), semesterId: activeSemesterId ?? null }]);
     }
     setShowAddSubject(false);
     setEditingSubject(null);
@@ -372,9 +400,12 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       completedAt: act.status === "completed" ? (act.completedAt || new Date().toISOString()) : null,
     };
     if (prepared.id) {
+      // Edit: prepared never carries a semesterId of its own (only the
+      // create branch below sets one), so spreading it over the existing
+      // record a leaves a.semesterId untouched.
       setActivities((prev) => prev.map((a) => (a.id === prepared.id ? { ...a, ...prepared } : a)));
     } else {
-      setActivities((prev) => [...prev, { ...prepared, id: uid() }]);
+      setActivities((prev) => [...prev, { ...prepared, id: uid(), semesterId: semesterIdForNewChild(prepared.subjectId) }]);
     }
     setShowAddActivity(false);
     setEditingActivity(null);
@@ -409,9 +440,12 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     };
 
     if (prepared.id) {
+      // Edit: prepared already carries its original semesterId (the modal
+      // seeds its form from the full existing grade), so a plain replace
+      // preserves it unchanged.
       setGrades((prev) => prev.map((g) => (g.id === prepared.id ? prepared : g)));
     } else {
-      setGrades((prev) => [...prev, { ...prepared, id: uid() }]);
+      setGrades((prev) => [...prev, { ...prepared, id: uid(), semesterId: semesterIdForNewChild(prepared.subjectId) }]);
     }
   }
 
@@ -483,7 +517,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onEditActivity={openEditActivity}
               onDeleteActivity={deleteActivity}
               onAddActivity={() => requestAddActivity(activeSubjectId)}
-              onAddNote={(body) => setNotes((prev) => [...prev, { id: uid(), subjectId: activeSubjectId, body, updatedAt: new Date().toISOString() }])}
+              onAddNote={(body) => setNotes((prev) => [...prev, { id: uid(), subjectId: activeSubjectId, body, updatedAt: new Date().toISOString(), semesterId: semesterIdForNewChild(activeSubjectId) }])}
               onEditNote={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
               onDeleteNote={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
             />
@@ -502,7 +536,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
             <NotesView
               notes={notes}
               subjectMap={subjectMap}
-              onAdd={(subjectId, body) => setNotes((prev) => [...prev, { id: uid(), subjectId, body, updatedAt: new Date().toISOString() }])}
+              onAdd={(subjectId, body) => setNotes((prev) => [...prev, { id: uid(), subjectId, body, updatedAt: new Date().toISOString(), semesterId: semesterIdForNewChild(subjectId) }])}
               onEdit={(id, body) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, body, updatedAt: new Date().toISOString() } : n)))}
               onDelete={(id) => { if (window.confirm("Delete this note?")) setNotes((prev) => prev.filter((n) => n.id !== id)); }}
               subjects={subjects}
@@ -1971,9 +2005,10 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
         <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Quiz 1" />
       </Field>
       <Field label="Subject *">
-        <select className={inputCls} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
+        <select disabled={!!grade} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
+        {grade && <p className="text-[11px] text-slate-400 mt-1">Subject is fixed after creation.</p>}
       </Field>
       <Field label="Category">
         <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
@@ -2098,10 +2133,11 @@ function ActivityModal({ activity, subjects, defaultSubjectId, defaultDeadline, 
         <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Problem Set #3" />
       </Field>
       <Field label="Subject">
-        <select className={inputCls} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
+        <select disabled={!!activity} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
           <option value="">General</option>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
+        {activity && <p className="text-[11px] text-slate-400 mt-1">Subject is fixed after creation.</p>}
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Type">
