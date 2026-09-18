@@ -165,6 +165,7 @@ async function performSave(value) {
     schedule: s.schedule || null,
     room: s.room || null,
     color: s.color || "#3D2FE0",
+    semester_id: s.semesterId ?? null,
   }));
 
   const activityRows = activities.map((a) => ({
@@ -178,6 +179,7 @@ async function performSave(value) {
     priority: a.priority || "Medium",
     status: a.status || "pending",
     completed_at: a.completedAt || null,
+    semester_id: a.semesterId ?? null,
   }));
 
   const noteRows = notes.map((n) => ({
@@ -186,6 +188,7 @@ async function performSave(value) {
     subject_id: n.subjectId || null,
     body: n.body,
     updated_at: n.updatedAt || new Date().toISOString(),
+    semester_id: n.semesterId ?? null,
   }));
 
   const gradeRows = grades.map((g) => ({
@@ -196,6 +199,7 @@ async function performSave(value) {
     category: g.category || "Quiz",
     score: Number(g.score) || 0,
     total_score: Number(g.totalScore) || 100,
+    semester_id: g.semesterId ?? null,
   }));
 
   // -------------------------
