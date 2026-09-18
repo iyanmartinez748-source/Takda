@@ -3,7 +3,7 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag, ChevronDown
+  MoreHorizontal, Flag, ChevronDown, Bell
 } from "lucide-react";
 import {
   createSemester,
@@ -198,6 +198,9 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [showSemesterManager, setShowSemesterManager] = useState(false);
   const [semesterNotice, setSemesterNotice] = useState("");
   const hasInitializedSelectedSemesterRef = useRef(false);
+  // Stage 9A: in-app-only reminders panel. No Notification permission, no
+  // service worker involvement — a plain modal like the others below.
+  const [showReminders, setShowReminders] = useState(false);
 
   useEffect(() => { loadFont(); }, []);
 
@@ -327,6 +330,48 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [activities, subjectMap]
   );
 
+  // Stage 9A: Smart Reminders are scoped to the ACTIVE semester — never
+  // selectedSemesterId (the transient viewing choice) — so browsing an
+  // archived/inactive semester never changes what the student is reminded
+  // about. This mirrors the exact same active-semester-scoping rule already
+  // used for Free-plan quota (Stage 4D): zero semesters ever created keeps
+  // legacy/no-adoption users on identical null-semesterId behavior, but once
+  // semesters exist, "no active semester" means zero reminders rather than
+  // falling back to the null/Unassigned bucket.
+  const activeSemesterName = useMemo(
+    () => semesters.find((s) => s.isActive)?.name ?? null,
+    [semesters]
+  );
+  const hasActiveSemesterForReminders = activeSemesterId !== null;
+  const reminderRelevantActivities = useMemo(() => {
+    if (semesters.length === 0) {
+      return enrichedActivities.filter((a) => (a.semesterId ?? null) === null);
+    }
+    if (activeSemesterId === null) {
+      return [];
+    }
+    return enrichedActivities.filter((a) => a.semesterId === activeSemesterId);
+  }, [enrichedActivities, semesters.length, activeSemesterId]);
+
+  // Non-completed only — urgency() already returns "done" for a completed
+  // activity, so it can never land in overdue/today/tomorrow/week below, but
+  // the computedStatus check is kept explicit rather than relied upon
+  // implicitly.
+  const reminderGroups = useMemo(() => {
+    const open = reminderRelevantActivities.filter((a) => a.computedStatus !== "completed");
+    return {
+      overdue: open.filter((a) => a.urgencyKey === "overdue"),
+      dueToday: open.filter((a) => a.urgencyKey === "today"),
+      dueTomorrow: open.filter((a) => a.urgencyKey === "tomorrow"),
+      dueSoon: open.filter((a) => a.urgencyKey === "week"),
+    };
+  }, [reminderRelevantActivities]);
+
+  // Bell badge intentionally excludes "Due Soon" (the week-out bucket) —
+  // only overdue/today/tomorrow are urgent enough to warrant a numeric badge.
+  const reminderBadgeCount =
+    reminderGroups.overdue.length + reminderGroups.dueToday.length + reminderGroups.dueTomorrow.length;
+
   // Stage 4D: view-level-only filtering by the currently SELECTED semester.
   // These derived arrays are for display alone — the save effect below still
   // sends the full, unfiltered subjects/activities/notes/grades arrays to
@@ -432,6 +477,16 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   function goToActivities(filterValue) {
     setStatusFilter(filterValue);
     setView("activities");
+  }
+
+  // Reminders panel/bell → Subject Detail. Closes the panel first so the
+  // student isn't left with a modal floating over the new view, reusing the
+  // exact same navigation Dashboard's own ActivityRow already uses.
+  function openSubjectFromReminders(subjectId) {
+    if (!subjectId) return;
+    setShowReminders(false);
+    setActiveSubjectId(subjectId);
+    setView("subject-detail");
   }
 
   function saveSubject(subj) {
@@ -763,6 +818,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           activeSemesterId={activeSemesterId}
           onSelect={setSelectedSemesterId}
           onManage={() => setShowSemesterManager(true)}
+          reminderBadgeCount={reminderBadgeCount}
+          onOpenReminders={() => setShowReminders(true)}
         />
         <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
           {saveError && (
@@ -788,6 +845,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onAddSubject={requestAddSubject}
               onFocusFilter={goToActivities}
               canCreate={canCreateInSelectedSemester}
+              reminderGroups={reminderGroups}
+              activeSemesterName={activeSemesterName}
+              hasSemesters={semesters.length > 0}
+              hasActiveSemesterForReminders={hasActiveSemesterForReminders}
+              onOpenReminders={() => setShowReminders(true)}
             />
           )}
 
@@ -927,6 +989,19 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           onArchive={handleArchiveSemester}
         />
       )}
+
+      {showReminders && (
+        <RemindersModal
+          activeSemesterName={activeSemesterName}
+          hasSemesters={semesters.length > 0}
+          hasActiveSemesterForReminders={hasActiveSemesterForReminders}
+          groups={reminderGroups}
+          onToggle={toggleComplete}
+          onOpenSubject={openSubjectFromReminders}
+          onManageSemesters={() => { setShowReminders(false); setShowSemesterManager(true); }}
+          onClose={() => setShowReminders(false)}
+        />
+      )}
     </div>
   );
 }
@@ -970,8 +1045,72 @@ function LimitReachedModal({ kind, onClose, onUpgrade }) {
   );
 }
 
+/* ---------------- Smart Reminders panel (Stage 9A — in-app only) ---------------- */
+function RemindersModal({ activeSemesterName, hasSemesters, hasActiveSemesterForReminders, groups, onToggle, onOpenSubject, onManageSemesters, onClose }) {
+  const title = hasSemesters && activeSemesterName ? `Reminders for ${activeSemesterName}` : "Smart Reminders";
+
+  const sections = [
+    { key: "overdue", label: "Overdue", items: groups.overdue },
+    { key: "dueToday", label: "Due Today", items: groups.dueToday },
+    { key: "dueTomorrow", label: "Due Tomorrow", items: groups.dueTomorrow },
+    { key: "dueSoon", label: "Due Soon", items: groups.dueSoon },
+  ].filter((s) => s.items.length > 0);
+
+  return (
+    <ModalShell title={title} onClose={onClose}>
+      {hasSemesters && !hasActiveSemesterForReminders ? (
+        <div className="rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] p-4 text-sm text-slate-500">
+          <p className="mb-3">No semester is currently active, so there's nothing to remind you about yet. Reminders will pick back up once you activate a semester.</p>
+          <button
+            type="button"
+            onClick={onManageSemesters}
+            className="rounded-lg px-3 py-2 text-sm font-semibold text-white"
+            style={{ background: "#3D2FE0" }}
+          >
+            Manage Semesters
+          </button>
+        </div>
+      ) : sections.length === 0 ? (
+        <DashboardEmptyState icon={CheckCircle2} title="You're all caught up." subtitle="No urgent deadlines right now." />
+      ) : (
+        sections.map((section) => (
+          <div key={section.key} className="mb-5 last:mb-0">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">{section.label} ({section.items.length})</h3>
+            <div className="flex flex-col gap-2">
+              {section.items.map((a) => (
+                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+    </ModalShell>
+  );
+}
+
+/* ---------------- Reminder bell (global, in-app only) ---------------- */
+// Stage 9A: pure UI — no Notification permission, no Notification API, no
+// serviceWorker.showNotification() anywhere near this component. The badge
+// is a count of derived state only.
+function ReminderBell({ count, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="relative p-1.5 -m-1.5 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-[#3D2FE0] transition-colors duration-150"
+      aria-label={count > 0 ? `Reminders — ${count} urgent` : "Reminders"}
+    >
+      <Bell size={17} />
+      {count > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[#FF5A5F] text-white text-[10px] font-bold leading-4 text-center">
+          {count > 9 ? "9+" : count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 /* ---------------- Semester switcher (global, above the content area) ---------------- */
-function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect, onManage }) {
+function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect, onManage, reminderBadgeCount = 0, onOpenReminders }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -987,9 +1126,12 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
     return (
       <div className="flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0">
         <span className="text-xs text-slate-500">No semesters set up yet.</span>
-        <button onClick={onManage} className="text-xs font-semibold text-[#3D2FE0] hover:underline">
-          + Set up semesters
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} />
+          <button onClick={onManage} className="text-xs font-semibold text-[#3D2FE0] hover:underline">
+            + Set up semesters
+          </button>
+        </div>
       </div>
     );
   }
@@ -1019,9 +1161,12 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
         <ChevronDown size={14} className="text-slate-400 shrink-0" />
       </button>
-      <button onClick={onManage} className="shrink-0 text-xs font-semibold text-[#3D2FE0] hover:underline">
-        Manage Semesters
-      </button>
+      <div className="flex items-center gap-3 shrink-0">
+        <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} />
+        <button onClick={onManage} className="text-xs font-semibold text-[#3D2FE0] hover:underline">
+          Manage Semesters
+        </button>
+      </div>
 
       {open && (
         <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[#E4E4F0] bg-white shadow-lg py-1.5">
@@ -1395,7 +1540,23 @@ const DASHBOARD_OVERDUE_VISIBLE = 3;
 const DASHBOARD_DUE_TODAY_VISIBLE = 5;
 const DASHBOARD_UPCOMING_VISIBLE = 6;
 
-function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyCompleted, onToggle, onOpenSubject, onAddSubject, onFocusFilter, canCreate = true }) {
+function Dashboard({
+  greeting,
+  contextMessage,
+  focusLists,
+  stats,
+  recentlyCompleted,
+  onToggle,
+  onOpenSubject,
+  onAddSubject,
+  onFocusFilter,
+  canCreate = true,
+  reminderGroups,
+  activeSemesterName,
+  hasSemesters,
+  hasActiveSemesterForReminders,
+  onOpenReminders,
+}) {
   const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
   const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
   const upcomingVisible = focusLists.upcoming.slice(0, DASHBOARD_UPCOMING_VISIBLE);
@@ -1412,6 +1573,16 @@ function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyComple
         <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
         <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
       </div>
+
+      <SmartRemindersSection
+        groups={reminderGroups}
+        activeSemesterName={activeSemesterName}
+        hasSemesters={hasSemesters}
+        hasActiveSemesterForReminders={hasActiveSemesterForReminders}
+        onToggle={onToggle}
+        onOpenSubject={onOpenSubject}
+        onViewAll={onOpenReminders}
+      />
 
       <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
 
@@ -1488,6 +1659,84 @@ function Dashboard({ greeting, contextMessage, focusLists, stats, recentlyComple
         </button>
       )}
     </div>
+  );
+}
+
+/* ---------------- Smart Reminders (Stage 9A — in-app only) ---------------- */
+// Purely derived-state UI: reminderGroups come from TakdaApp's
+// reminderRelevantActivities (active-semester-scoped, never
+// selectedSemesterId), and nothing here writes to storage, requests
+// Notification permission, or touches the service worker.
+function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasActiveSemesterForReminders, onToggle, onOpenSubject, onViewAll }) {
+  const counts = {
+    overdue: groups.overdue.length,
+    dueToday: groups.dueToday.length,
+    dueTomorrow: groups.dueTomorrow.length,
+    dueSoon: groups.dueSoon.length,
+  };
+  const totalUrgent = counts.overdue + counts.dueToday + counts.dueTomorrow + counts.dueSoon;
+  const captionText = hasSemesters
+    ? (activeSemesterName ? `Reminders for ${activeSemesterName}` : "Reminders")
+    : "Reminders";
+
+  // Most urgent first, capped to keep the Dashboard from turning into a
+  // second Activities list.
+  const previewItems = [...groups.overdue, ...groups.dueToday, ...groups.dueTomorrow, ...groups.dueSoon].slice(0, 3);
+
+  return (
+    <div className="mb-7">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">{captionText}</h2>
+        {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={onViewAll} />}
+      </div>
+
+      {hasSemesters && !hasActiveSemesterForReminders ? (
+        <button
+          type="button"
+          onClick={onViewAll}
+          className="w-full text-left rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-3 text-xs text-slate-500"
+        >
+          No semester is currently active, so there's nothing to remind you about yet. Activate a semester to start tracking its deadlines here.
+        </button>
+      ) : totalUrgent === 0 ? (
+        <DashboardEmptyState icon={CheckCircle2} title="You're all caught up." />
+      ) : (
+        <>
+          <div className="grid grid-cols-4 gap-2 mb-3">
+            <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={onViewAll} />
+            <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={onViewAll} />
+            <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={onViewAll} />
+            <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={onViewAll} />
+          </div>
+          <div className="flex flex-col gap-2">
+            {previewItems.map((a) => (
+              <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReminderChip({ label, value, urgencyKey, onClick }) {
+  const style = URGENCY_STYLE[urgencyKey];
+  const active = value > 0;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+      style={active ? { background: style.bg, borderColor: style.bg } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
+      aria-label={`${label} — ${value}`}
+    >
+      <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+        {value}
+      </span>
+      <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
+        {label}
+      </span>
+    </button>
   );
 }
 
