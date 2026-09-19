@@ -53,6 +53,11 @@ function toActivity(row) {
     completedAt: row.completed_at || null,
     notes: "",
     semesterId: row.semester_id ?? null,
+    // Phase 9C Stage 9C-2: dormant recurrence metadata. Always null for
+    // every activity created before this stage, and for any activity
+    // created through the current (non-recurring) UI.
+    recurrenceSeriesId: row.recurrence_series_id ?? null,
+    recurrenceRule: row.recurrence_rule ?? null,
   };
 }
 
@@ -180,6 +185,12 @@ async function performSave(value) {
     status: a.status || "pending",
     completed_at: a.completedAt || null,
     semester_id: a.semesterId ?? null,
+    // Phase 9C Stage 9C-2: dormant recurrence metadata. Recurrence
+    // generation does not exist yet, so every activity created through
+    // the current UI has no recurrenceSeriesId/recurrenceRule and both
+    // persist as null here, same as any other activity.
+    recurrence_series_id: a.recurrenceSeriesId ?? null,
+    recurrence_rule: a.recurrenceRule ?? null,
   }));
 
   const noteRows = notes.map((n) => ({
