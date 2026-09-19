@@ -1811,7 +1811,6 @@ function Dashboard({
         onToggle={onToggle}
         onOpenSubject={onOpenSubject}
         onOpenReminders={onOpenReminders}
-        onFocusFilter={onFocusFilter}
       />
 
       <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
@@ -1897,7 +1896,7 @@ function Dashboard({
 // reminderRelevantActivities (active-semester-scoped, never
 // selectedSemesterId), and nothing here writes to storage, requests
 // Notification permission, or touches the service worker.
-function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasActiveSemesterForReminders, onToggle, onOpenSubject, onOpenReminders, onFocusFilter }) {
+function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasActiveSemesterForReminders, onToggle, onOpenSubject, onOpenReminders }) {
   const counts = {
     overdue: groups.overdue.length,
     dueToday: groups.dueToday.length,
@@ -1932,17 +1931,14 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
         <DashboardEmptyState icon={CheckCircle2} title="You're all caught up." />
       ) : (
         <>
-          {/* Each chip navigates into Activities filtered to that category —
-              matching the original pre-Stage-9A Dashboard tile behavior.
-              Only "View all reminders" above and the global bell open the
-              Smart Reminders modal, showing every group. Activities has no
-              distinct "tomorrow" or "due soon" filter, so both land on its
-              broader "upcoming" bucket (tomorrow + week + later). */}
+          {/* Each chip narrows the modal to its own urgency group; only
+              "View all reminders" above and the global bell open it showing
+              every group. */}
           <div className="grid grid-cols-4 gap-2 mb-3">
-            <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onFocusFilter("overdue")} />
-            <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onFocusFilter("today")} />
-            <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onFocusFilter("upcoming")} />
-            <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={() => onFocusFilter("upcoming")} />
+            <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onOpenReminders("overdue")} />
+            <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onOpenReminders("today")} />
+            <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onOpenReminders("tomorrow")} />
+            <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={() => onOpenReminders("soon")} />
           </div>
           <div className="flex flex-col gap-2">
             {previewItems.map((a) => (
