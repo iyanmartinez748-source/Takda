@@ -1372,7 +1372,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         return new Date(b.createdAt) - new Date(a.createdAt);
       })
       .map((s) => ({ id: s.id, label: s.name, isActive: s.isActive, isArchived: !!s.archivedAt })),
-    { id: null, label: "Unassigned / Previous Data", isActive: activeSemesterId === null, isArchived: false },
+    { id: null, label: "Unassigned / Previous Data", isActive: false, isArchived: false },
   ];
 
   const current = options.find((o) => o.id === selectedSemesterId) || options[options.length - 1];
