@@ -359,6 +359,41 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return subject.semesterId ?? null;
   }
 
+  // Semester hotfix: subjects a NEW activity is allowed to reference,
+  // independent of semesterIdForNewChild (which addNote/addNoteToSubject/
+  // saveGrade still use unchanged). While viewing/creating in an active
+  // semester, an activity must only be able to attach to a subject that
+  // already belongs to that same semester — never a legacy/Unassigned
+  // subject and never a subject from a different semester — so it can
+  // never end up assigned to a subject whose own semesterId disagrees
+  // with the activity's. Zero-semesters legacy users are unrestricted, and
+  // creation is already blocked upstream whenever semesters exist but none
+  // is active, so this list is never actually rendered/used in that case.
+  const creatableSubjectsForActivity = useMemo(() => {
+    if (semesters.length === 0) return subjects;
+    if (activeSemesterId === null) return [];
+    return subjects.filter((s) => s.semesterId === activeSemesterId);
+  }, [subjects, semesters.length, activeSemesterId]);
+
+  // Semester hotfix: resolves the semesterId for a NEW activity only.
+  // Unlike semesterIdForNewChild, this never lets an activity inherit a
+  // subject's semesterId that disagrees with the currently active
+  // semester — it throws instead, so the caller can reject the creation
+  // rather than silently filing the activity under the wrong (or no)
+  // semester. Editing never calls this — an existing activity's
+  // semesterId is always preserved untouched.
+  function semesterIdForNewActivity(subjectId) {
+    if (!subjectId) return activeSemesterId ?? null;
+    const subject = subjects.find((s) => s.id === subjectId);
+    if (!subject) {
+      throw new Error("Selected subject could not be found.");
+    }
+    if (semesters.length > 0 && (subject.semesterId ?? null) !== activeSemesterId) {
+      throw new Error("Selected subject does not belong to the active semester.");
+    }
+    return subject.semesterId ?? null;
+  }
+
   const enrichedActivities = useMemo(
     () =>
       activities.map((a) => ({
@@ -723,13 +758,20 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     } else {
       let semesterId;
       try {
-        semesterId = semesterIdForNewChild(prepared.subjectId);
+        semesterId = semesterIdForNewActivity(prepared.subjectId);
       } catch (e) {
-        // Invalid subjectId — abort. Nothing is appended, no save is
-        // triggered, and returning here (before the modal-closing calls
-        // below) leaves the modal open with the user's input intact
-        // rather than silently discarding it.
+        // Invalid subjectId, or (semester hotfix) a subject that doesn't
+        // belong to the active semester — abort. Nothing is appended, no
+        // save is triggered. Closes the modal and surfaces the existing
+        // semesterNotice banner rather than silently discarding the
+        // input, since this should only be reachable via stale modal
+        // state (the dropdown itself already excludes these subjects).
         console.error("Takda: aborted creating activity —", e.message);
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setSemesterNotice(e.message);
         return;
       }
       setActivities((prev) => [...prev, { ...prepared, id: uid(), semesterId }]);
@@ -1081,6 +1123,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         <ActivityModal
           activity={editingActivity}
           subjects={subjects}
+          creatableSubjects={creatableSubjectsForActivity}
           defaultSubjectId={defaultSubjectForActivity}
           defaultDeadline={defaultDeadlineForActivity}
           onClose={() => { setShowAddActivity(false); setEditingActivity(null); setDefaultSubjectForActivity(null); setDefaultDeadlineForActivity(null); }}
@@ -3217,11 +3260,21 @@ function SubjectModal({ subject, onClose, onSave }) {
   );
 }
 
-function ActivityModal({ activity, subjects, defaultSubjectId, defaultDeadline, onClose, onSave }) {
+function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId, defaultDeadline, onClose, onSave }) {
+  // Semester hotfix: editing always shows the activity's own existing
+  // subject relationship (even a legacy/cross-semester one — the dropdown
+  // is disabled for edits regardless, per "Subject is fixed after
+  // creation" below). Creating only ever offers subjects that already
+  // belong to the semester the new activity is allowed to join, so a
+  // legacy/Unassigned or other-semester subject can never be picked.
+  const subjectOptions = activity ? subjects : (creatableSubjects || []);
   const [form, setForm] = useState(
     activity || {
       title: "",
-      subjectId: defaultSubjectId || (subjects[0] && subjects[0].id) || "",
+      subjectId:
+        (defaultSubjectId && subjectOptions.some((s) => s.id === defaultSubjectId) ? defaultSubjectId : "") ||
+        (subjectOptions[0] && subjectOptions[0].id) ||
+        "",
       type: "Assignment",
       description: "",
       deadline: defaultDeadline || formatLocalDate(new Date()),
@@ -3238,7 +3291,7 @@ function ActivityModal({ activity, subjects, defaultSubjectId, defaultDeadline, 
       <Field label="Subject">
         <select disabled={!!activity} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
           <option value="">General</option>
-          {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         {activity && <p className="text-[11px] text-slate-400 mt-1">Subject is fixed after creation.</p>}
       </Field>
