@@ -1050,6 +1050,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
                 onDelete={deleteGrade}
                 canCreate={canCreateInSelectedSemester}
                 readOnly={isSelectedSemesterArchived}
+                onBlockedCreate={() => setSemesterNotice(semesterCreationBlockedReason)}
               />
             ) : (
               <GradeLockedView onUpgrade={onUpgrade} />
@@ -1653,9 +1654,9 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
       </nav>
       <button
         onClick={onAddSubject}
-        disabled={!canCreate}
+        aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        className="mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40 disabled:hover:opacity-40"
+        className={`mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
         style={{ background: "#3D2FE0" }}
       >
         <Plus size={16} /> Add Subject
@@ -1677,8 +1678,8 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
-        disabled={!canCreate}
-        className="w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] disabled:opacity-40"
+        aria-disabled={!canCreate}
+        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
         style={{ background: "#3D2FE0" }}
         aria-label="Add activity"
         title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
@@ -2137,9 +2138,9 @@ function SubjectsView({ subjects, activities, onOpen, onAdd, canCreate = true })
         <h1 className="font-display text-2xl font-semibold">My Subjects</h1>
         <button
           onClick={onAdd}
-          disabled={!canCreate}
+          aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
           style={{ background: "#3D2FE0" }}
         >
           <Plus size={15} /> Add Subject
@@ -2206,7 +2207,7 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
 
       <div className="flex items-center justify-between mb-2.5">
         <h2 className="text-sm font-semibold text-slate-700 min-w-0 truncate">Activities ({pending.length} pending, {completed.length} completed)</h2>
-        <button onClick={onAddActivity} disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className="flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 disabled:opacity-40" style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
+        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canCreate ? "opacity-40" : ""}`} style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
         <EmptyRow text="No activities for this subject yet." />
@@ -2234,12 +2235,12 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
 
       <h2 className="text-sm font-semibold text-slate-700 mb-2.5">Notes</h2>
       <div className="flex gap-2 mb-3">
-        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} disabled={!canCreate} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400" />
+        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
         <button
           onClick={() => { if (noteText.trim() && onAddNote(noteText.trim())) setNoteText(""); }}
-          disabled={!canCreate}
+          aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a note." : undefined}
-          className="rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          className={`rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
           style={{ background: "#3D2FE0" }}
         >Save</button>
       </div>
@@ -2357,9 +2358,9 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canC
         <h1 className="font-display text-2xl font-semibold">Calendar</h1>
         <button
           onClick={() => onAddActivity(formatLocalDate(selected))}
-          disabled={!canCreate}
+          aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
           style={{ background: "#3D2FE0" }}
         >
           <Plus size={15} /> Add Activity
@@ -2481,16 +2482,16 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
     <div className="p-5 md:p-8">
       <h1 className="font-display text-2xl font-semibold mb-5">Notes</h1>
       <div className="rounded-xl bg-white border border-[#E4E4F0] p-3 mb-6 flex flex-col gap-2">
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} disabled={!canCreate} className="rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400">
+        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none">
           <option value="">General note</option>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} disabled={!canCreate} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none disabled:bg-slate-50 disabled:text-slate-400" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
         <button
           onClick={() => { if (text.trim() && onAdd(subjectId || null, text.trim())) setText(""); }}
-          disabled={!canCreate}
+          aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a note." : undefined}
-          className="self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          className={`self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
           style={{ background: "#3D2FE0" }}
         >Save note</button>
       </div>
@@ -2659,9 +2660,9 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
         <h1 className="font-display text-2xl font-semibold">All Activities</h1>
         <button
           onClick={onAdd}
-          disabled={!canCreate}
+          aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-40"
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
           style={{ background: "#3D2FE0" }}
         >
           <Plus size={15} /> Add Activity
@@ -2795,7 +2796,7 @@ function sortSubjectPerformance(list) {
   return list.slice().sort((a, b) => (a.average - b.average) || a.subject.name.localeCompare(b.subject.name));
 }
 
-function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate = true, readOnly = false }) {
+function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate = true, readOnly = false, onBlockedCreate }) {
   const [showModal, setShowModal] = useState(false);
   const [editingGrade, setEditingGrade] = useState(null);
   const [subjectFilter, setSubjectFilter] = useState("all");
@@ -2909,10 +2910,19 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
           <p className="text-sm text-slate-500 mt-1">Track your recorded scores and subject performance.</p>
         </div>
         <button
-          onClick={() => { setEditingGrade(null); setShowModal(true); }}
-          disabled={subjects.length === 0 || !canCreate}
+          onClick={() => {
+            if (subjects.length === 0) return;
+            if (!canCreate) {
+              onBlockedCreate?.();
+              return;
+            }
+            setEditingGrade(null);
+            setShowModal(true);
+          }}
+          disabled={subjects.length === 0}
+          aria-disabled={subjects.length === 0 || !canCreate}
           title={!canCreate ? "Switch to your active semester to add a grade." : undefined}
-          className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0 transition duration-150 ease-out hover:opacity-90 disabled:hover:opacity-40 motion-safe:active:scale-[0.98] disabled:active:scale-100"
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0 transition duration-150 ease-out disabled:hover:opacity-40 motion-safe:active:scale-[0.98] disabled:active:scale-100 ${!canCreate && subjects.length > 0 ? "opacity-40" : "hover:opacity-90"}`}
           style={{ background: "#3D2FE0" }}
         >
           <Plus size={15} /> Add Grade
