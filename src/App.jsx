@@ -11,6 +11,15 @@ import {
   activateSemester,
   archiveSemester,
 } from "./lib/storageAdapter";
+import {
+  getNotificationPermission,
+  getNotificationsEnabledPreference,
+  setNotificationsEnabledPreference,
+  requestNotificationPermission,
+  showDeviceNotification,
+  hasNotifiedFor,
+  markNotifiedFor,
+} from "./lib/notifications";
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
 
@@ -206,8 +215,34 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // persisted, and always explicitly reset on every open so a filter never
   // leaks from one modal opening into the next.
   const [reminderFilter, setReminderFilter] = useState("all");
+  // Stage 9B: device/browser notifications. notificationPermission mirrors
+  // the browser's real Notification.permission ("default" | "granted" |
+  // "denied" | "unsupported") — it is only ever changed by an explicit user
+  // action (the Enable button) or by a focus/visibility recheck, never
+  // requested automatically. notificationsPreferred is the device-local
+  // on/off choice (localStorage only, never synced) — browser permission
+  // stays the actual source of truth: see notificationsActive below.
+  const [notificationPermission, setNotificationPermission] = useState(() => getNotificationPermission());
+  const [notificationsPreferred, setNotificationsPreferred] = useState(() => getNotificationsEnabledPreference());
+  const notificationsActive = notificationPermission === "granted" && notificationsPreferred;
 
   useEffect(() => { loadFont(); }, []);
+
+  // Notification.permission can change outside React's knowledge (the
+  // student changes it in browser/OS settings while the tab stays open) —
+  // this only re-reads the already-current value, it never calls
+  // requestPermission() itself.
+  useEffect(() => {
+    function recheckNotificationPermission() {
+      setNotificationPermission(getNotificationPermission());
+    }
+    window.addEventListener("focus", recheckNotificationPermission);
+    document.addEventListener("visibilitychange", recheckNotificationPermission);
+    return () => {
+      window.removeEventListener("focus", recheckNotificationPermission);
+      document.removeEventListener("visibilitychange", recheckNotificationPermission);
+    };
+  }, []);
 
   // load
   useEffect(() => {
@@ -377,6 +412,43 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const reminderBadgeCount =
     reminderGroups.overdue.length + reminderGroups.dueToday.length + reminderGroups.dueTomorrow.length;
 
+  // Stage 9B: fire device notifications for the same overdue/today/tomorrow
+  // set as the bell badge — deliberately excludes "Due Soon" to avoid noise.
+  // Reuses reminderGroups as-is; no second deadline calculation exists here.
+  // Only runs at all when the student has actually enabled notifications
+  // (permission granted AND their local preference is on).
+  useEffect(() => {
+    if (!notificationsActive) return;
+    const notifiable = [...reminderGroups.overdue, ...reminderGroups.dueToday, ...reminderGroups.dueTomorrow];
+    if (notifiable.length === 0) return;
+    // Included so a permanently-overdue activity gets a gentle once-a-day
+    // nudge instead of notifying only once ever — while still never firing
+    // more than once for the same activity/category/deadline on the same
+    // calendar day, including across re-renders and refreshes.
+    const todayKey = formatLocalDate(new Date());
+    notifiable.forEach((activity) => {
+      const dedupKey = `${activity.id}|${activity.urgencyKey}|${activity.deadline}|${todayKey}`;
+      if (hasNotifiedFor(dedupKey)) return;
+      const subjectLabel = activity.subject?.name || "General";
+      const deadlineLabel = fmtDate(activity.deadline);
+      const title =
+        activity.urgencyKey === "overdue"
+          ? `Overdue: ${activity.title}`
+          : activity.urgencyKey === "today"
+          ? `Due Today: ${activity.title}`
+          : `Due Tomorrow: ${activity.title}`;
+      showDeviceNotification(title, {
+        body: `${subjectLabel} • Due ${deadlineLabel}`,
+        icon: "/takda-icon.png",
+        tag: dedupKey,
+      }).then((shown) => {
+        // Only marked once actually shown, so a transient failure never
+        // silently suppresses a real reminder forever.
+        if (shown) markNotifiedFor(dedupKey);
+      });
+    });
+  }, [reminderGroups, notificationsActive]);
+
   // Stage 4D: view-level-only filtering by the currently SELECTED semester.
   // These derived arrays are for display alone — the save effect below still
   // sends the full, unfiltered subjects/activities/notes/grades arrays to
@@ -501,6 +573,37 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     setShowReminders(false);
     setActiveSubjectId(subjectId);
     setView("subject-detail");
+  }
+
+  // Stage 9B: only ever invoked from a direct click on the "Enable" button
+  // in the Reminders panel — never on load, after login, after refresh, or
+  // after any background state change.
+  async function handleEnableNotifications() {
+    const result = await requestNotificationPermission();
+    setNotificationPermission(result);
+    if (result === "granted") {
+      setNotificationsEnabledPreference(true);
+      setNotificationsPreferred(true);
+    }
+  }
+
+  // Turns the device-local preference back off without touching the actual
+  // browser permission — the student can re-enable later without another
+  // permission prompt as long as permission is still "granted".
+  function handleDisableNotifications() {
+    setNotificationsEnabledPreference(false);
+    setNotificationsPreferred(false);
+  }
+
+  // One clearly-labeled, user-initiated test notification. Deliberately
+  // does not touch the dedup store — a test send must never suppress or be
+  // suppressed by a real deadline reminder.
+  function handleSendTestNotification() {
+    showDeviceNotification("Takda Notifications", {
+      body: "Notifications are working on this device.",
+      icon: "/takda-icon.png",
+      tag: "takda-test-notification",
+    });
   }
 
   function saveSubject(subj) {
@@ -1015,6 +1118,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           onOpenSubject={openSubjectFromReminders}
           onManageSemesters={() => { setShowReminders(false); setShowSemesterManager(true); }}
           onClose={() => setShowReminders(false)}
+          notificationPermission={notificationPermission}
+          notificationsActive={notificationsActive}
+          onEnableNotifications={handleEnableNotifications}
+          onDisableNotifications={handleDisableNotifications}
+          onSendTestNotification={handleSendTestNotification}
         />
       )}
     </div>
@@ -1071,7 +1179,22 @@ const REMINDER_FILTER_META = {
   soon: { groupKey: "dueSoon", title: "Due Soon", emptyTitle: "Nothing due soon." },
 };
 
-function RemindersModal({ filter = "all", activeSemesterName, hasSemesters, hasActiveSemesterForReminders, groups, onToggle, onOpenSubject, onManageSemesters, onClose }) {
+function RemindersModal({
+  filter = "all",
+  activeSemesterName,
+  hasSemesters,
+  hasActiveSemesterForReminders,
+  groups,
+  onToggle,
+  onOpenSubject,
+  onManageSemesters,
+  onClose,
+  notificationPermission,
+  notificationsActive,
+  onEnableNotifications,
+  onDisableNotifications,
+  onSendTestNotification,
+}) {
   const filterMeta = REMINDER_FILTER_META[filter] || null;
   const filteredItems = filterMeta ? groups[filterMeta.groupKey] : null;
 
@@ -1090,6 +1213,13 @@ function RemindersModal({ filter = "all", activeSemesterName, hasSemesters, hasA
 
   return (
     <ModalShell title={title} onClose={onClose}>
+      <NotificationSettings
+        permission={notificationPermission}
+        active={notificationsActive}
+        onEnable={onEnableNotifications}
+        onDisable={onDisableNotifications}
+        onSendTest={onSendTestNotification}
+      />
       {hasSemesters && !hasActiveSemesterForReminders ? (
         <div className="rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] p-4 text-sm text-slate-500">
           <p className="mb-3">No semester is currently active, so there's nothing to remind you about yet. Reminders will pick back up once you activate a semester.</p>
@@ -1127,6 +1257,62 @@ function RemindersModal({ filter = "all", activeSemesterName, hasSemesters, hasA
         ))
       )}
     </ModalShell>
+  );
+}
+
+/* ---------------- Device notification settings (Stage 9B) ---------------- */
+// Renders inside the Reminders panel only — never on load, never auto-shown
+// elsewhere. Permission is only ever requested from the Enable button below,
+// which is a direct user click.
+function NotificationSettings({ permission, active, onEnable, onDisable, onSendTest }) {
+  if (permission === "unsupported") {
+    return (
+      <div className="mb-4 rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 text-xs text-slate-400">
+        Notifications aren't supported on this browser or device.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-[#E4E4F0] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-slate-700">Notifications</div>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {permission === "denied"
+              ? "Notification permission was blocked. You can change this in your browser or device settings."
+              : "Get deadline alerts while Takda is active and your device supports notifications."}
+          </p>
+        </div>
+        {permission === "denied" ? null : active ? (
+          <button
+            type="button"
+            onClick={onDisable}
+            className="shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E4F0] text-slate-600 hover:bg-slate-50 transition-colors duration-150"
+          >
+            Disable
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onEnable}
+            className="shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-lg text-white hover:opacity-90 transition duration-150 ease-out"
+            style={{ background: "#3D2FE0" }}
+          >
+            Enable
+          </button>
+        )}
+      </div>
+      {active && (
+        <button
+          type="button"
+          onClick={onSendTest}
+          className="mt-2 text-[11px] font-semibold text-[#3D2FE0] hover:underline"
+        >
+          Send test notification
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -1186,7 +1372,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         return new Date(b.createdAt) - new Date(a.createdAt);
       })
       .map((s) => ({ id: s.id, label: s.name, isActive: s.isActive, isArchived: !!s.archivedAt })),
-    { id: null, label: "Unassigned / Previous Data", isActive: activeSemesterId === null, isArchived: false },
+    { id: null, label: "Unassigned / Previous Data", isActive: false, isArchived: false },
   ];
 
   const current = options.find((o) => o.id === selectedSemesterId) || options[options.length - 1];
