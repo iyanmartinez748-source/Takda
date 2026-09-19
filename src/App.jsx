@@ -20,12 +20,24 @@ import {
   hasNotifiedFor,
   markNotifiedFor,
 } from "./lib/notifications";
+import { generateRecurrenceDates, RecurrenceValidationError } from "./lib/recurrence";
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
 
 const COLORS = ["#3D2FE0", "#FF5A5F", "#16A34A", "#F59E0B", "#0EA5A4", "#DB2777", "#7C3AED", "#2563EB"];
 const TYPES = ["Assignment", "Quiz", "Exam", "Project", "Presentation", "Report", "Research", "Reading", "Other"];
 const PRIORITIES = ["Low", "Medium", "High"];
+
+// Phase 9C Stage 9C-4A: create-mode-only "Repeat" options. "" ("Does not
+// repeat") is the only value that never reaches generateRecurrenceDates —
+// every other value is one of RECURRENCE_RULES from src/lib/recurrence.js.
+const REPEAT_OPTIONS = [
+  { value: "", label: "Does not repeat" },
+  { value: "daily", label: "Every day" },
+  { value: "weekdays", label: "Weekdays (Mon–Fri)" },
+  { value: "weekends", label: "Weekends (Sat–Sun)" },
+  { value: "weekly", label: "Every week" },
+];
 
 const FREE_SUBJECT_LIMIT = 7;
 const FREE_ACTIVITY_LIMIT = 20;
@@ -394,6 +406,21 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return subject.semesterId ?? null;
   }
 
+  // Phase 9C Stage 9C-4A: wraps semesterIdForNewActivity so both the
+  // plain-create and recurring-create paths in saveActivity share one
+  // notice/cleanup behavior instead of duplicating the same try/catch.
+  // For a recurring series this is called exactly ONCE for the whole
+  // batch — never once per generated occurrence — so every occurrence
+  // ends up with the identical, already-validated semesterId.
+  function resolveNewActivitySemesterId(subjectId) {
+    try {
+      return { semesterId: semesterIdForNewActivity(subjectId) };
+    } catch (e) {
+      console.error("Takda: aborted creating activity —", e.message);
+      return { errorMessage: e.message };
+    }
+  }
+
   const enrichedActivities = useMemo(
     () =>
       activities.map((a) => ({
@@ -719,6 +746,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 
   function saveActivity(act) {
     const isNewActivity = !act.id;
+    // Phase 9C Stage 9C-4A: recurrenceRule only ever comes from the
+    // create-mode Repeat select — edit mode never exposes it, and an
+    // existing activity's own recurrenceRule is irrelevant to how a
+    // *save* of it should be handled (it's always occurrence-only).
+    const isRecurring = isNewActivity && !!act.recurrenceRule;
     if (isNewActivity) {
       if (!canCreateInSelectedSemester) {
         setShowAddActivity(false);
@@ -728,9 +760,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         setSemesterNotice(semesterCreationBlockedReason);
         return;
       }
-      if (!isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
+      if (!isRecurring && !isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
         // Block before persistence, same as subjects — editing an existing
-        // activity never hits this branch since it always has an id.
+        // activity never hits this branch since it always has an id. A
+        // recurring creation is quota-checked as a whole batch further
+        // below instead, once the number of occurrences is known.
         setShowAddActivity(false);
         setEditingActivity(null);
         setDefaultSubjectForActivity(null);
@@ -746,35 +780,115 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       setSemesterNotice("This semester is archived, so its records are read-only.");
       return;
     }
+    // repeatUntil is a create-mode-only UI input for computing occurrence
+    // dates — it is never a persisted activity field, so it's kept out of
+    // `prepared` entirely (read directly from `act` below instead).
+    const { repeatUntil, ...actWithoutRepeatUntil } = act;
     const prepared = {
-      ...act,
+      ...actWithoutRepeatUntil,
       completedAt: act.status === "completed" ? (act.completedAt || new Date().toISOString()) : null,
+      // ActivityModal's "Does not repeat" default is "", but the DB CHECK
+      // constraint on recurrence_rule only allows NULL or one of the four
+      // rule values — "" must never reach storage as-is.
+      recurrenceRule: act.recurrenceRule || null,
     };
     if (prepared.id) {
       // Edit: prepared never carries a semesterId of its own (only the
-      // create branch below sets one), so spreading it over the existing
-      // record a leaves a.semesterId untouched.
+      // create branches below set one), so spreading it over the existing
+      // record leaves a.semesterId untouched. recurrenceSeriesId and
+      // recurrenceRule are likewise carried through from the original
+      // activity untouched — editing is always occurrence-only and never
+      // regenerates or reassigns sibling occurrences in a series.
       setActivities((prev) => prev.map((a) => (a.id === prepared.id ? { ...a, ...prepared } : a)));
-    } else {
-      let semesterId;
+    } else if (isRecurring) {
+      const resolved = resolveNewActivitySemesterId(prepared.subjectId);
+      if (resolved.errorMessage) {
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setSemesterNotice(resolved.errorMessage);
+        return;
+      }
+
+      let occurrenceDates;
       try {
-        semesterId = semesterIdForNewActivity(prepared.subjectId);
+        occurrenceDates = generateRecurrenceDates({
+          startDate: prepared.deadline,
+          repeatUntil,
+          recurrenceRule: prepared.recurrenceRule,
+        });
       } catch (e) {
+        console.error("Takda: aborted creating recurring activity —", e);
+        const message =
+          e instanceof RecurrenceValidationError
+            ? e.code === "too_many_occurrences"
+              ? "This repeat schedule creates more than 50 activities. Choose a shorter date range."
+              : e.message
+            : "Something went wrong generating this repeat schedule. Please try again.";
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setSemesterNotice(message);
+        return;
+      }
+
+      if (occurrenceDates.length === 0) {
+        // A structurally valid rule/range can still match nothing (e.g.
+        // "Weekdays" over a Saturday-to-Sunday range) — this is a valid
+        // empty result from the generator, not an error, so nothing is
+        // created and the student is told why rather than seeing silence.
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setSemesterNotice("No dates match this repeat schedule. Choose a different date range.");
+        return;
+      }
+
+      if (!isPro && activeSemesterActivityCount + occurrenceDates.length > FREE_ACTIVITY_LIMIT) {
+        // Whole-batch quota check: either every occurrence fits under the
+        // remaining Free quota, or none are created — never a partial
+        // series just to reach the limit.
+        setShowAddActivity(false);
+        setEditingActivity(null);
+        setDefaultSubjectForActivity(null);
+        setDefaultDeadlineForActivity(null);
+        setLimitNotice("activities");
+        return;
+      }
+
+      // One shared series id and one shared, already-validated semesterId
+      // for the whole batch — resolved exactly once above, never
+      // re-derived per generated date. Everything except id/deadline is
+      // identical across every occurrence.
+      const recurrenceSeriesId = uid();
+      const occurrences = occurrenceDates.map((deadline) => ({
+        ...prepared,
+        id: uid(),
+        deadline,
+        semesterId: resolved.semesterId,
+        recurrenceSeriesId,
+      }));
+      setActivities((prev) => [...prev, ...occurrences]);
+    } else {
+      const resolved = resolveNewActivitySemesterId(prepared.subjectId);
+      if (resolved.errorMessage) {
         // Invalid subjectId, or (semester hotfix) a subject that doesn't
         // belong to the active semester — abort. Nothing is appended, no
         // save is triggered. Closes the modal and surfaces the existing
         // semesterNotice banner rather than silently discarding the
         // input, since this should only be reachable via stale modal
         // state (the dropdown itself already excludes these subjects).
-        console.error("Takda: aborted creating activity —", e.message);
         setShowAddActivity(false);
         setEditingActivity(null);
         setDefaultSubjectForActivity(null);
         setDefaultDeadlineForActivity(null);
-        setSemesterNotice(e.message);
+        setSemesterNotice(resolved.errorMessage);
         return;
       }
-      setActivities((prev) => [...prev, { ...prepared, id: uid(), semesterId }]);
+      setActivities((prev) => [...prev, { ...prepared, id: uid(), semesterId: resolved.semesterId }]);
     }
     setShowAddActivity(false);
     setEditingActivity(null);
@@ -3281,8 +3395,18 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
       priority: "Medium",
       status: "pending",
       notes: "",
+      // Phase 9C Stage 9C-4A: create-mode-only recurrence inputs. "" means
+      // "Does not repeat" — repeatUntil is only ever read/required once a
+      // real rule is selected below.
+      recurrenceRule: "",
+      repeatUntil: "",
     }
   );
+  // Repeat/Repeat-until are create-mode only — editing an existing
+  // occurrence never exposes or changes them (see saveActivity).
+  const isRecurring = !activity && !!form.recurrenceRule;
+  const repeatUntilInvalid =
+    isRecurring && (!form.repeatUntil || parseLocalDate(form.repeatUntil) < parseLocalDate(form.deadline));
   return (
     <ModalShell title={activity ? "Edit Activity" : "Add Activity"} onClose={onClose}>
       <Field label="Title *">
@@ -3319,11 +3443,30 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
           <input type="date" className={inputCls} value={form.deadline?.slice(0,10)} onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
         </Field>
       </div>
+      {!activity && (
+        <Field label="Repeat">
+          <select
+            className={inputCls}
+            value={form.recurrenceRule}
+            onChange={(e) => setForm({ ...form, recurrenceRule: e.target.value, repeatUntil: e.target.value ? form.repeatUntil : "" })}
+          >
+            {REPEAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+      )}
+      {isRecurring && (
+        <Field label="Repeat until *">
+          <input type="date" className={inputCls} value={form.repeatUntil} onChange={(e) => setForm({ ...form, repeatUntil: e.target.value })} />
+          {form.repeatUntil && repeatUntilInvalid && (
+            <p className="text-[11px] text-[#B91C1C] mt-1">Repeat until must be on or after the deadline.</p>
+          )}
+        </Field>
+      )}
       <Field label="Description">
         <textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional details…" />
       </Field>
       <button
-        disabled={!form.title.trim() || !form.deadline}
+        disabled={!form.title.trim() || !form.deadline || repeatUntilInvalid}
         onClick={() => onSave({ ...form, title: form.title.trim(), description: form.description.trim() })}
         className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
         style={{ background: "#3D2FE0" }}
