@@ -1,0 +1,27 @@
+{
+  "name": "takda-commercial",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Isolated Remotion project that renders the Takda promotional commercial. Not part of the Takda web app build.",
+  "scripts": {
+    "start": "remotion studio",
+    "preview": "remotion studio",
+    "build": "npm run render:vertical && npm run render:landscape",
+    "render:vertical": "remotion render TakdaVertical out/takda-vertical.mp4",
+    "render:landscape": "remotion render TakdaLandscape out/takda-landscape.mp4",
+    "still": "remotion still TakdaLandscape out/still.png",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.526",
+    "@remotion/fonts": "4.0.526",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.526"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  }
+}
