@@ -10,6 +10,9 @@
     "build": "npm run render:vertical && npm run render:landscape",
     "render:vertical": "remotion render TakdaVertical out/takda-vertical.mp4",
     "render:landscape": "remotion render TakdaLandscape out/takda-landscape.mp4",
+    "build:v2": "npm run render:v2:vertical && npm run render:v2:landscape",
+    "render:v2:vertical": "remotion render TakdaCommercialV2Vertical out/takda-commercial-v2-vertical.mp4",
+    "render:v2:landscape": "remotion render TakdaCommercialV2Landscape out/takda-commercial-v2-landscape.mp4",
     "still": "remotion still TakdaLandscape out/still.png",
     "upgrade": "remotion upgrade"
   },
