@@ -83,6 +83,22 @@ function toGrade(row) {
   };
 }
 
+// Phase 9D Stage 9D-2: subject class schedule foundation. Pure DB->frontend
+// mapping only — no UI reads this yet. One row = one weekday's recurring
+// class session for a subject (see supabase/migrations for the schema).
+function toSubjectSchedule(row) {
+  return {
+    id: row.id,
+    subjectId: row.subject_id,
+    dayOfWeek: row.day_of_week,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    location: row.location || "",
+    reminderMinutes: row.reminder_minutes,
+    notificationsEnabled: row.notifications_enabled,
+  };
+}
+
 function toSemester(row) {
   return {
     id: row.id,
@@ -161,6 +177,10 @@ async function performSave(value) {
   const activities = parsed.activities || [];
   const notes = parsed.notes || [];
   const grades = parsed.grades || [];
+  // Phase 9D Stage 9D-2: storage support only — App.jsx does not yet set
+  // parsed.subjectSchedules, so this is always [] until a later stage
+  // wires up the UI/state for it.
+  const subjectSchedules = parsed.subjectSchedules || [];
 
   const subjectRows = subjects.map((s) => ({
     id: s.id,
@@ -213,6 +233,21 @@ async function performSave(value) {
     semester_id: g.semesterId ?? null,
   }));
 
+  // Phase 9D Stage 9D-2: storage support only. No semester_id here —
+  // a schedule's semester context is always inherited transitively
+  // through its subject, never stored redundantly on the schedule row.
+  const subjectScheduleRows = subjectSchedules.map((sch) => ({
+    id: sch.id,
+    user_id: user.id,
+    subject_id: sch.subjectId,
+    day_of_week: sch.dayOfWeek,
+    start_time: sch.startTime,
+    end_time: sch.endTime,
+    location: sch.location || null,
+    reminder_minutes: sch.reminderMinutes ?? 15,
+    notifications_enabled: sch.notificationsEnabled ?? true,
+  }));
+
   // -------------------------
   // UPSERT CURRENT DATA
   // -------------------------
@@ -263,6 +298,17 @@ async function performSave(value) {
     console.log(`Takda: saved ${gradeRows.length} grade(s).`);
   }
 
+  if (subjectScheduleRows.length > 0) {
+    const { error } = await supabase
+      .from("subject_schedules")
+      .upsert(subjectScheduleRows, { onConflict: "id" });
+
+    if (error) {
+      console.error("Takda SUBJECT SCHEDULE save error:", error);
+      throw error;
+    }
+  }
+
   // -------------------------
   // DELETE REMOVED DATA
   // -------------------------
@@ -285,6 +331,12 @@ async function performSave(value) {
     "grades",
     user.id,
     grades.map((g) => g.id)
+  );
+
+  await deleteRemovedRows(
+    "subject_schedules",
+    user.id,
+    subjectSchedules.map((sch) => sch.id)
   );
 
   await deleteRemovedRows(
@@ -414,7 +466,7 @@ export function installSupabaseStorageAdapter() {
         return null;
       }
 
-      const [subjectsRes, activitiesRes, notesRes, gradesRes, semestersRes] =
+      const [subjectsRes, activitiesRes, notesRes, gradesRes, semestersRes, subjectSchedulesRes] =
         await Promise.all([
           supabase
             .from("subjects")
@@ -448,6 +500,15 @@ export function installSupabaseStorageAdapter() {
             .select("*")
             .eq("user_id", user.id)
             .order("created_at"),
+
+          // Phase 9D Stage 9D-2: loaded alongside everything else so the
+          // adapter is ready ahead of the UI, but App.jsx does not read
+          // parsed.subjectSchedules yet in this stage.
+          supabase
+            .from("subject_schedules")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at"),
         ]);
 
       if (subjectsRes.error) throw subjectsRes.error;
@@ -455,8 +516,9 @@ export function installSupabaseStorageAdapter() {
       if (notesRes.error) throw notesRes.error;
       if (gradesRes.error) throw gradesRes.error;
       if (semestersRes.error) throw semestersRes.error;
+      if (subjectSchedulesRes.error) throw subjectSchedulesRes.error;
 
-      // Only after ALL five tables successfully load
+      // Only after ALL six tables successfully load
       // do we allow database synchronization.
       hydratedUserId = user.id;
 
@@ -467,6 +529,7 @@ export function installSupabaseStorageAdapter() {
           notes: (notesRes.data || []).map(toNote),
           grades: (gradesRes.data || []).map(toGrade),
           semesters: (semestersRes.data || []).map(toSemester),
+          subjectSchedules: (subjectSchedulesRes.data || []).map(toSubjectSchedule),
         }),
       };
     },
