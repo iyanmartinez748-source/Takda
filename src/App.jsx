@@ -194,6 +194,13 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [activities, setActivities] = useState([]);
   const [notes, setNotes] = useState([]);
   const [grades, setGrades] = useState([]);
+  // Phase 9D Stage 9D-3: structured per-subject class schedule rows. One
+  // row = one weekday's recurring class session (see storageAdapter's
+  // toSubjectSchedule/subjectScheduleRows for the DB shape). Editing UI
+  // groups rows that share identical time/location/reminder/notification
+  // values back into one multi-day form group; saving re-expands each
+  // group into one row per selected weekday.
+  const [subjectSchedules, setSubjectSchedules] = useState([]);
   // Stage 4C2C: hydrated for creation-time assignment only. Not part of
   // the save effect below — storageAdapter's row builders still omit
   // semester_id entirely, so nothing here is persisted yet.
@@ -268,6 +275,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           setNotes(parsed.notes || []);
           setGrades(parsed.grades || []);
           setSemesters(parsed.semesters || []);
+          setSubjectSchedules(parsed.subjectSchedules || []);
         }
       } catch (e) {
         // no existing data yet
@@ -284,14 +292,14 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       try {
         const result = await window.storage.set(
           "takda-app-data",
-          JSON.stringify({ subjects, activities, notes, grades })
+          JSON.stringify({ subjects, activities, notes, grades, subjectSchedules })
         );
         setSaveError(!result);
       } catch (e) {
         setSaveError(true);
       }
     })();
-  }, [subjects, activities, notes, grades, ready]);
+  }, [subjects, activities, notes, grades, subjectSchedules, ready]);
 
   const subjectMap = useMemo(() => {
     const m = {};
@@ -668,8 +676,12 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     });
   }
 
-  function saveSubject(subj) {
+  // scheduleGroups: the Class Schedule UI groups from SubjectModal (see
+  // normalizeGroupsToRows) — always normalized into one subject_schedules
+  // row per selected weekday before being written to state.
+  function saveSubject(subj, scheduleGroups = []) {
     const isNewSubject = !subj.id;
+    let savedSubjectId;
     if (isNewSubject) {
       if (!canCreateInSelectedSemester) {
         setShowAddSubject(false);
@@ -686,7 +698,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         setLimitNotice("subjects");
         return;
       }
-      setSubjects((prev) => [...prev, { ...subj, id: uid(), semesterId: activeSemesterId ?? null }]);
+      savedSubjectId = uid();
+      setSubjects((prev) => [...prev, { ...subj, id: savedSubjectId, semesterId: activeSemesterId ?? null }]);
     } else {
       if (isSemesterArchived(subj.semesterId)) {
         setShowAddSubject(false);
@@ -697,8 +710,14 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       // Edit: subj already carries its original semesterId (the modal
       // seeds its form from the full existing subject), so nothing here
       // needs to touch it — a plain replace preserves it unchanged.
+      savedSubjectId = subj.id;
       setSubjects((prev) => prev.map((s) => (s.id === subj.id ? subj : s)));
     }
+    const normalizedScheduleRows = normalizeGroupsToRows(scheduleGroups, savedSubjectId);
+    setSubjectSchedules((prev) => [
+      ...prev.filter((s) => s.subjectId !== savedSubjectId),
+      ...normalizedScheduleRows,
+    ]);
     setShowAddSubject(false);
     setEditingSubject(null);
   }
@@ -713,6 +732,9 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     setActivities((prev) => prev.filter((a) => a.subjectId !== id));
     setNotes((prev) => prev.filter((n) => n.subjectId !== id));
     setGrades((prev) => prev.filter((g) => g.subjectId !== id));
+    // Database cascade already removes subject_schedules for this subject —
+    // this only prevents a ghost entry from lingering in frontend state.
+    setSubjectSchedules((prev) => prev.filter((sch) => sch.subjectId !== id));
     setActiveSubjectId(null);
     setView("subjects");
   }
@@ -1228,6 +1250,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       {(showAddSubject) && (
         <SubjectModal
           subject={editingSubject}
+          schedules={editingSubject ? subjectSchedules.filter((s) => s.subjectId === editingSubject.id) : []}
           onClose={() => { setShowAddSubject(false); setEditingSubject(null); }}
           onSave={saveSubject}
         />
@@ -3339,8 +3362,195 @@ function Field({ label, children }) {
 }
 const inputCls = "rounded-lg border border-[#E4E4F0] px-3 py-2.5 text-sm outline-none focus:border-[#3D2FE0]";
 
-function SubjectModal({ subject, onClose, onSave }) {
+// Phase 9D Stage 9D-3: Class Schedule UI helpers. Legacy subjects.schedule
+// and subjects.room (the free-text fields above) are never read, written,
+// or converted by any of this — they stay exactly as the student left them.
+// Display order is Mon..Sun; the stored dayOfWeek value stays the existing
+// DB convention (Date.getDay(): Sunday = 0 .. Saturday = 6).
+const SCHEDULE_WEEKDAYS = [
+  { label: "Mon", value: 1 },
+  { label: "Tue", value: 2 },
+  { label: "Wed", value: 3 },
+  { label: "Thu", value: 4 },
+  { label: "Fri", value: 5 },
+  { label: "Sat", value: 6 },
+  { label: "Sun", value: 0 },
+];
+const SCHEDULE_WEEKDAY_ORDER = SCHEDULE_WEEKDAYS.map((d) => d.value);
+
+const REMINDER_OPTIONS = [
+  { label: "At class time", value: 0 },
+  { label: "5 minutes before", value: 5 },
+  { label: "15 minutes before", value: 15 },
+  { label: "30 minutes before", value: 30 },
+  { label: "1 hour before", value: 60 },
+];
+
+function sortDays(days) {
+  return [...days].sort((a, b) => SCHEDULE_WEEKDAY_ORDER.indexOf(a) - SCHEDULE_WEEKDAY_ORDER.indexOf(b));
+}
+
+function newScheduleGroup() {
+  return {
+    localId: uid(),
+    days: [],
+    startTime: "08:00",
+    endTime: "09:00",
+    location: "",
+    reminderMinutes: 15,
+    notificationsEnabled: true,
+    rowIdByDay: {},
+  };
+}
+
+// Groups existing subject_schedules rows for ONE subject back into UI
+// groups, purely for editing convenience. Rows only merge into the same
+// group when startTime, endTime, location, reminderMinutes, and
+// notificationsEnabled are all identical — anything else stays its own
+// group, so logically different schedules never get merged into one.
+function groupSchedulesForForm(schedules) {
+  const groups = [];
+  const byKey = new Map();
+  schedules.forEach((row) => {
+    const key = [row.startTime, row.endTime, row.location || "", row.reminderMinutes, row.notificationsEnabled].join("|");
+    let group = byKey.get(key);
+    if (!group) {
+      group = {
+        localId: uid(),
+        days: [],
+        startTime: row.startTime,
+        endTime: row.endTime,
+        location: row.location || "",
+        reminderMinutes: row.reminderMinutes,
+        notificationsEnabled: row.notificationsEnabled,
+        rowIdByDay: {},
+      };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.days.push(row.dayOfWeek);
+    group.rowIdByDay[row.dayOfWeek] = row.id;
+  });
+  groups.forEach((g) => { g.days = sortDays(g.days); });
+  return groups;
+}
+
+// Re-expands UI groups into one subject_schedules row per selected weekday.
+// A day that already had a row in this group keeps its original id (an
+// upsert/update); a newly selected day gets a fresh id (an insert). A day
+// dropped from every group simply has no row here, so the storage adapter's
+// deleteRemovedRows sync deletes it.
+function normalizeGroupsToRows(groups, subjectId) {
+  const rows = [];
+  groups.forEach((group) => {
+    group.days.forEach((day) => {
+      rows.push({
+        id: group.rowIdByDay?.[day] || uid(),
+        subjectId,
+        dayOfWeek: day,
+        startTime: group.startTime,
+        endTime: group.endTime,
+        location: (group.location || "").trim(),
+        reminderMinutes: group.reminderMinutes,
+        notificationsEnabled: group.notificationsEnabled,
+      });
+    });
+  });
+  return rows;
+}
+
+function isScheduleGroupValid(group) {
+  return group.days.length > 0 && !!group.startTime && !!group.endTime && group.startTime < group.endTime;
+}
+
+function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
+  const noDays = group.days.length === 0;
+  const invalidRange = !!group.startTime && !!group.endTime && group.startTime >= group.endTime;
+
+  return (
+    <div className="rounded-xl border border-[#E4E4F0] p-3">
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-xs font-semibold text-slate-500">Schedule Group {index + 1}</span>
+        <button type="button" onClick={onRemove} aria-label="Remove schedule" className="p-1.5 -m-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150">
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {SCHEDULE_WEEKDAYS.map((day) => {
+          const active = group.days.includes(day.value);
+          return (
+            <button
+              key={day.value}
+              type="button"
+              onClick={() => onToggleDay(day.value)}
+              aria-pressed={active}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors duration-150 ${active ? "text-white border-transparent" : "text-slate-500 border-[#E4E4F0] bg-white"}`}
+              style={active ? { background: "#3D2FE0" } : undefined}
+            >
+              {day.label}
+            </button>
+          );
+        })}
+      </div>
+      {noDays && <p className="text-[11px] text-red-500 mb-2.5">Select at least one day.</p>}
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <Field label="Start Time">
+          <input type="time" className={inputCls} value={group.startTime} onChange={(e) => onChange({ startTime: e.target.value })} />
+        </Field>
+        <Field label="End Time">
+          <input type="time" className={inputCls} value={group.endTime} onChange={(e) => onChange({ endTime: e.target.value })} />
+        </Field>
+      </div>
+      {invalidRange && <p className="text-[11px] text-red-500 -mt-2 mb-2.5">End time must be after start time.</p>}
+
+      <Field label="Location / Room (optional)">
+        <input className={inputCls} value={group.location} onChange={(e) => onChange({ location: e.target.value })} placeholder="e.g. Room 203" />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <Field label="Reminder">
+          <select className={inputCls} value={group.reminderMinutes} onChange={(e) => onChange({ reminderMinutes: Number(e.target.value) })}>
+            {REMINDER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        </Field>
+        <label className="flex items-center gap-2 mt-5 text-xs font-medium text-slate-600 select-none">
+          <input
+            type="checkbox"
+            checked={group.notificationsEnabled}
+            onChange={(e) => onChange({ notificationsEnabled: e.target.checked })}
+            className="w-4 h-4 rounded border-[#E4E4F0] accent-[#3D2FE0]"
+          />
+          Class notification
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function SubjectModal({ subject, schedules = [], onClose, onSave }) {
   const [form, setForm] = useState(subject || { name: "", teacher: "", schedule: "", room: "", color: COLORS[0] });
+  const [groups, setGroups] = useState(() => groupSchedulesForForm(schedules));
+
+  function updateGroup(localId, patch) {
+    setGroups((prev) => prev.map((g) => (g.localId === localId ? { ...g, ...patch } : g)));
+  }
+
+  function toggleGroupDay(localId, day) {
+    setGroups((prev) => prev.map((g) => {
+      if (g.localId !== localId) return g;
+      const days = g.days.includes(day) ? g.days.filter((d) => d !== day) : sortDays([...g.days, day]);
+      return { ...g, days };
+    }));
+  }
+
+  function removeGroup(localId) {
+    setGroups((prev) => prev.filter((g) => g.localId !== localId));
+  }
+
+  const hasInvalidGroup = groups.some((g) => !isScheduleGroupValid(g));
+
   return (
     <ModalShell title={subject ? "Edit Subject" : "Add Subject"} onClose={onClose}>
       <Field label="Subject Name *">
@@ -3362,9 +3572,44 @@ function SubjectModal({ subject, onClose, onSave }) {
           ))}
         </div>
       </Field>
+
+      <div className="mt-1 mb-3.5 border-t border-[#E4E4F0] pt-3.5">
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-sm font-semibold text-[#1B1B2F]">Class Schedule</span>
+          <button
+            type="button"
+            onClick={() => setGroups((prev) => [...prev, newScheduleGroup()])}
+            className="flex items-center gap-1 text-xs font-semibold"
+            style={{ color: "#3D2FE0" }}
+          >
+            <Plus size={13} /> Add Schedule
+          </button>
+        </div>
+
+        {groups.length === 0 ? (
+          <p className="text-xs text-slate-400">No class times added yet. Optional — add one to get reminders before class.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {groups.map((group, idx) => (
+              <ScheduleGroupCard
+                key={group.localId}
+                index={idx}
+                group={group}
+                onChange={(patch) => updateGroup(group.localId, patch)}
+                onToggleDay={(day) => toggleGroupDay(group.localId, day)}
+                onRemove={() => removeGroup(group.localId)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       <button
-        disabled={!form.name.trim()}
-        onClick={() => onSave({ ...form, name: form.name.trim(), teacher: form.teacher.trim(), room: form.room.trim() })}
+        disabled={!form.name.trim() || hasInvalidGroup}
+        onClick={() => onSave(
+          { ...form, name: form.name.trim(), teacher: form.teacher.trim(), room: form.room.trim() },
+          groups
+        )}
         className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
         style={{ background: "#3D2FE0" }}
       >
