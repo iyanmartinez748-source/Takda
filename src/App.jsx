@@ -463,6 +463,39 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return enrichedActivities.filter((a) => a.semesterId === activeSemesterId);
   }, [enrichedActivities, semesters.length, activeSemesterId]);
 
+  // Phase 9D Stage 9D-4A: Today's Classes / Next Class are scoped to the
+  // ACTIVE semester using the exact same rule as Smart Reminders just above
+  // (reminderRelevantActivities) — zero semesters ever created keeps
+  // legacy/no-adoption users seeing their null-semesterId subjects' classes
+  // exactly as before, but once semesters exist, "no active semester" means
+  // zero current classes rather than falling back to the Unassigned bucket.
+  // Purely derived — subjectSchedules itself is never filtered or mutated.
+  const currentSemesterSubjectIds = useMemo(() => {
+    if (semesters.length === 0) {
+      return new Set(subjects.filter((s) => (s.semesterId ?? null) === null).map((s) => s.id));
+    }
+    if (activeSemesterId === null) return new Set();
+    return new Set(subjects.filter((s) => s.semesterId === activeSemesterId).map((s) => s.id));
+  }, [subjects, semesters.length, activeSemesterId]);
+
+  const currentSemesterSchedules = useMemo(
+    () => subjectSchedules.filter((row) => currentSemesterSubjectIds.has(row.subjectId)),
+    [subjectSchedules, currentSemesterSubjectIds]
+  );
+
+  const todaysClasses = useMemo(() => {
+    const todayDow = new Date().getDay();
+    return currentSemesterSchedules
+      .filter((row) => row.dayOfWeek === todayDow)
+      .map((row) => ({ ...row, subject: subjectMap[row.subjectId] }))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  }, [currentSemesterSchedules, subjectMap]);
+
+  const nextClass = useMemo(
+    () => findNextClass(currentSemesterSchedules, subjectMap),
+    [currentSemesterSchedules, subjectMap]
+  );
+
   // Non-completed only — urgency() already returns "done" for a completed
   // activity, so it can never land in overdue/today/tomorrow/week below, but
   // the computedStatus check is kept explicit rather than relied upon
@@ -1145,6 +1178,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               hasSemesters={semesters.length > 0}
               hasActiveSemesterForReminders={hasActiveSemesterForReminders}
               onOpenReminders={openReminders}
+              nextClass={nextClass}
+              todaysClasses={todaysClasses}
             />
           )}
 
@@ -1152,6 +1187,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
             <SubjectsView
               subjects={viewSubjects}
               activities={viewEnrichedActivities}
+              subjectSchedules={subjectSchedules}
               onOpen={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAdd={requestAddSubject}
               canCreate={canCreateInSelectedSemester}
@@ -1163,6 +1199,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               subject={subjectMap[activeSubjectId]}
               activities={viewEnrichedActivities.filter((a) => a.subjectId === activeSubjectId)}
               notes={viewNotes.filter((n) => n.subjectId === activeSubjectId)}
+              schedules={subjectSchedules.filter((s) => s.subjectId === activeSubjectId)}
               onBack={() => setView("subjects")}
               onEditSubject={() => { setEditingSubject(subjectMap[activeSubjectId]); setShowAddSubject(true); }}
               onDeleteSubject={() => deleteSubject(activeSubjectId)}
@@ -1965,6 +2002,8 @@ function Dashboard({
   hasSemesters,
   hasActiveSemesterForReminders,
   onOpenReminders,
+  nextClass,
+  todaysClasses,
 }) {
   const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
   const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
@@ -1982,6 +2021,9 @@ function Dashboard({
         <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
         <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
       </div>
+
+      <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
+      <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
 
       <SmartRemindersSection
         groups={reminderGroups}
@@ -2256,6 +2298,71 @@ function EmptyRow({ text }) {
   return <div className="text-sm text-slate-400 rounded-xl bg-white border border-dashed border-[#E4E4F0] py-4 px-4 mb-7 text-center">{text}</div>;
 }
 
+/* ---------------- Phase 9D Stage 9D-4A: Dashboard class schedule ---------------- */
+// nextClass/todaysClasses are purely derived (see findNextClass /
+// TakdaApp's currentSemesterSchedules) — nothing here reads or writes
+// subjectSchedules, and nothing here handles notification delivery.
+function NextClassCard({ nextClass, onOpenSubject }) {
+  return (
+    <div className="mb-7">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Next Class</h2>
+      {!nextClass ? (
+        <DashboardEmptyState title="No upcoming classes." subtitle="Add a class schedule from Add/Edit Subject to see it here." />
+      ) : (
+        <button
+          type="button"
+          onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
+          className="w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300 hover:shadow-sm"
+        >
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nextClass.subject?.color || "#3D2FE0" }} />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold truncate">{nextClass.subject?.name || "Untitled Subject"}</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]}
+              {" • "}
+              {formatScheduleTime(nextClass.startTime)}
+            </div>
+            {nextClass.location && (
+              <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><MapPin size={11} />{nextClass.location}</div>
+            )}
+          </div>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TodaysClassesSection({ classes, onOpenSubject }) {
+  return (
+    <div className="mb-7">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Today's Classes</h2>
+      {classes.length === 0 ? (
+        <DashboardEmptyState title="No classes scheduled for today." />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {classes.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => row.subject && onOpenSubject(row.subject.id)}
+              className="w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300"
+            >
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: row.subject?.color || "#3D2FE0" }} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold truncate">{row.subject?.name || "Untitled Subject"}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
+                {row.location && (
+                  <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><MapPin size={11} />{row.location}</div>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TypeChip({ type }) {
   if (!type) return null;
   return (
@@ -2311,7 +2418,7 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
 }
 
 /* ---------------- Subjects ---------------- */
-function SubjectsView({ subjects, activities, onOpen, onAdd, canCreate = true }) {
+function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onAdd, canCreate = true }) {
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between mb-5">
@@ -2334,6 +2441,7 @@ function SubjectsView({ subjects, activities, onOpen, onAdd, canCreate = true })
             const subActs = activities.filter((a) => a.subjectId === s.id);
             const pending = subActs.filter((a) => a.computedStatus !== "completed").length;
             const completed = subActs.filter((a) => a.computedStatus === "completed").length;
+            const subSchedules = subjectSchedules.filter((row) => row.subjectId === s.id);
             return (
               <button
                 key={s.id}
@@ -2344,8 +2452,11 @@ function SubjectsView({ subjects, activities, onOpen, onAdd, canCreate = true })
                   <span className="w-3 h-3 rounded-full shrink-0" style={{ background: s.color }} />
                   <span className="font-display text-lg font-semibold truncate">{s.name}</span>
                 </div>
-                {s.teacher && <div className="text-xs text-slate-500 mb-1 flex items-center gap-1"><User size={12} />{s.teacher}</div>}
-                {s.schedule && <div className="text-xs text-slate-500 mb-3 flex items-center gap-1"><Clock size={12} />{s.schedule}</div>}
+                <div className="mb-3">
+                  {s.teacher && <div className="text-xs text-slate-500 mb-1 flex items-center gap-1"><User size={12} />{s.teacher}</div>}
+                  {s.schedule && <div className="text-xs text-slate-500 mb-1 flex items-center gap-1"><Clock size={12} />{s.schedule}</div>}
+                  {subSchedules.length > 0 && <SubjectScheduleSummary schedules={subSchedules} />}
+                </div>
                 <div className="flex gap-4 text-xs font-semibold">
                   <span className="text-amber-600">{pending} Pending</span>
                   <span className="text-emerald-600">{completed} Completed</span>
@@ -2359,7 +2470,7 @@ function SubjectsView({ subjects, activities, onOpen, onAdd, canCreate = true })
   );
 }
 
-function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote, canCreate = true, readOnly = false }) {
+function SubjectDetail({ subject, activities, notes, schedules = [], onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote, canCreate = true, readOnly = false }) {
   const [noteText, setNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState("");
@@ -2379,10 +2490,17 @@ function SubjectDetail({ subject, activities, notes, onBack, onEditSubject, onDe
           <button onClick={onDeleteSubject} disabled={readOnly} aria-label="Delete subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] text-red-500 transition-colors duration-150 hover:bg-red-50 disabled:opacity-40"><Trash2 size={14} /></button>
         </div>
       </div>
-      <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-6">
-        {subject.teacher && <span className="flex items-center gap-1"><User size={12} />{subject.teacher}</span>}
-        {subject.schedule && <span className="flex items-center gap-1"><Clock size={12} />{subject.schedule}</span>}
-        {subject.room && <span className="flex items-center gap-1"><MapPin size={12} />{subject.room}</span>}
+      <div className="mb-6">
+        <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+          {subject.teacher && <span className="flex items-center gap-1"><User size={12} />{subject.teacher}</span>}
+          {subject.schedule && <span className="flex items-center gap-1"><Clock size={12} />{subject.schedule}</span>}
+          {subject.room && <span className="flex items-center gap-1"><MapPin size={12} />{subject.room}</span>}
+        </div>
+        {schedules.length > 0 && (
+          <div className="mt-2">
+            <SubjectScheduleSummary schedules={schedules} />
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between mb-2.5">
@@ -3461,6 +3579,98 @@ function normalizeGroupsToRows(groups, subjectId) {
 
 function isScheduleGroupValid(group) {
   return group.days.length > 0 && !!group.startTime && !!group.endTime && group.startTime < group.endTime;
+}
+
+/* ---------------- Phase 9D Stage 9D-4A: Class Schedule display ----------------
+   Pure, view-only helpers over the existing structured subjectSchedules rows
+   from Stage 9D-3. None of this reads or writes legacy subjects.schedule /
+   subjects.room, and none of it mutates the persisted subjectSchedules array
+   — every function here takes rows in and returns new derived data out. */
+
+const SCHEDULE_WEEKDAY_LABEL = Object.fromEntries(SCHEDULE_WEEKDAYS.map((d) => [d.value, d.label]));
+const SCHEDULE_WEEKDAY_FULL_LABEL = {
+  0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday",
+};
+
+// "HH:mm" (24-hour, as produced by <input type="time">) -> "8:00 AM".
+function formatScheduleTime(hhmm) {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+function formatScheduleTimeRange(startTime, endTime) {
+  return `${formatScheduleTime(startTime)} – ${formatScheduleTime(endTime)}`;
+}
+function formatScheduleDays(days) {
+  return days.map((d) => SCHEDULE_WEEKDAY_LABEL[d]).join(", ");
+}
+
+// Groups one subject's schedule rows into compact display lines — rows
+// sharing the same startTime/endTime/location collapse into one line
+// listing every matching day (Mon..Sun order), the same grouping rule the
+// Add/Edit Subject editor uses (groupSchedulesForForm above), minus the
+// reminder/notification keys, which don't affect what's shown here.
+function groupSchedulesForDisplay(schedules) {
+  const byKey = new Map();
+  schedules.forEach((row) => {
+    const key = `${row.startTime}|${row.endTime}|${row.location || ""}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { days: [], startTime: row.startTime, endTime: row.endTime, location: row.location || "" };
+      byKey.set(key, group);
+    }
+    group.days.push(row.dayOfWeek);
+  });
+  return Array.from(byKey.values())
+    .map((g) => ({ ...g, days: sortDays(g.days) }))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+// Finds the single "Next Class" (Stage 9D-4A definition) from already
+// semester-scoped schedule rows: the earliest later-today class if one
+// exists (startTime strictly after the current local time — an
+// already-started class never counts), otherwise the earliest class on the
+// next day that has one, searching at most 7 calendar days forward and
+// wrapping the week (Saturday -> Sunday -> Monday) via modulo 7. Purely
+// derived from the rows/map passed in; creates no schedule rows.
+function findNextClass(schedules, subjectMap, now = new Date()) {
+  if (schedules.length === 0) return null;
+  const todayDow = now.getDay();
+  const nowHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+  for (let offset = 0; offset < 7; offset++) {
+    const dow = (todayDow + offset) % 7;
+    const candidates = schedules
+      .filter((row) => row.dayOfWeek === dow && (offset > 0 || row.startTime > nowHHMM))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+    if (candidates.length > 0) {
+      return { ...candidates[0], subject: subjectMap[candidates[0].subjectId], dayOffset: offset };
+    }
+  }
+  return null;
+}
+
+// Compact "Mon, Wed • 8:00 AM – 9:30 AM • Room 203" schedule lines for a
+// Subject card or the Subject Detail header. Renders nothing when the
+// subject has zero structured schedules — never a placeholder.
+function SubjectScheduleSummary({ schedules }) {
+  if (!schedules || schedules.length === 0) return null;
+  const groups = groupSchedulesForDisplay(schedules);
+  return (
+    <div className="flex flex-col gap-0.5">
+      {groups.map((g, i) => (
+        <div key={i} className="flex items-center gap-1 text-xs text-slate-500 min-w-0">
+          <Clock size={12} className="shrink-0" />
+          <span className="truncate">
+            {formatScheduleDays(g.days)} • {formatScheduleTimeRange(g.startTime, g.endTime)}
+            {g.location && ` • ${g.location}`}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
