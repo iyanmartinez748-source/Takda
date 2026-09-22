@@ -3559,12 +3559,11 @@ function SubjectModal({ subject, schedules = [], onClose, onSave }) {
       <Field label="Teacher / Professor">
         <input className={inputCls} value={form.teacher} onChange={(e) => setForm({ ...form, teacher: e.target.value })} placeholder="e.g. Mr. Santos" />
       </Field>
-      <Field label="Schedule">
-        <input className={inputCls} value={form.schedule} onChange={(e) => setForm({ ...form, schedule: e.target.value })} placeholder="e.g. Mon & Wed, 9:00–10:30 AM" />
-      </Field>
-      <Field label="Room">
-        <input className={inputCls} value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} placeholder="e.g. Room 204" />
-      </Field>
+      {/* Legacy free-text Schedule/Room inputs removed from UI (Phase 9D
+          Stage 9D-3 amendment) — the structured Class Schedule below fully
+          replaces them. form.schedule/form.room stay in state (seeded from
+          the existing subject) and are still passed through unchanged in
+          onSave below, so existing legacy values are preserved, not erased. */}
       <Field label="Color">
         <div className="flex gap-2 flex-wrap">
           {COLORS.map((c) => (
