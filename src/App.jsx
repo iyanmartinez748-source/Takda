@@ -579,35 +579,68 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // up to the class's own endTime — never resurfaces a reminder for a
   // class that's already over).
   useEffect(() => {
-    if (!notificationsActive) return;
-    if (currentSemesterSchedules.length === 0) return;
+    // TEMPORARY (Stage 9D-5 debug cycle): traces every stage of the
+    // pipeline to the console so a failed Preview test can be pinpointed.
+    // Remove this whole console.log block once firing is confirmed working
+    // — it is deliberately NOT gated behind import.meta.env.DEV, since a
+    // Vercel Preview serves a production build and DEV-gated logs would
+    // never be visible there, which is exactly where we need to see them.
+    console.log("[9D-5 DEBUG] effect run", {
+      notificationPermission,
+      notificationsPreferred,
+      notificationsActive,
+      scheduleCount: currentSemesterSchedules.length,
+      activeSemester: activeSemester ? { id: activeSemester.id, name: activeSemester.name, startDate: activeSemester.startDate, endDate: activeSemester.endDate } : null,
+    });
 
-    function checkClassReminders() {
-      const due = getDueClassReminders(new Date(), currentSemesterSchedules, subjectMap, activeSemester);
+    if (!notificationsActive) {
+      console.log("[9D-5 DEBUG] engine not started — notificationsActive is false");
+      return;
+    }
+    if (currentSemesterSchedules.length === 0) {
+      console.log("[9D-5 DEBUG] engine not started — currentSemesterSchedules is empty (semester scoping excluded every schedule)");
+      return;
+    }
+
+    function checkClassReminders(source) {
+      const now = new Date();
+      console.log(`[9D-5 DEBUG] check tick (${source}) @ ${now.toString()}`);
+      const due = getDueClassReminders(now, currentSemesterSchedules, subjectMap, activeSemester, (row, info) => {
+        console.log("[9D-5 DEBUG]", info);
+      });
+      console.log(`[9D-5 DEBUG] due count = ${due.length}`);
       due.forEach(({ row, subject, classStart }) => {
         const dedupKey = classReminderDedupKey(row.id, classStart, row.reminderMinutes);
-        if (hasNotifiedFor(dedupKey)) return;
+        const alreadyNotified = hasNotifiedFor(dedupKey);
+        console.log("[9D-5 DEBUG] dedup check", { dedupKey, alreadyNotified });
+        if (alreadyNotified) return;
+        console.log("[9D-5 DEBUG] attempting showDeviceNotification", { dedupKey });
         showDeviceNotification(classReminderTitle(subject?.name, row.reminderMinutes), {
           body: classReminderBody(row.startTime, row.location),
           icon: "/takda-icon.png",
           tag: dedupKey,
         }).then((shown) => {
+          console.log("[9D-5 DEBUG] showDeviceNotification result", { dedupKey, shown });
           if (shown) markNotifiedFor(dedupKey);
         });
       });
     }
 
-    checkClassReminders();
-    const intervalId = setInterval(checkClassReminders, CLASS_REMINDER_CHECK_INTERVAL_MS);
-    window.addEventListener("focus", checkClassReminders);
-    document.addEventListener("visibilitychange", checkClassReminders);
+    console.log("[9D-5 DEBUG] engine started");
+    checkClassReminders("mount/deps-changed");
+    const intervalId = setInterval(() => checkClassReminders("interval"), CLASS_REMINDER_CHECK_INTERVAL_MS);
+    const onFocus = () => checkClassReminders("focus");
+    const onVisibility = () => checkClassReminders("visibilitychange");
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
+      console.log("[9D-5 DEBUG] engine stopped (cleanup)");
       clearInterval(intervalId);
-      window.removeEventListener("focus", checkClassReminders);
-      document.removeEventListener("visibilitychange", checkClassReminders);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [currentSemesterSchedules, subjectMap, activeSemester, notificationsActive]);
+  }, [currentSemesterSchedules, subjectMap, activeSemester, notificationsActive, notificationPermission, notificationsPreferred]);
 
   // Stage 4D: view-level-only filtering by the currently SELECTED semester.
   // These derived arrays are for display alone — the save effect below still
@@ -3907,20 +3940,58 @@ function classReminderBody(startTime, location) {
 // the target minute up until the class's own endTime — never resurfaces a
 // reminder for a class that has already finished, and never fires before
 // its target minute. Purely derived; fires nothing itself.
-function getDueClassReminders(now, schedules, subjectMap, semester) {
+//
+// TEMPORARY (Stage 9D-5 debug cycle): optional `debugLog(row, info)` is
+// called for EVERY schedule considered, eligible or not, so a failed
+// Preview test can be traced to the exact stage that excluded it (range
+// check, day mismatch, notificationsEnabled, or the time window itself).
+// Defaults to a no-op — passing nothing changes no behavior. Remove this
+// parameter and its call sites once Stage 9D-5 firing is confirmed working.
+function getDueClassReminders(now, schedules, subjectMap, semester, debugLog = () => {}) {
   const today = startOfDay(now);
-  if (!isDateWithinSemesterRange(today, semester)) return [];
+  const inRange = isDateWithinSemesterRange(today, semester);
+  debugLog(null, {
+    stage: "semester-range",
+    now: now.toString(),
+    today: today.toDateString(),
+    semester: semester ? { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate } : null,
+    inRange,
+    scheduleCount: schedules.length,
+  });
+  if (!inRange) return [];
   const todayDow = now.getDay();
 
   return schedules
-    .filter((row) => row.notificationsEnabled && row.dayOfWeek === todayDow)
     .map((row) => {
+      const dayMatch = row.dayOfWeek === todayDow;
       const classStart = buildLocalDateTime(today, row.startTime);
       const classEnd = buildLocalDateTime(today, row.endTime);
       const target = new Date(classStart.getTime() - row.reminderMinutes * 60000);
-      return { row, subject: subjectMap[row.subjectId], classStart, classEnd, target };
+      const inWindow = now >= target && now < classEnd;
+      const eligible = !!row.notificationsEnabled && dayMatch && inWindow;
+      debugLog(row, {
+        stage: "row",
+        scheduleId: row.id,
+        subjectId: row.subjectId,
+        subjectName: subjectMap[row.subjectId]?.name,
+        dayOfWeek: row.dayOfWeek,
+        todayDow,
+        dayMatch,
+        notificationsEnabled: row.notificationsEnabled,
+        reminderMinutes: row.reminderMinutes,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        classStart: classStart.toString(),
+        classEnd: classEnd.toString(),
+        target: target.toString(),
+        now: now.toString(),
+        secondsUntilTarget: Math.round((target.getTime() - now.getTime()) / 1000),
+        inWindow,
+        eligible,
+      });
+      return { row, subject: subjectMap[row.subjectId], classStart, classEnd, target, eligible };
     })
-    .filter(({ target, classEnd }) => now >= target && now < classEnd);
+    .filter((c) => c.eligible);
 }
 
 function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
