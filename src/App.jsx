@@ -332,6 +332,14 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [semesters, selectedSemesterId]
   );
   const isSelectedSemesterArchived = !!selectedSemester?.archivedAt;
+  // Phase 9D Stage 9D-5: the full ACTIVE semester object (startDate/endDate
+  // included), as opposed to selectedSemester above which follows whatever
+  // semester is currently being BROWSED. Class reminders care about what's
+  // actually active right now, exactly like currentSemesterSubjectIds below.
+  const activeSemester = useMemo(
+    () => (activeSemesterId ? semesters.find((s) => s.id === activeSemesterId) || null : null),
+    [semesters, activeSemesterId]
+  );
   // Creation-gating matrix (backward-compatible with pre-Stage-4D behavior):
   //   1. Zero semesters at all           -> allowed (legacy/no-adoption users
   //      keep creating semesterId-null records exactly as before).
@@ -551,6 +559,55 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       });
     });
   }, [reminderGroups, notificationsActive]);
+
+  // Phase 9D Stage 9D-5: foreground class reminders. Reuses the exact same
+  // notificationsActive gate, showDeviceNotification delivery, and
+  // hasNotifiedFor/markNotifiedFor dedup store as the Activity effect just
+  // above — only eligibility/timing/copy differ, and the two run fully
+  // independently (distinct dedup namespaces, see classReminderDedupKey).
+  // Foreground-only by design (Stage 9B infrastructure, not Web Push):
+  // this only ever runs while TakdaApp is mounted/the tab is open.
+  //
+  // Unlike the Activity effect above — which only needs to notice a DATA
+  // change — class reminders are minute-precision and must also notice
+  // pure TIME passing with zero data changes (e.g. the tab sits open from
+  // 7:30 to 7:45 with nothing else happening). A recurring interval covers
+  // that; the focus/visibilitychange recheck (same two events already used
+  // for the permission recheck near the top of this component) catches
+  // anything missed while the tab/device was backgrounded or asleep,
+  // bounded by getDueClassReminders' own grace window (eligible any time
+  // up to the class's own endTime — never resurfaces a reminder for a
+  // class that's already over).
+  useEffect(() => {
+    if (!notificationsActive) return;
+    if (currentSemesterSchedules.length === 0) return;
+
+    function checkClassReminders() {
+      const due = getDueClassReminders(new Date(), currentSemesterSchedules, subjectMap, activeSemester);
+      due.forEach(({ row, subject, classStart }) => {
+        const dedupKey = classReminderDedupKey(row.id, classStart, row.reminderMinutes);
+        if (hasNotifiedFor(dedupKey)) return;
+        showDeviceNotification(classReminderTitle(subject?.name, row.reminderMinutes), {
+          body: classReminderBody(row.startTime, row.location),
+          icon: "/takda-icon.png",
+          tag: dedupKey,
+        }).then((shown) => {
+          if (shown) markNotifiedFor(dedupKey);
+        });
+      });
+    }
+
+    checkClassReminders();
+    const intervalId = setInterval(checkClassReminders, CLASS_REMINDER_CHECK_INTERVAL_MS);
+    window.addEventListener("focus", checkClassReminders);
+    document.addEventListener("visibilitychange", checkClassReminders);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", checkClassReminders);
+      document.removeEventListener("visibilitychange", checkClassReminders);
+    };
+  }, [currentSemesterSchedules, subjectMap, activeSemester, notificationsActive]);
 
   // Stage 4D: view-level-only filtering by the currently SELECTED semester.
   // These derived arrays are for display alone — the save effect below still
@@ -3794,6 +3851,76 @@ function SubjectScheduleSummary({ schedules }) {
       ))}
     </div>
   );
+}
+
+/* ---------------- Phase 9D Stage 9D-5: Class Reminder Engine ----------------
+   Foreground-only (Stage 9B infrastructure — not Web Push): while Takda is
+   open, periodically checks already-eligible weekly class occurrences
+   against local wall-clock time and fires a device notification through
+   the exact same showDeviceNotification/hasNotifiedFor/markNotifiedFor
+   primitives the Activity reminder effect already uses. Every function
+   here is pure/derived — nothing creates or persists an occurrence row,
+   mirroring the same rule classOccurrencesForDate above already follows. */
+
+const CLASS_REMINDER_CHECK_INTERVAL_MS = 30000;
+
+// Composes ONE specific wall-clock moment on `date` from an "HH:mm" string
+// using the local Date(y, m, d, h, mi) constructor — the exact same safe
+// pattern Calendar's `cells` and parseLocalDate already use elsewhere in
+// this file. Never parses an ISO string, so this can never UTC-shift to
+// the wrong calendar day.
+function buildLocalDateTime(date, hhmm) {
+  const [h, m] = hhmm.split(":").map(Number);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), h, m, 0, 0);
+}
+
+// "class|" prefix keeps this namespace-distinct from the Activity dedup
+// key format (`${activity.id}|${urgencyKey}|${deadline}|${todayKey}`, no
+// prefix) — the two can never collide. scheduleId distinguishes multiple
+// time-slots for the same subject on the same day; the local occurrence
+// date lets the exact same weekly schedule notify again next week;
+// reminderMinutes means changing that setting is treated as a fresh
+// reminder going forward.
+function classReminderDedupKey(scheduleId, occurrenceDate, reminderMinutes) {
+  return `class|${scheduleId}|${formatLocalDate(occurrenceDate)}|${reminderMinutes}`;
+}
+
+const CLASS_REMINDER_MINUTES_LABEL = { 5: "5 minutes", 15: "15 minutes", 30: "30 minutes", 60: "1 hour" };
+
+function classReminderTitle(subjectName, reminderMinutes) {
+  const name = subjectName || "Untitled Subject";
+  if (reminderMinutes === 0) return `${name} is starting now`;
+  return `${name} starts in ${CLASS_REMINDER_MINUTES_LABEL[reminderMinutes] || `${reminderMinutes} minutes`}`;
+}
+
+// Never renders "• undefined"/"• null"/a bare trailing separator — the
+// same blank-location omission already used by SubjectScheduleSummary and
+// the Dashboard/Calendar class cards above.
+function classReminderBody(startTime, location) {
+  const time = formatScheduleTime(startTime);
+  return location ? `${time} • ${location}` : time;
+}
+
+// Scans `schedules` (already scoped by the caller to the active semester's
+// eligible subjects — see currentSemesterSchedules) for TODAY's occurrences
+// whose reminder target has arrived. Grace window: eligible any time from
+// the target minute up until the class's own endTime — never resurfaces a
+// reminder for a class that has already finished, and never fires before
+// its target minute. Purely derived; fires nothing itself.
+function getDueClassReminders(now, schedules, subjectMap, semester) {
+  const today = startOfDay(now);
+  if (!isDateWithinSemesterRange(today, semester)) return [];
+  const todayDow = now.getDay();
+
+  return schedules
+    .filter((row) => row.notificationsEnabled && row.dayOfWeek === todayDow)
+    .map((row) => {
+      const classStart = buildLocalDateTime(today, row.startTime);
+      const classEnd = buildLocalDateTime(today, row.endTime);
+      const target = new Date(classStart.getTime() - row.reminderMinutes * 60000);
+      return { row, subject: subjectMap[row.subjectId], classStart, classEnd, target };
+    })
+    .filter(({ target, classEnd }) => now >= target && now < classEnd);
 }
 
 function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
