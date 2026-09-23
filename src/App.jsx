@@ -575,6 +575,21 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [grades, selectedSemesterId]
   );
 
+  // Phase 9D Stage 9D-4B: Calendar's class occurrences use the exact same
+  // selectedSemesterId scoping as viewSubjects/viewEnrichedActivities right
+  // above — Calendar's own established semester behavior (browsing an
+  // archived semester already shows that semester's activities; classes
+  // now follow the same rule so the two never disagree about which
+  // semester is "current" on that screen). This is deliberately NOT the
+  // activeSemesterId scoping Dashboard's Today's Classes/Next Class use —
+  // those are "what's actually happening now" regardless of what's being
+  // browsed, while Calendar is inherently a browse-any-semester view.
+  const viewSubjectIds = useMemo(() => new Set(viewSubjects.map((s) => s.id)), [viewSubjects]);
+  const calendarSchedules = useMemo(
+    () => subjectSchedules.filter((row) => viewSubjectIds.has(row.subjectId)),
+    [subjectSchedules, viewSubjectIds]
+  );
+
   // Free-plan limits are scoped to the ACTIVE semester only (never the
   // selected/viewed one, and never a global count). When there is no
   // active semester, the count is always 0 — legacy null-semesterId
@@ -1218,6 +1233,9 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           {view === "calendar" && (
             <CalendarView
               activities={viewEnrichedActivities}
+              subjectSchedules={calendarSchedules}
+              subjectMap={subjectMap}
+              semester={selectedSemester}
               onToggle={toggleComplete}
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAddActivity={(deadline) => requestAddActivity(undefined, deadline)}
@@ -2583,6 +2601,7 @@ function SubjectDetail({ subject, activities, notes, schedules = [], onBack, onE
 
 /* ---------------- Calendar ---------------- */
 const CALENDAR_DOT_LIMIT = 3;
+const CALENDAR_CLASS_DOT_LIMIT = 3;
 // Same soft-tint palette already used for FOCUS_TILE_STYLE on the Dashboard —
 // reused values, not a new color scheme.
 const CALENDAR_DAY_TONE = {
@@ -2590,7 +2609,37 @@ const CALENDAR_DAY_TONE = {
   completed: { bg: "#F0FDF4", border: "#CDEFD8" },
 };
 
-function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canCreate = true, readOnly = false }) {
+// Phase 9D Stage 9D-4B: is `date` inside `semester`'s startDate/endDate
+// range (inclusive)? A missing bound on either side is unbounded on that
+// side; a null/undefined semester (the zero-semester or Unassigned/legacy
+// bucket) is always unbounded. Uses the same local-date parsing as every
+// other deadline/date comparison in this file (parseLocalDate/startOfDay)
+// so this can never off-by-one from a UTC/local mismatch.
+function isDateWithinSemesterRange(date, semester) {
+  if (!semester) return true;
+  const day = startOfDay(date);
+  if (semester.startDate && day < parseLocalDate(semester.startDate)) return false;
+  if (semester.endDate && day > parseLocalDate(semester.endDate)) return false;
+  return true;
+}
+
+// Derives this ONE date's class occurrences from the weekly-recurring
+// subjectSchedules rows already scoped (by the caller) to the semester
+// being browsed — never persisted, never written back. `schedules` is
+// assumed pre-filtered to subjects belonging to `semester` (or to the
+// Unassigned/legacy bucket when semester is null), so the range check only
+// needs to run once per date rather than once per row. Sorted ascending by
+// start time.
+function classOccurrencesForDate(date, schedules, subjectMap, semester) {
+  if (!isDateWithinSemesterRange(date, semester)) return [];
+  const dow = date.getDay();
+  return schedules
+    .filter((row) => row.dayOfWeek === dow)
+    .map((row) => ({ ...row, date, subject: subjectMap[row.subjectId] }))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, semester = null, onToggle, onOpenSubject, onAddActivity, canCreate = true, readOnly = false }) {
   const [cursor, setCursor] = useState(startOfDay(new Date()));
   const [selected, setSelected] = useState(startOfDay(new Date()));
 
@@ -2619,6 +2668,29 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canC
     for (let d = 1; d <= daysInMonth; d++) list.push(new Date(year, month, d));
     return list;
   }, [year, month, startWeekday, daysInMonth]);
+
+  // Phase 9D Stage 9D-4B: one derived (never persisted) class occurrence
+  // list per visible day cell — subjectSchedules is already scoped by the
+  // caller to the same semester as `activities` above, so this stays in
+  // sync with whatever semester Calendar is currently browsing.
+  const classesByDate = useMemo(() => {
+    const m = {};
+    cells.forEach((d) => {
+      if (!d) return;
+      const occurrences = classOccurrencesForDate(d, subjectSchedules, subjectMap, semester);
+      if (occurrences.length > 0) m[d.toDateString()] = occurrences;
+    });
+    return m;
+  }, [cells, subjectSchedules, subjectMap, semester]);
+
+  // Computed independently of classesByDate/cells — `selected` can be a
+  // date outside the currently displayed month (e.g. the user changed
+  // months without picking a new day), exactly like selectedList/
+  // activitiesByDate above already tolerate.
+  const selectedClasses = useMemo(
+    () => classOccurrencesForDate(selected, subjectSchedules, subjectMap, semester),
+    [selected, subjectSchedules, subjectMap, semester]
+  );
 
   // Metrics for the currently displayed month only — never another month's
   // activities, and never a duplicate definition of overdue/completed.
@@ -2702,6 +2774,7 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canC
           if (!d) return <div key={i} />;
           const key = d.toDateString();
           const items = activitiesByDate[key] || [];
+          const dayClasses = classesByDate[key] || [];
           const isSelected = key === selectedKey;
           const isToday = key === today.toDateString();
           const hasOverdue = items.some((a) => a.computedStatus === "overdue");
@@ -2721,17 +2794,41 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canC
 
           const dateLabel = d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
           const activityLabel = items.length > 0 ? `, ${items.length} ${items.length === 1 ? "activity" : "activities"}` : "";
+          const classLabel = dayClasses.length > 0 ? `, ${dayClasses.length} ${dayClasses.length === 1 ? "class" : "classes"}` : "";
+
+          // Phase 9D Stage 9D-4B: a second, visually distinct (hollow ring
+          // vs. the solid activity dots below) indicator row in the cell's
+          // opposite corner — additive only, never touches the activity dot
+          // logic above/below it.
+          const visibleClassDots = dayClasses.slice(0, dayClasses.length > CALENDAR_CLASS_DOT_LIMIT ? CALENDAR_CLASS_DOT_LIMIT - 1 : CALENDAR_CLASS_DOT_LIMIT);
+          const classOverflowCount = dayClasses.length > CALENDAR_CLASS_DOT_LIMIT ? dayClasses.length - visibleClassDots.length : 0;
 
           return (
             <button
               key={i}
               onClick={() => setSelected(startOfDay(d))}
-              aria-label={`${dateLabel}${activityLabel}`}
+              aria-label={`${dateLabel}${activityLabel}${classLabel}`}
               aria-pressed={isSelected}
               className="aspect-square rounded-lg flex flex-col items-center justify-center relative text-xs border transition-colors duration-150 ease-out motion-safe:transition-transform motion-safe:hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
               style={{ background: cellStyle.background, color: cellStyle.color, borderColor: cellStyle.borderColor, borderWidth: isToday && !isSelected ? 1.5 : 1 }}
             >
               {d.getDate()}
+              {dayClasses.length > 0 && (
+                <span className="absolute top-1 right-1 flex items-center gap-0.5">
+                  {visibleClassDots.map((c, dotIndex) => (
+                    <span
+                      key={c.id || dotIndex}
+                      className="w-1.5 h-1.5 rounded-full shrink-0 border"
+                      style={{ borderColor: isSelected ? "#FFFFFF" : (c.subject?.color || "#94A3B8"), background: "transparent" }}
+                    />
+                  ))}
+                  {classOverflowCount > 0 && (
+                    <span className="text-[7px] font-bold leading-none ml-0.5" style={{ color: isSelected ? "#FFFFFF" : "#64748B" }}>
+                      +{classOverflowCount}
+                    </span>
+                  )}
+                </span>
+              )}
               {items.length > 0 && (
                 <span className="absolute bottom-1 flex items-center gap-0.5">
                   {visibleDots.map((a, dotIndex) => (
@@ -2757,6 +2854,32 @@ function CalendarView({ activities, onToggle, onOpenSubject, onAddActivity, canC
         <h2 className="text-sm font-semibold text-slate-700">{fmtDateFull(selected)}</h2>
         <span className="text-xs text-slate-400">{selectedList.length} {selectedList.length === 1 ? "activity" : "activities"}</span>
       </div>
+
+      {selectedClasses.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Classes</h3>
+          <div className="flex flex-col gap-2">
+            {selectedClasses.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => c.subject && onOpenSubject(c.subjectId)}
+                className="w-full text-left flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-colors duration-150 hover:border-slate-300"
+              >
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 border-2" style={{ borderColor: c.subject?.color || "#94A3B8" }} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold truncate">{c.subject?.name || "Untitled Subject"}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{formatScheduleTimeRange(c.startTime, c.endTime)}</div>
+                  {c.location && (
+                    <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><MapPin size={11} />{c.location}</div>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {selectedList.length === 0 ? (
         <DashboardEmptyState title="No activities on this date." subtitle="Your schedule is clear." />
       ) : (
