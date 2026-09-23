@@ -20,6 +20,7 @@ import {
   hasNotifiedFor,
   markNotifiedFor,
 } from "./lib/notifications";
+import { subscribeToPush, unsubscribeFromPush } from "./lib/push";
 import { generateRecurrenceDates, RecurrenceValidationError } from "./lib/recurrence";
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
@@ -753,21 +754,35 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // Stage 9B: only ever invoked from a direct click on the "Enable" button
   // in the Reminders panel — never on load, after login, after refresh, or
   // after any background state change.
+  //
+  // Stage 9E-2: once permission is granted, also attempts to capture and
+  // persist a Web Push subscription for this device — additive only.
+  // subscribeToPush() is fully self-contained (it no-ops on an
+  // unsupported browser, a missing authenticated user, or a missing
+  // public VAPID key) and never throws, so it can never block or alter
+  // the existing foreground permission/preference flow above it.
   async function handleEnableNotifications() {
     const result = await requestNotificationPermission();
     setNotificationPermission(result);
     if (result === "granted") {
       setNotificationsEnabledPreference(true);
       setNotificationsPreferred(true);
+      subscribeToPush();
     }
   }
 
   // Turns the device-local preference back off without touching the actual
   // browser permission — the student can re-enable later without another
   // permission prompt as long as permission is still "granted".
+  //
+  // Stage 9E-2: also unsubscribes THIS device's Web Push registration (and
+  // removes only its own push_subscriptions row) — never another device's,
+  // never another user's. Fire-and-forget: unsubscribeFromPush() never
+  // throws, so it can never block the existing preference toggle above it.
   function handleDisableNotifications() {
     setNotificationsEnabledPreference(false);
     setNotificationsPreferred(false);
+    unsubscribeFromPush();
   }
 
   // One clearly-labeled, user-initiated test notification. Deliberately
