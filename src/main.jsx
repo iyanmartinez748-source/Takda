@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import TakdaApp from "./App";
 import { supabase } from "./lib/supabase";
 import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
+import { unsubscribeFromPush } from "./lib/push";
 import "./index.css";
 
 installSupabaseStorageAdapter();
@@ -1617,6 +1618,24 @@ function Root() {
     }
   }
 
+  // Stage 9E-2 shared-device fix: must call unsubscribeFromPush() BEFORE
+  // supabase.auth.signOut(), never from inside onAuthStateChange's
+  // SIGNED_OUT branch below. GoTrueClient clears the persisted session —
+  // and therefore what supabase.auth.getUser() can see — before it ever
+  // emits the SIGNED_OUT event, so cleanup attempted from that event
+  // handler would silently no-op every time (unsubscribeFromPush() would
+  // find no authenticated user and do nothing). Calling it here, while
+  // the outgoing session is still the active one, is the only place this
+  // device's own push_subscriptions row can actually still be deleted
+  // under its owner's RLS policy. Only unsubscribes THIS device's own Web
+  // Push registration — never touches the device-local notification
+  // preference (that stays exactly as Stage 9B already leaves it), never
+  // touches any other device's or user's row.
+  async function signOutAndCleanupPush() {
+    await unsubscribeFromPush();
+    await supabase.auth.signOut();
+  }
+
   useEffect(() => {
     supabase.auth
       .getSession()
@@ -1699,7 +1718,7 @@ function Root() {
       <ResetPasswordScreen
         onDone={async () => {
           setIsRecovery(false);
-          await supabase.auth.signOut();
+          await signOutAndCleanupPush();
         }}
       />
     );
@@ -1783,7 +1802,7 @@ function Root() {
               setShowPro(true)
             }
             onLogout={() =>
-              supabase.auth.signOut()
+              signOutAndCleanupPush()
             }
           />
 
