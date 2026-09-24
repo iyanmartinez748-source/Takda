@@ -20,7 +20,7 @@ import {
   hasNotifiedFor,
   markNotifiedFor,
 } from "./lib/notifications";
-import { subscribeToPush, unsubscribeFromPush } from "./lib/push";
+import { subscribeToPush, unsubscribeFromPush, sendTestPush } from "./lib/push";
 import { generateRecurrenceDates, RecurrenceValidationError } from "./lib/recurrence";
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
@@ -788,12 +788,32 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // One clearly-labeled, user-initiated test notification. Deliberately
   // does not touch the dedup store — a test send must never suppress or be
   // suppressed by a real deadline reminder.
-  function handleSendTestNotification() {
-    showDeviceNotification("Takda Notifications", {
+  //
+  // No fixed `tag` here (unlike real deadline/class reminders, which keep
+  // their own tag/dedup behavior entirely untouched elsewhere in this
+  // file) — a repeated tag would make the browser silently replace this
+  // MANUAL test notification instead of always visibly showing one, which
+  // is exactly what a manual test needs to prove is working. Awaits and
+  // returns showDeviceNotification()'s existing boolean result instead of
+  // discarding it, so a failure is no longer silent.
+  async function handleSendTestNotification() {
+    const ok = await showDeviceNotification("Takda Notifications", {
       body: "Notifications are working on this device.",
       icon: "/takda-icon.png",
-      tag: "takda-test-notification",
     });
+    return ok
+      ? { ok: true }
+      : { ok: false, error: "Unable to show a notification on this device." };
+  }
+
+  // Stage 9E-3C: real background Web Push test trigger — a thin delegate
+  // to lib/push.js's sendTestPush(), which owns all session/fetch
+  // mechanics, mirroring subscribeToPush/unsubscribeFromPush's existing
+  // handlers above. Separate from handleSendTestNotification (Stage
+  // 9A/9B's local-only foreground test): that one is unchanged and still
+  // never touches the network.
+  function handleSendBackgroundPushTest() {
+    return sendTestPush();
   }
 
   // scheduleGroups: the Class Schedule UI groups from SubjectModal (see
@@ -1431,6 +1451,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           onEnableNotifications={handleEnableNotifications}
           onDisableNotifications={handleDisableNotifications}
           onSendTestNotification={handleSendTestNotification}
+          onSendBackgroundPushTest={handleSendBackgroundPushTest}
         />
       )}
     </div>
@@ -1502,6 +1523,7 @@ function RemindersModal({
   onEnableNotifications,
   onDisableNotifications,
   onSendTestNotification,
+  onSendBackgroundPushTest,
 }) {
   const filterMeta = REMINDER_FILTER_META[filter] || null;
   const filteredItems = filterMeta ? groups[filterMeta.groupKey] : null;
@@ -1527,6 +1549,7 @@ function RemindersModal({
         onEnable={onEnableNotifications}
         onDisable={onDisableNotifications}
         onSendTest={onSendTestNotification}
+        onSendBackgroundPushTest={onSendBackgroundPushTest}
       />
       {hasSemesters && !hasActiveSemesterForReminders ? (
         <div className="rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] p-4 text-sm text-slate-500">
@@ -1572,7 +1595,42 @@ function RemindersModal({
 // Renders inside the Reminders panel only — never on load, never auto-shown
 // elsewhere. Permission is only ever requested from the Enable button below,
 // which is a direct user click.
-function NotificationSettings({ permission, active, onEnable, onDisable, onSendTest }) {
+function NotificationSettings({ permission, active, onEnable, onDisable, onSendTest, onSendBackgroundPushTest }) {
+  // Local, self-contained result state for the existing local/foreground
+  // test button — never touches any state above this component, and
+  // entirely separate from pushTestState below.
+  const [localTestState, setLocalTestState] = useState({ status: "idle", message: "" });
+
+  async function handleLocalTestClick() {
+    setLocalTestState({ status: "sending", message: "" });
+    const result = await onSendTest();
+    if (!result?.ok) {
+      setLocalTestState({ status: "error", message: result?.error || "Unable to show a notification on this device." });
+      return;
+    }
+    setLocalTestState({ status: "success", message: "Notification sent." });
+  }
+
+  // Stage 9E-3C: local, self-contained result state for the background
+  // push test only — never touches any state above this component.
+  const [pushTestState, setPushTestState] = useState({ status: "idle", message: "" });
+
+  async function handleBackgroundPushTestClick() {
+    setPushTestState({ status: "sending", message: "" });
+    const result = await onSendBackgroundPushTest();
+    if (!result?.ok) {
+      setPushTestState({ status: "error", message: result?.error || "Unable to send background push test." });
+      return;
+    }
+    setPushTestState({
+      status: "success",
+      message:
+        result.sent > 0
+          ? `Sent to ${result.sent} device${result.sent === 1 ? "" : "s"}.`
+          : result.message || "No push subscription found for this device yet.",
+    });
+  }
+
   if (permission === "unsupported") {
     return (
       <div className="mb-4 rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 text-xs text-slate-400">
@@ -1612,13 +1670,34 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
         )}
       </div>
       {active && (
-        <button
-          type="button"
-          onClick={onSendTest}
-          className="mt-2 text-[11px] font-semibold text-[#3D2FE0] hover:underline"
-        >
-          Send test notification
-        </button>
+        <div className="mt-2 flex flex-col items-start gap-1.5">
+          <button
+            type="button"
+            onClick={handleLocalTestClick}
+            disabled={localTestState.status === "sending"}
+            className="text-[11px] font-semibold text-[#3D2FE0] hover:underline disabled:opacity-50"
+          >
+            {localTestState.status === "sending" ? "Sending…" : "Send test notification"}
+          </button>
+          {localTestState.message && (
+            <p className={`text-[11px] ${localTestState.status === "error" ? "text-red-500" : "text-slate-500"}`}>
+              {localTestState.message}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleBackgroundPushTestClick}
+            disabled={pushTestState.status === "sending"}
+            className="text-[11px] font-semibold text-[#3D2FE0] hover:underline disabled:opacity-50"
+          >
+            {pushTestState.status === "sending" ? "Sending…" : "Send background push test"}
+          </button>
+          {pushTestState.message && (
+            <p className={`text-[11px] ${pushTestState.status === "error" ? "text-red-500" : "text-slate-500"}`}>
+              {pushTestState.message}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

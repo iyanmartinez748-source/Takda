@@ -114,6 +114,68 @@ export async function subscribeToPush() {
   }
 }
 
+// Stage 9E-3C: calls the Stage 9E-3A server endpoint (POST /api/test-push)
+// to send ONE real Web Push notification to this account's own registered
+// device(s) — the missing frontend trigger for the background delivery
+// path proven out manually in 9E-3A/9E-3B. Owns the session/fetch
+// mechanics here, mirroring this file's existing separation of concerns;
+// never throws — always resolves to a plain result object for the caller
+// to render. No VAPID key material of any kind is read, referenced, or
+// reachable from this file or any other client-bundled code; the private
+// key lives only in the server's own env var, read directly by
+// api/test-push.js.
+export async function sendTestPush() {
+  if (!isPushSupported()) {
+    return {
+      ok: false,
+      error: "Push notifications aren't supported on this browser or device.",
+    };
+  }
+
+  try {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+      return {
+        ok: false,
+        error: "Your login session has expired. Please log in again.",
+      };
+    }
+
+    const response = await fetch("/api/test-push", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Unable to send background push test.",
+      };
+    }
+
+    return {
+      ok: true,
+      sent: data?.sent ?? 0,
+      failed: data?.failed ?? 0,
+      removed: data?.removed ?? 0,
+      message: data?.message || null,
+    };
+  } catch {
+    return {
+      ok: false,
+      error: "Unable to reach the server. Check your connection and try again.",
+    };
+  }
+}
+
 // Unsubscribes THIS device only — never touches any other device's row,
 // and never touches another user's row. Safe to call even if the device
 // was never subscribed (no-ops).
