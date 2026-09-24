@@ -788,12 +788,22 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // One clearly-labeled, user-initiated test notification. Deliberately
   // does not touch the dedup store — a test send must never suppress or be
   // suppressed by a real deadline reminder.
-  function handleSendTestNotification() {
-    showDeviceNotification("Takda Notifications", {
+  //
+  // No fixed `tag` here (unlike real deadline/class reminders, which keep
+  // their own tag/dedup behavior entirely untouched elsewhere in this
+  // file) — a repeated tag would make the browser silently replace this
+  // MANUAL test notification instead of always visibly showing one, which
+  // is exactly what a manual test needs to prove is working. Awaits and
+  // returns showDeviceNotification()'s existing boolean result instead of
+  // discarding it, so a failure is no longer silent.
+  async function handleSendTestNotification() {
+    const ok = await showDeviceNotification("Takda Notifications", {
       body: "Notifications are working on this device.",
       icon: "/takda-icon.png",
-      tag: "takda-test-notification",
     });
+    return ok
+      ? { ok: true }
+      : { ok: false, error: "Unable to show a notification on this device." };
   }
 
   // Stage 9E-3C: real background Web Push test trigger — a thin delegate
@@ -1586,6 +1596,21 @@ function RemindersModal({
 // elsewhere. Permission is only ever requested from the Enable button below,
 // which is a direct user click.
 function NotificationSettings({ permission, active, onEnable, onDisable, onSendTest, onSendBackgroundPushTest }) {
+  // Local, self-contained result state for the existing local/foreground
+  // test button — never touches any state above this component, and
+  // entirely separate from pushTestState below.
+  const [localTestState, setLocalTestState] = useState({ status: "idle", message: "" });
+
+  async function handleLocalTestClick() {
+    setLocalTestState({ status: "sending", message: "" });
+    const result = await onSendTest();
+    if (!result?.ok) {
+      setLocalTestState({ status: "error", message: result?.error || "Unable to show a notification on this device." });
+      return;
+    }
+    setLocalTestState({ status: "success", message: "Notification sent." });
+  }
+
   // Stage 9E-3C: local, self-contained result state for the background
   // push test only — never touches any state above this component.
   const [pushTestState, setPushTestState] = useState({ status: "idle", message: "" });
@@ -1648,11 +1673,17 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
         <div className="mt-2 flex flex-col items-start gap-1.5">
           <button
             type="button"
-            onClick={onSendTest}
-            className="text-[11px] font-semibold text-[#3D2FE0] hover:underline"
+            onClick={handleLocalTestClick}
+            disabled={localTestState.status === "sending"}
+            className="text-[11px] font-semibold text-[#3D2FE0] hover:underline disabled:opacity-50"
           >
-            Send test notification
+            {localTestState.status === "sending" ? "Sending…" : "Send test notification"}
           </button>
+          {localTestState.message && (
+            <p className={`text-[11px] ${localTestState.status === "error" ? "text-red-500" : "text-slate-500"}`}>
+              {localTestState.message}
+            </p>
+          )}
           <button
             type="button"
             onClick={handleBackgroundPushTestClick}
