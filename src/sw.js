@@ -52,13 +52,74 @@ registerRoute(
 );
 
 // ---------------------------------------------------------------------
-// Stage 9E-1 is foundation-only. This custom service worker exists so a
-// LATER Phase 9E stage can safely add real-time Web Push support here,
-// e.g.:
+// Phase 9E Stage 9E-3B: Web Push receipt. This file still contains no
+// push SUBSCRIPTION logic (that's src/lib/push.js, Stage 9E-2) and no
+// VAPID key material of any kind (that's api/test-push.js, Stage 9E-3A,
+// server-only) — this is purely "what happens when a push we already
+// agreed to receive actually arrives."
 //
-//   self.addEventListener("push", (event) => { ... });
-//   self.addEventListener("notificationclick", (event) => { ... });
-//
-// Neither is implemented yet. This file contains no push subscription
-// logic, no VAPID key material, and no notification-content handling.
+// resolveSameOriginUrl guards notificationclick's only external input:
+// a URL named IN the push payload itself. A push payload is produced by
+// our own server today (api/test-push.js's fixed test payload), but this
+// handler must still never blindly trust a URL string just because it
+// arrived inside a push message — only ever navigate/open a same-origin
+// Takda URL, falling back to the app root for anything else (missing,
+// malformed, or a different origin entirely).
+function resolveSameOriginUrl(rawUrl) {
+  try {
+    const resolved = new URL(rawUrl || "/", self.location.origin);
+    if (resolved.origin !== self.location.origin) {
+      return `${self.location.origin}/`;
+    }
+    return resolved.href;
+  } catch {
+    return `${self.location.origin}/`;
+  }
+}
+
+// Every push message is a small, trusted-shape JSON payload (see
+// api/test-push.js: currently always { title, body }, no "url" field
+// yet — resolveSameOriginUrl's "/" fallback already covers that). Parsing
+// is defensive regardless: a missing/malformed event.data must never
+// throw out of this handler and silently drop the notification.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+
+  const title = typeof data.title === "string" && data.title ? data.title : "Takda";
+  const options = {
+    body: typeof data.body === "string" ? data.body : "",
+    icon: "/takda-icon.png",
+    data: { url: resolveSameOriginUrl(data.url) },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Focuses an already-open Takda window/tab if one exists (regardless of
+// which page it's currently on — this stage's test notification has
+// nothing more specific to navigate to yet); otherwise opens the
+// same-origin URL resolved above. Never opens/focuses anything
+// cross-origin.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || `${self.location.origin}/`;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.startsWith(self.location.origin) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
 // ---------------------------------------------------------------------
