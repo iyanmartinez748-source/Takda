@@ -60,19 +60,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // TEMPORARY DIAGNOSTIC — Stage 9E-3 VAPID_PRIVATE_KEY investigation.
-    // Logs ONLY non-secret metadata about the raw env value (type, length,
-    // charset match, decoded byte length) — never the value itself, any
-    // substring of it, its decoded bytes, or any hash/fingerprint of it.
-    // To be removed in a follow-up commit once the root cause is confirmed.
-    console.log("VAPID_PRIVATE_KEY diagnostic:", {
-      type: typeof VAPID_PRIVATE_KEY,
-      rawLength: VAPID_PRIVATE_KEY.length,
-      trimmedLength: VAPID_PRIVATE_KEY.trim().length,
-      matchesUrlSafeBase64: /^[A-Za-z0-9_-]+$/.test(VAPID_PRIVATE_KEY),
-      decodedByteLength: Buffer.from(VAPID_PRIVATE_KEY, "base64url").length,
-    });
-
     // VAPID subject is not secret — a contact identifying this
     // application to push services, exactly what VAPID's spec expects
     // here. Reuses the same support address already shown in the app's
