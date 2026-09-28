@@ -21,6 +21,8 @@ import handler, {
   sendReminderToSubscriptions,
   claimReminderEvent,
   reclaimExpiredReminderEvent,
+  finalizeReminderDeliverySuccess,
+  finalizeReminderDeliveryFailure,
 } from "../reminders-delivery-runner.js";
 
 // Captured once at module load — before any test has had a chance to
@@ -1202,6 +1204,416 @@ test("claim/reclaim results never contain userId, dedupKey, the service-role key
       CLAIM_CATEGORY.toLowerCase(),
     ]) {
       assert.ok(!serialized.includes(forbidden), `${label} result leaked forbidden field/value: ${forbidden}`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------
+// finalizeReminderDeliverySuccess / finalizeReminderDeliveryFailure —
+// dormant finalize RPC helper layer (Stage 9E-4C-2). NOT called by the
+// handler yet — these tests exercise both helpers directly and in
+// isolation. All state-transition logic (attempt_count, status,
+// sent_at, last_error, lease release) is owned by the database RPC and
+// is intentionally NOT re-verified here — these tests only verify the
+// JS caller's request shape, ownership interpretation of the returned
+// array, and error-normalization contract.
+// ---------------------------------------------------------------------
+
+const FINALIZE_CLAIM_TOKEN = "44444444-4444-4444-4444-444444444444";
+
+test("finalizeReminderDeliverySuccess: POSTs exactly once to the correct RPC URL with correct method, headers, and exact body keys/values", async () => {
+  const calls = [];
+  global.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, headers: options?.headers, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => [{ id: "row-1", status: "sent" }] };
+  };
+
+  const result = await finalizeReminderDeliverySuccess({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    claimToken: FINALIZE_CLAIM_TOKEN,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `${SUPABASE_URL_FOR_HELPER}/rest/v1/rpc/finalize_reminder_delivery_success`);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].headers.apikey, REST_HEADERS_FOR_HELPER.apikey);
+  assert.equal(calls[0].headers.Authorization, REST_HEADERS_FOR_HELPER.Authorization);
+  assert.equal(calls[0].headers["Content-Type"], "application/json");
+  assert.ok(!("Prefer" in calls[0].headers));
+  assert.deepEqual(Object.keys(calls[0].body).sort(), ["p_claim_token", "p_dedup_key", "p_user_id"]);
+  assert.equal(calls[0].body.p_user_id, USER_A);
+  assert.equal(calls[0].body.p_dedup_key, CLAIM_DEDUP_KEY);
+  assert.equal(calls[0].body.p_claim_token, FINALIZE_CLAIM_TOKEN);
+
+  assert.equal(result.finalized, true);
+  assert.deepEqual(Object.keys(result), ["finalized"]);
+});
+
+test("finalizeReminderDeliverySuccess: empty returned array means finalized false", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const result = await finalizeReminderDeliverySuccess({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    claimToken: FINALIZE_CLAIM_TOKEN,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.finalized, false);
+  assert.deepEqual(Object.keys(result), ["finalized"]);
+});
+
+test("finalizeReminderDeliverySuccess: returned RPC row contents are never exposed in the result", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => [
+      {
+        id: "row-1",
+        user_id: USER_A,
+        dedup_key: CLAIM_DEDUP_KEY,
+        status: "sent",
+        category: CLAIM_CATEGORY,
+        last_error: "some prior diagnostic",
+      },
+    ],
+  });
+
+  const result = await finalizeReminderDeliverySuccess({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    claimToken: FINALIZE_CLAIM_TOKEN,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.deepEqual(Object.keys(result), ["finalized"]);
+  const serialized = JSON.stringify(result).toLowerCase();
+  for (const forbidden of ["row-1", CLAIM_CATEGORY.toLowerCase(), "some prior diagnostic"]) {
+    assert.ok(!serialized.includes(forbidden), `success result leaked RPC row content: ${forbidden}`);
+  }
+});
+
+test("finalizeReminderDeliverySuccess: HTTP non-2xx escapes as exactly the fixed generic message", async () => {
+  global.fetch = async () => ({ ok: false, status: 500, json: async () => ({ message: "internal error" }) });
+
+  await assert.rejects(
+    () =>
+      finalizeReminderDeliverySuccess({
+        userId: USER_A,
+        dedupKey: CLAIM_DEDUP_KEY,
+        claimToken: FINALIZE_CLAIM_TOKEN,
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      }),
+    (err) => {
+      assert.equal(err.message, "Unable to finalize reminder delivery success.");
+      return true;
+    }
+  );
+});
+
+test("finalizeReminderDeliverySuccess: a network-level fetch rejection (even one containing sensitive-looking text) escapes as only the fixed generic message", async () => {
+  global.fetch = async () => {
+    throw new Error(
+      `getaddrinfo ENOTFOUND ${SUPABASE_URL_FOR_HELPER} while POSTing dedup_key=${CLAIM_DEDUP_KEY} for user ${USER_A} claim_token=${FINALIZE_CLAIM_TOKEN} with Authorization: Bearer service-role-key`
+    );
+  };
+
+  try {
+    await finalizeReminderDeliverySuccess({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      claimToken: FINALIZE_CLAIM_TOKEN,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected finalizeReminderDeliverySuccess to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to finalize reminder delivery success.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `success network-failure error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("finalizeReminderDeliverySuccess: a malformed-JSON response.json() failure escapes as only the fixed generic message", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => {
+      throw new SyntaxError("RAW_RESPONSE_BODY_SECRET");
+    },
+  });
+
+  try {
+    await finalizeReminderDeliverySuccess({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      claimToken: FINALIZE_CLAIM_TOKEN,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected finalizeReminderDeliverySuccess to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to finalize reminder delivery success.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `success malformed-JSON error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("finalizeReminderDeliverySuccess: a successful non-array JSON response ({}, null, or a string) is treated as a malformed RPC contract, not as ownership loss", async () => {
+  // The RPC's own contract is RETURNS SETOF ..., i.e. always an array.
+  // A non-array body — even with response.ok true — must never be
+  // silently folded into the same outcome as a legitimate empty-array
+  // ([]) ownership-loss response; it must reject with the exact same
+  // fixed message used for every other failure mode, and the
+  // non-array value itself must never appear in that message.
+  for (const nonArrayValue of [{}, null, "unexpected"]) {
+    global.fetch = async () => ({ ok: true, json: async () => nonArrayValue });
+
+    try {
+      await finalizeReminderDeliverySuccess({
+        userId: USER_A,
+        dedupKey: CLAIM_DEDUP_KEY,
+        claimToken: FINALIZE_CLAIM_TOKEN,
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      });
+      assert.fail(`expected finalizeReminderDeliverySuccess to reject for non-array response: ${JSON.stringify(nonArrayValue)}`);
+    } catch (err) {
+      assert.equal(err.message, "Unable to finalize reminder delivery success.");
+      assert.ok(!err.message.toLowerCase().includes("unexpected"), "non-array value must never appear in the thrown message");
+    }
+  }
+});
+
+test("finalizeReminderDeliveryFailure: POSTs exactly once to the correct RPC URL with correct method, headers, exact body keys/values, and p_max_attempts exactly 5", async () => {
+  const calls = [];
+  global.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, headers: options?.headers, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  const result = await finalizeReminderDeliveryFailure({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    claimToken: FINALIZE_CLAIM_TOKEN,
+    errorCategory: "push_send_failed",
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `${SUPABASE_URL_FOR_HELPER}/rest/v1/rpc/finalize_reminder_delivery_failure`);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].headers.apikey, REST_HEADERS_FOR_HELPER.apikey);
+  assert.equal(calls[0].headers.Authorization, REST_HEADERS_FOR_HELPER.Authorization);
+  assert.equal(calls[0].headers["Content-Type"], "application/json");
+  assert.ok(!("Prefer" in calls[0].headers));
+  assert.deepEqual(Object.keys(calls[0].body).sort(), ["p_claim_token", "p_dedup_key", "p_error", "p_max_attempts", "p_user_id"]);
+  assert.equal(calls[0].body.p_user_id, USER_A);
+  assert.equal(calls[0].body.p_dedup_key, CLAIM_DEDUP_KEY);
+  assert.equal(calls[0].body.p_claim_token, FINALIZE_CLAIM_TOKEN);
+  assert.equal(calls[0].body.p_error, "push_send_failed");
+  assert.equal(calls[0].body.p_max_attempts, 5);
+
+  assert.equal(result.finalized, true);
+  assert.deepEqual(Object.keys(result), ["finalized"]);
+});
+
+test("finalizeReminderDeliveryFailure: each allowed error category reaches p_error unchanged", async () => {
+  for (const category of ["no_subscriptions", "all_subscriptions_stale", "push_send_failed"]) {
+    let capturedBody = null;
+    global.fetch = async (url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return { ok: true, json: async () => [{ id: "row-1" }] };
+    };
+
+    await finalizeReminderDeliveryFailure({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      claimToken: FINALIZE_CLAIM_TOKEN,
+      errorCategory: category,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+
+    assert.equal(capturedBody.p_error, category);
+  }
+});
+
+test("finalizeReminderDeliveryFailure: an invalid errorCategory is rejected before any fetch call", async () => {
+  let fetchCallCount = 0;
+  global.fetch = async () => {
+    fetchCallCount += 1;
+    throw new Error("fetch must never be called for an invalid errorCategory");
+  };
+
+  const dangerousLookingCategory =
+    "Authorization: Bearer service-role-key endpoint=https://push.example raw Error.message leaked here";
+
+  await assert.rejects(
+    () =>
+      finalizeReminderDeliveryFailure({
+        userId: USER_A,
+        dedupKey: CLAIM_DEDUP_KEY,
+        claimToken: FINALIZE_CLAIM_TOKEN,
+        errorCategory: dangerousLookingCategory,
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      }),
+    (err) => {
+      assert.equal(err.message, "Unable to finalize reminder delivery failure.");
+      return true;
+    }
+  );
+
+  assert.equal(fetchCallCount, 0);
+});
+
+test("finalizeReminderDeliveryFailure: empty returned array means finalized false", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const result = await finalizeReminderDeliveryFailure({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    claimToken: FINALIZE_CLAIM_TOKEN,
+    errorCategory: "push_send_failed",
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.finalized, false);
+  assert.deepEqual(Object.keys(result), ["finalized"]);
+});
+
+test("finalizeReminderDeliveryFailure: returned RPC row contents are never exposed in the result", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => [
+      {
+        id: "row-1",
+        user_id: USER_A,
+        dedup_key: CLAIM_DEDUP_KEY,
+        status: "claimed",
+        attempt_count: 2,
+        last_error: "push_send_failed",
+      },
+    ],
+  });
+
+  const result = await finalizeReminderDeliveryFailure({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    claimToken: FINALIZE_CLAIM_TOKEN,
+    errorCategory: "push_send_failed",
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.deepEqual(Object.keys(result), ["finalized"]);
+  const serialized = JSON.stringify(result).toLowerCase();
+  for (const forbidden of ["row-1", "attempt_count"]) {
+    assert.ok(!serialized.includes(forbidden), `failure result leaked RPC row content: ${forbidden}`);
+  }
+});
+
+test("finalizeReminderDeliveryFailure: HTTP non-2xx escapes as exactly the fixed generic message", async () => {
+  global.fetch = async () => ({ ok: false, status: 500, json: async () => ({ message: "internal error" }) });
+
+  await assert.rejects(
+    () =>
+      finalizeReminderDeliveryFailure({
+        userId: USER_A,
+        dedupKey: CLAIM_DEDUP_KEY,
+        claimToken: FINALIZE_CLAIM_TOKEN,
+        errorCategory: "push_send_failed",
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      }),
+    (err) => {
+      assert.equal(err.message, "Unable to finalize reminder delivery failure.");
+      return true;
+    }
+  );
+});
+
+test("finalizeReminderDeliveryFailure: a network-level fetch rejection (even one containing sensitive-looking text) escapes as only the fixed generic message", async () => {
+  global.fetch = async () => {
+    throw new Error(
+      `getaddrinfo ENOTFOUND ${SUPABASE_URL_FOR_HELPER} while POSTing dedup_key=${CLAIM_DEDUP_KEY} for user ${USER_A} claim_token=${FINALIZE_CLAIM_TOKEN} with Authorization: Bearer service-role-key`
+    );
+  };
+
+  try {
+    await finalizeReminderDeliveryFailure({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      claimToken: FINALIZE_CLAIM_TOKEN,
+      errorCategory: "push_send_failed",
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected finalizeReminderDeliveryFailure to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to finalize reminder delivery failure.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `failure network-failure error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("finalizeReminderDeliveryFailure: a malformed-JSON response.json() failure escapes as only the fixed generic message", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => {
+      throw new SyntaxError("RAW_RESPONSE_BODY_SECRET");
+    },
+  });
+
+  try {
+    await finalizeReminderDeliveryFailure({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      claimToken: FINALIZE_CLAIM_TOKEN,
+      errorCategory: "push_send_failed",
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected finalizeReminderDeliveryFailure to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to finalize reminder delivery failure.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `failure malformed-JSON error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("finalizeReminderDeliveryFailure: a successful non-array JSON response ({}, null, or a string) is treated as a malformed RPC contract, not as ownership loss", async () => {
+  for (const nonArrayValue of [{}, null, "unexpected"]) {
+    global.fetch = async () => ({ ok: true, json: async () => nonArrayValue });
+
+    try {
+      await finalizeReminderDeliveryFailure({
+        userId: USER_A,
+        dedupKey: CLAIM_DEDUP_KEY,
+        claimToken: FINALIZE_CLAIM_TOKEN,
+        errorCategory: "push_send_failed",
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      });
+      assert.fail(`expected finalizeReminderDeliveryFailure to reject for non-array response: ${JSON.stringify(nonArrayValue)}`);
+    } catch (err) {
+      assert.equal(err.message, "Unable to finalize reminder delivery failure.");
+      assert.ok(!err.message.toLowerCase().includes("unexpected"), "non-array value must never appear in the thrown message");
     }
   }
 });

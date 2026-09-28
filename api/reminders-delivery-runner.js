@@ -536,6 +536,147 @@ export async function reclaimExpiredReminderEvent({ userId, dedupKey, restHeader
   return { claimed: true, claimToken, leaseExpiresAt };
 }
 
+/* =========================================================
+   FINALIZE RPC HELPER LAYER — FOUNDATION ONLY
+
+   NOT YET CALLED by the handler below. This step only adds and tests
+   finalizeReminderDeliverySuccess()/finalizeReminderDeliveryFailure()
+   in isolation; the endpoint's runtime behavior is unchanged — it
+   remains fully dry-run/read-only (dryRun: true, liveSendEnabled:
+   false, zero reminder_deliveries writes from the handler's own code
+   path, zero real Web Push).
+
+   Both helpers are thin, dormant callers of the two database RPCs
+   introduced by
+   supabase/migrations/20260926000000_reminder_delivery_claim_token.sql
+   (and privilege-hardened by
+   20260927000000_reminder_delivery_finalize_rpc_privilege_hardening.sql
+   — anon/authenticated EXECUTE revoked, service_role granted). All
+   state-transition logic — attempt_count += 1, last_attempt_at,
+   status -> 'sent'/'abandoned', sent_at, last_error truncation, lease
+   release, and claim_token ownership fencing — is owned entirely by
+   the RPC body server-side. Nothing here recomputes or duplicates any
+   of that; these helpers only ever build the request and interpret
+   whether the returned array is empty.
+
+   Unlike claim (POST to the table) and reclaim (PATCH to the table),
+   neither RPC call needs a Prefer header: Prefer: return=representation
+   governs whether a table-level INSERT/UPDATE/DELETE echoes affected
+   rows, but an RPC call already returns whatever the function's
+   RETURNS SETOF ... produces as the response body regardless.
+========================================================= */
+
+// The retry cap failure-finalize enforces — an application-level
+// policy constant, not a database CHECK (deliberately, so it can be
+// tuned later without a migration, per the approved schema design).
+// Callers can never override this; it is always sent as this fixed
+// literal, never a caller-supplied value.
+const MAX_DELIVERY_ATTEMPTS = 5;
+
+// The only error-category strings finalizeReminderDeliveryFailure may
+// ever forward to the database as last_error. These are exactly and
+// only the values sendReminderToSubscriptions can produce today (its
+// errorCategory is null on success, or one of these three otherwise)
+// — never a raw Error.message, never anything caller-supplied without
+// being validated against this exact set first.
+const SAFE_FINALIZE_ERROR_CATEGORIES = new Set(["no_subscriptions", "all_subscriptions_stale", "push_send_failed"]);
+
+// Atomically finalizes a currently-claimed event as successfully sent,
+// via finalize_reminder_delivery_success. Ownership is read from the
+// RETURNED ARRAY: non-empty means this call's claim_token still
+// matched at the moment the RPC ran; a superseded/stale token affects
+// zero rows (the fencing design working exactly as intended), which
+// is reported back as { finalized: false }, never as an error.
+//
+// Returns ONLY { finalized: boolean } — the returned reminder_deliveries
+// row is never surfaced, and no thrown error message ever includes
+// userId, dedupKey, claimToken, the response body, the Supabase URL,
+// or any credential.
+export async function finalizeReminderDeliverySuccess({ userId, dedupKey, claimToken, restHeaders, supabaseUrl }) {
+  let rows;
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/finalize_reminder_delivery_success`, {
+      method: "POST",
+      headers: {
+        ...restHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_user_id: userId,
+        p_dedup_key: dedupKey,
+        p_claim_token: claimToken,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    rows = await response.json();
+
+    if (!Array.isArray(rows)) {
+      throw new Error("non-array response");
+    }
+  } catch {
+    throw new Error("Unable to finalize reminder delivery success.");
+  }
+
+  return { finalized: rows.length > 0 };
+}
+
+// Atomically finalizes a currently-claimed event as a failed attempt,
+// via finalize_reminder_delivery_failure — the one operation that
+// structurally requires a database function rather than a plain
+// PostgREST PATCH, since attempt_count = attempt_count + 1 combined
+// with a conditional status transition cannot be expressed as literal
+// PATCH body values.
+//
+// errorCategory is validated against SAFE_FINALIZE_ERROR_CATEGORIES
+// BEFORE any network call — an invalid value results in zero fetch
+// calls and fails closed with the same fixed message an RPC-level
+// failure would use, never interpolating, logging, or forwarding the
+// rejected value anywhere.
+//
+// Same ownership/return-shape discipline as
+// finalizeReminderDeliverySuccess: { finalized: boolean } only.
+export async function finalizeReminderDeliveryFailure({ userId, dedupKey, claimToken, errorCategory, restHeaders, supabaseUrl }) {
+  if (!SAFE_FINALIZE_ERROR_CATEGORIES.has(errorCategory)) {
+    throw new Error("Unable to finalize reminder delivery failure.");
+  }
+
+  let rows;
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/finalize_reminder_delivery_failure`, {
+      method: "POST",
+      headers: {
+        ...restHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_user_id: userId,
+        p_dedup_key: dedupKey,
+        p_claim_token: claimToken,
+        p_error: errorCategory,
+        p_max_attempts: MAX_DELIVERY_ATTEMPTS,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    rows = await response.json();
+
+    if (!Array.isArray(rows)) {
+      throw new Error("non-array response");
+    }
+  } catch {
+    throw new Error("Unable to finalize reminder delivery failure.");
+  }
+
+  return { finalized: rows.length > 0 };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
