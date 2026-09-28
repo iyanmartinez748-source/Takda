@@ -1173,6 +1173,97 @@ export default async function handler(req, res) {
     });
   }
 
+  /* =========================================
+     GATED LIVE ACTIVATION — Stage 9E-4C-2
+
+     Live bulk delivery requires the exact, server-only activation
+     flag REMINDER_DELIVERY_ENABLED === "true" (strict string equality
+     — "false", "TRUE", "1", empty, or unset all leave this branch
+     untaken). This flag is never set by this stage; Preview and local
+     environments therefore remain inert by simple absence of
+     configuration, not by any in-code environment-identity guess.
+     When this branch is not taken, execution falls through unchanged
+     to the existing dry-run report below — the disabled response IS
+     that same, already-reviewed, side-effect-free report, reused
+     as-is rather than duplicated.
+
+     VAPID configuration (VAPID_PUBLIC_KEY publicly-shippable value +
+     VAPID_PRIVATE_KEY, the exact same two variables api/test-push.js's
+     own handler already reads, reused unmodified) is read and
+     validated ONLY inside this branch — never evaluated at all while
+     activation is disabled or the request was otherwise rejected —
+     and webpush.setVapidDetails(...) is configured, exactly mirroring
+     api/test-push.js's own precedent, before processAllEligibleUsers
+     is ever called (which is the only path that can reach a real
+     webpush.sendNotification call, inside sendReminderToSubscriptions).
+
+     processAllEligibleUsers is called at most once per request, with
+     its real default collaborators (claim/reclaim/send/finalize) —
+     never re-implemented or duplicated here. No lower-level delivery
+     helper (claimReminderEvent, reclaimExpiredReminderEvent,
+     sendReminderToSubscriptions, finalizeReminderDeliverySuccess,
+     finalizeReminderDeliveryFailure) is ever called directly from this
+     handler; they remain reachable only through processAllEligibleUsers.
+  ========================================= */
+
+  if (process.env.REMINDER_DELIVERY_ENABLED === "true") {
+    const VAPID_PUBLIC_KEY = process.env.VITE_VAPID_PUBLIC_KEY;
+    const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+
+    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+      console.error("Missing server push configuration environment variables.");
+
+      return res.status(500).json({
+        error: "Server delivery-runner configuration is incomplete.",
+      });
+    }
+
+    try {
+      // Inside the try block, matching api/test-push.js's own precedent,
+      // so a malformed key pair returns the same clean 500 as every
+      // other live-path failure below, never an unhandled crash.
+      webpush.setVapidDetails("mailto:iyanmartinez748@gmail.com", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+      const liveRestHeaders = {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        Accept: "application/json",
+      };
+
+      const liveResult = await processAllEligibleUsers({
+        restHeaders: liveRestHeaders,
+        supabaseUrl: SUPABASE_URL,
+      });
+
+      /* =========================================
+         SAFE, AGGREGATE-ONLY LIVE RESPONSE
+
+         Identical privacy discipline to processAllEligibleUsers' own
+         result: counts only. Never a user id, email/name, dedupKey,
+         sourceId, claimToken, subscription field, Authorization,
+         CRON_SECRET, service-role credential, VAPID private key, or
+         raw upstream error/body.
+      ========================================= */
+
+      return res.status(200).json({
+        dryRun: false,
+        liveSendEnabled: true,
+        subscriptionEnumerationSucceeded: liveResult.subscriptionEnumerationSucceeded,
+        retryEnumerationSucceeded: liveResult.retryEnumerationSucceeded,
+        usersConsidered: liveResult.usersConsidered,
+        userProcessingErrors: liveResult.userProcessingErrors,
+        candidatesComputed: liveResult.candidatesComputed,
+        outcomes: liveResult.outcomes,
+      });
+    } catch (error) {
+      console.error("Takda reminder delivery runner live execution error:", error.message);
+
+      return res.status(500).json({
+        error: "Unable to execute the reminder delivery run.",
+      });
+    }
+  }
+
   try {
     const restHeaders = {
       apikey: SUPABASE_SERVICE_ROLE_KEY,
