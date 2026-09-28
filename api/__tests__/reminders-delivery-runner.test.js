@@ -15,6 +15,9 @@
 
 import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import webpush from "web-push";
 
 import handler, {
@@ -23,6 +26,7 @@ import handler, {
   reclaimExpiredReminderEvent,
   finalizeReminderDeliverySuccess,
   finalizeReminderDeliveryFailure,
+  processReminderCandidate,
 } from "../reminders-delivery-runner.js";
 
 // Captured once at module load — before any test has had a chance to
@@ -1616,6 +1620,938 @@ test("finalizeReminderDeliveryFailure: a successful non-array JSON response ({},
       assert.ok(!err.message.toLowerCase().includes("unexpected"), "non-array value must never appear in the thrown message");
     }
   }
+});
+
+/* =========================================================
+   processReminderCandidate — ORCHESTRATOR TESTS
+
+   claimFn/reclaimFn/sendFn/finalizeSuccessFn/finalizeFailureFn are
+   always explicitly injected as plain mock functions in every test
+   below — never the real imported helpers — so these tests exercise
+   ONLY the orchestrator's own control flow, never re-testing logic
+   the real helpers' own dedicated test sections above already cover.
+   global.fetch is used only for the orchestrator's own inline
+   subscription-loading fetch call; a poison implementation that fails
+   the test if invoked is used everywhere the orchestrator must never
+   reach subscription loading at all.
+========================================================= */
+
+const ORCH_USER_ID = USER_A;
+const ORCH_CLAIM_TOKEN = "77777777-7777-7777-7777-777777777777";
+const ORCH_FIXED_NOW_MS = 1_700_000_000_000;
+const orchFixedNow = () => ORCH_FIXED_NOW_MS;
+
+function orchLeaseIso(offsetMs) {
+  return new Date(ORCH_FIXED_NOW_MS + offsetMs).toISOString();
+}
+
+const ORCH_CANDIDATE_ACTIVITY = {
+  kind: "activity",
+  category: "activity_due_today",
+  sourceId: "88888888-8888-8888-8888-888888888888",
+  dedupKey: "orch-activity-1|today|2026-09-28|2026-09-28",
+  title: "Essay Draft",
+  urgencyKey: "today",
+};
+
+const ORCH_CANDIDATE_CLASS = {
+  kind: "class",
+  category: "class_schedule",
+  sourceId: "99999999-9999-9999-9999-999999999999",
+  dedupKey: "class|sched-1|2026-09-28|10",
+  subjectName: "Calculus",
+  startTime: "10:00:00",
+};
+
+// Wraps a mock implementation so tests can assert exactly how many
+// times, and with what single argument object, it was called —
+// without needing a full mocking library.
+function countedFn(impl) {
+  async function fn(arg) {
+    fn.callCount += 1;
+    fn.lastArg = arg;
+    return impl(arg);
+  }
+  fn.callCount = 0;
+  fn.lastArg = undefined;
+  return fn;
+}
+
+function claimSucceeds(leaseExpiresAt = orchLeaseIso(3 * 60 * 1000)) {
+  return countedFn(async () => ({ claimed: true, claimToken: ORCH_CLAIM_TOKEN, leaseExpiresAt }));
+}
+
+function claimFails() {
+  return countedFn(async () => ({ claimed: false, claimToken: null, leaseExpiresAt: null }));
+}
+
+function claimThrows() {
+  return countedFn(async () => {
+    throw new Error("Unable to claim reminder event.");
+  });
+}
+
+function reclaimSucceeds(leaseExpiresAt = orchLeaseIso(3 * 60 * 1000)) {
+  return countedFn(async () => ({ claimed: true, claimToken: ORCH_CLAIM_TOKEN, leaseExpiresAt }));
+}
+
+function reclaimFails() {
+  return countedFn(async () => ({ claimed: false, claimToken: null, leaseExpiresAt: null }));
+}
+
+function reclaimThrows() {
+  return countedFn(async () => {
+    throw new Error("Unable to reclaim reminder event.");
+  });
+}
+
+function sendSucceeds() {
+  return countedFn(async () => ({
+    eventSendSucceeded: true,
+    sentCount: 1,
+    failedCount: 0,
+    staleDetectedCount: 0,
+    staleRemovedCount: 0,
+    cleanupStatus: "not_needed",
+    errorCategory: null,
+  }));
+}
+
+function sendFailsWith(errorCategory) {
+  return countedFn(async () => ({
+    eventSendSucceeded: false,
+    sentCount: 0,
+    failedCount: 1,
+    staleDetectedCount: 0,
+    staleRemovedCount: 0,
+    cleanupStatus: "not_needed",
+    errorCategory,
+  }));
+}
+
+function sendThrows() {
+  return countedFn(async () => {
+    throw new Error("unexpected fanout failure");
+  });
+}
+
+function finalizeSuccessReturns(finalized) {
+  return countedFn(async () => ({ finalized }));
+}
+
+function finalizeSuccessThrows() {
+  return countedFn(async () => {
+    throw new Error("Unable to finalize reminder delivery success.");
+  });
+}
+
+function finalizeFailureReturns(finalized) {
+  return countedFn(async () => ({ finalized }));
+}
+
+function finalizeFailureThrows() {
+  return countedFn(async () => {
+    throw new Error("Unable to finalize reminder delivery failure.");
+  });
+}
+
+function poisonFetch() {
+  return async () => {
+    throw new Error("global.fetch should not have been called in this test");
+  };
+}
+
+function subsFetchReturns(rows) {
+  return async () => ({ ok: true, json: async () => rows });
+}
+
+// Every orchestrator test builds its own explicit set of the five
+// injected dependencies; this only fills in whichever ones a given
+// test does not care about with an "unreachable" mock that fails the
+// test the instant it is invoked, so an accidental extra call is
+// always caught even when a test does not otherwise assert a call
+// count for that particular dependency.
+function unreachable(label) {
+  return countedFn(async () => {
+    throw new Error(`${label} must not have been called in this test`);
+  });
+}
+
+// 1. Initial claim succeeds -> normal flow.
+test("processReminderCandidate: initial claim succeeds, full happy path finalizes as sent", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const claimFn = claimSucceeds();
+  const reclaimFn = unreachable("reclaimFn");
+  const sendFn = sendSucceeds();
+  const finalizeSuccessFn = finalizeSuccessReturns(true);
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn,
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.deepEqual(result, { outcome: "sent", category: ORCH_CANDIDATE_ACTIVITY.category, dedupKey: ORCH_CANDIDATE_ACTIVITY.dedupKey });
+  assert.equal(claimFn.callCount, 1);
+  assert.equal(reclaimFn.callCount, 0);
+  assert.equal(sendFn.callCount, 1);
+  assert.equal(finalizeSuccessFn.callCount, 1);
+  assert.equal(finalizeSuccessFn.lastArg.claimToken, ORCH_CLAIM_TOKEN);
+});
+
+// 2. Initial claim conflict -> expired reclaim succeeds -> normal flow.
+test("processReminderCandidate: initial claim conflict followed by a successful expired reclaim still completes normally", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const claimFn = claimFails();
+  const reclaimFn = reclaimSucceeds();
+  const sendFn = sendSucceeds();
+  const finalizeSuccessFn = finalizeSuccessReturns(true);
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn,
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "sent");
+  assert.equal(claimFn.callCount, 1);
+  assert.equal(reclaimFn.callCount, 1);
+  assert.equal(sendFn.callCount, 1);
+  assert.equal(finalizeSuccessFn.callCount, 1);
+});
+
+// 3. Initial claim conflict + reclaim returns false: ownership_not_acquired.
+test("processReminderCandidate: claim conflict + reclaim failure yields ownership_not_acquired with no send/finalize/subscription load", async () => {
+  global.fetch = poisonFetch();
+
+  const claimFn = claimFails();
+  const reclaimFn = reclaimFails();
+  const sendFn = unreachable("sendFn");
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn,
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "ownership_not_acquired");
+  assert.equal(sendFn.callCount, 0);
+  assert.equal(finalizeSuccessFn.callCount, 0);
+  assert.equal(finalizeFailureFn.callCount, 0);
+});
+
+// 4. Claim throws: internal_error, no reclaim, no send, no finalize.
+test("processReminderCandidate: claim transport failure yields internal_error with no reclaim/send/finalize/subscription load", async () => {
+  global.fetch = poisonFetch();
+
+  const claimFn = claimThrows();
+  const reclaimFn = unreachable("reclaimFn");
+  const sendFn = unreachable("sendFn");
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn,
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "internal_error");
+  assert.equal(reclaimFn.callCount, 0);
+});
+
+// 5. Reclaim throws: internal_error, no send, no finalize.
+test("processReminderCandidate: reclaim transport failure yields internal_error with no send/finalize/subscription load", async () => {
+  global.fetch = poisonFetch();
+
+  const claimFn = claimFails();
+  const reclaimFn = reclaimThrows();
+  const sendFn = unreachable("sendFn");
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn,
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "internal_error");
+});
+
+// 6. Missing leaseExpiresAt: lease_not_safe, no subscription query/send/finalize.
+test("processReminderCandidate: missing leaseExpiresAt yields lease_not_safe with no subscription load/send/finalize", async () => {
+  global.fetch = poisonFetch();
+
+  // Explicitly null, not undefined -- a JS default parameter only
+  // applies when the argument is exactly `undefined`, and this test
+  // must exercise the orchestrator's own "missing leaseExpiresAt"
+  // branch rather than accidentally falling back to claimSucceeds'
+  // own default (safe) lease.
+  const claimFn = claimSucceeds(null);
+  const sendFn = unreachable("sendFn");
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "lease_not_safe");
+  assert.equal(sendFn.callCount, 0);
+  assert.equal(finalizeSuccessFn.callCount, 0);
+  assert.equal(finalizeFailureFn.callCount, 0);
+});
+
+// 7. Invalid leaseExpiresAt: lease_not_safe.
+test("processReminderCandidate: invalid (unparsable) leaseExpiresAt yields lease_not_safe", async () => {
+  global.fetch = poisonFetch();
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds("not-a-valid-timestamp"),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "lease_not_safe");
+});
+
+// 8. Expired lease: lease_not_safe.
+test("processReminderCandidate: already-expired leaseExpiresAt yields lease_not_safe", async () => {
+  global.fetch = poisonFetch();
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(orchLeaseIso(-1000)),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "lease_not_safe");
+});
+
+// 9. Lease exactly 30 seconds remaining: lease_not_safe (the boundary is
+// exclusive -- "> PRE_SEND_LEASE_SAFETY_MS" required to proceed).
+test("processReminderCandidate: leaseExpiresAt exactly at the 30-second safety margin yields lease_not_safe", async () => {
+  global.fetch = poisonFetch();
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(orchLeaseIso(30 * 1000)),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "lease_not_safe");
+});
+
+// 10. Lease less than 30 seconds remaining: lease_not_safe.
+test("processReminderCandidate: leaseExpiresAt with less than 30 seconds remaining yields lease_not_safe", async () => {
+  global.fetch = poisonFetch();
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(orchLeaseIso(10 * 1000)),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "lease_not_safe");
+});
+
+// 11. Lease comfortably above 30 seconds: proceeds.
+test("processReminderCandidate: leaseExpiresAt comfortably above the safety margin proceeds to subscription loading", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const claimFn = claimSucceeds(orchLeaseIso(60 * 1000));
+  const sendFn = sendSucceeds();
+  const finalizeSuccessFn = finalizeSuccessReturns(true);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn,
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "sent");
+  assert.equal(sendFn.callCount, 1);
+});
+
+// 12. Subscription query network rejection: internal_error, no send/finalize.
+test("processReminderCandidate: subscription query network rejection yields internal_error with no send/finalize", async () => {
+  global.fetch = async () => {
+    throw new Error("network is down");
+  };
+
+  const sendFn = unreachable("sendFn");
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "internal_error");
+  assert.equal(sendFn.callCount, 0);
+  assert.equal(finalizeSuccessFn.callCount, 0);
+  assert.equal(finalizeFailureFn.callCount, 0);
+});
+
+// 13. Subscription query non-2xx: internal_error.
+test("processReminderCandidate: subscription query non-2xx response yields internal_error", async () => {
+  global.fetch = async () => ({ ok: false, json: async () => ({ message: "denied" }) });
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "internal_error");
+});
+
+// 14. Subscription query malformed JSON (json() itself throws): internal_error.
+test("processReminderCandidate: subscription query malformed JSON body yields internal_error", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => {
+      throw new Error("Unexpected token");
+    },
+  });
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "internal_error");
+});
+
+// 15. Subscription query successful non-array JSON: internal_error.
+test("processReminderCandidate: subscription query successful but non-array JSON yields internal_error", async () => {
+  global.fetch = subsFetchReturns({ not: "an array" });
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: unreachable("sendFn"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "internal_error");
+});
+
+// 16. Zero subscriptions: fanout receives [], failure finalize called with no_subscriptions.
+// Uses the REAL sendReminderToSubscriptions (not a mock) to verify the
+// orchestrator truly passes [] straight through into the existing
+// helper's own already-tested no_subscriptions branch, rather than
+// special-casing zero subscriptions itself.
+test("processReminderCandidate: zero subscriptions passes [] to the real fanout helper and failure-finalizes as no_subscriptions", async () => {
+  global.fetch = subsFetchReturns([]);
+
+  const finalizeFailureFn = finalizeFailureReturns(true);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: sendReminderToSubscriptions,
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "failed_finalized");
+  assert.equal(finalizeFailureFn.callCount, 1);
+  assert.equal(finalizeFailureFn.lastArg.errorCategory, "no_subscriptions");
+  assert.equal(finalizeFailureFn.lastArg.claimToken, ORCH_CLAIM_TOKEN);
+});
+
+// 17. >=1 push success: success finalize called exactly once, outcome sent.
+test("processReminderCandidate: a successful send finalizes success exactly once with outcome sent", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendSucceeds();
+  const finalizeSuccessFn = finalizeSuccessReturns(true);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "sent");
+  assert.equal(finalizeSuccessFn.callCount, 1);
+});
+
+// 18. Fanout all stale: failure finalize with all_subscriptions_stale.
+test("processReminderCandidate: all-stale fanout failure-finalizes with all_subscriptions_stale", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const finalizeFailureFn = finalizeFailureReturns(true);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: sendFailsWith("all_subscriptions_stale"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "failed_finalized");
+  assert.equal(finalizeFailureFn.lastArg.errorCategory, "all_subscriptions_stale");
+});
+
+// 19. Fanout all non-stale failures: failure finalize with push_send_failed.
+test("processReminderCandidate: all non-stale fanout failures failure-finalize with push_send_failed", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const finalizeFailureFn = finalizeFailureReturns(true);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: sendFailsWith("push_send_failed"),
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "failed_finalized");
+  assert.equal(finalizeFailureFn.lastArg.errorCategory, "push_send_failed");
+});
+
+// 20. Success finalize returns false: ownership_lost_after_send, no second send/finalize.
+test("processReminderCandidate: success finalize reporting finalized:false yields ownership_lost_after_send with no retry", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendSucceeds();
+  const finalizeSuccessFn = finalizeSuccessReturns(false);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "ownership_lost_after_send");
+  assert.equal(sendFn.callCount, 1);
+  assert.equal(finalizeSuccessFn.callCount, 1);
+});
+
+// 21. Failure finalize returns false: ownership_lost_after_failed_send, no retry.
+test("processReminderCandidate: failure finalize reporting finalized:false yields ownership_lost_after_failed_send with no retry", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendFailsWith("push_send_failed");
+  const finalizeFailureFn = finalizeFailureReturns(false);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "ownership_lost_after_failed_send");
+  assert.equal(sendFn.callCount, 1);
+  assert.equal(finalizeFailureFn.callCount, 1);
+});
+
+// 22. Success finalize transport failure: internal_error, no retry send/finalize.
+test("processReminderCandidate: success finalize transport failure yields internal_error with no retry", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendSucceeds();
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn: finalizeSuccessThrows(),
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "internal_error");
+  assert.equal(sendFn.callCount, 1);
+  assert.equal(finalizeFailureFn.callCount, 0);
+});
+
+// 23. Failure finalize transport failure: internal_error, no retry.
+test("processReminderCandidate: failure finalize transport failure yields internal_error with no retry", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendFailsWith("push_send_failed");
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn,
+    finalizeFailureFn: finalizeFailureThrows(),
+  });
+
+  assert.equal(result.outcome, "internal_error");
+  assert.equal(sendFn.callCount, 1);
+  assert.equal(finalizeSuccessFn.callCount, 0);
+});
+
+// 24. Fanout helper unexpectedly throws: internal_error, do NOT failure-finalize the infrastructure exception.
+test("processReminderCandidate: an unexpected fanout throw yields internal_error without ever calling either finalize helper", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const finalizeSuccessFn = unreachable("finalizeSuccessFn");
+  const finalizeFailureFn = unreachable("finalizeFailureFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: sendThrows(),
+    finalizeSuccessFn,
+    finalizeFailureFn,
+  });
+
+  assert.equal(result.outcome, "internal_error");
+  assert.equal(finalizeSuccessFn.callCount, 0);
+  assert.equal(finalizeFailureFn.callCount, 0);
+});
+
+// 25. Result shape contains EXACTLY: outcome, category, dedupKey.
+test("processReminderCandidate: result object contains exactly outcome, category, and dedupKey", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: sendSucceeds(),
+    finalizeSuccessFn: finalizeSuccessReturns(true),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.deepEqual(Object.keys(result).sort(), ["category", "dedupKey", "outcome"]);
+});
+
+// 26. Result never contains sensitive fields (claimToken, leaseExpiresAt,
+// subscription/auth material, or raw errors).
+test("processReminderCandidate: result never leaks claimToken, leaseExpiresAt, or subscription/auth material", async () => {
+  global.fetch = subsFetchReturns([
+    { id: "sub-1", endpoint: "https://push.example/super-secret-endpoint", p256dh: "secret-p256dh", auth_key: "secret-auth-key" },
+  ]);
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn: sendSucceeds(),
+    finalizeSuccessFn: finalizeSuccessReturns(true),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  const serialized = JSON.stringify(result).toLowerCase();
+  for (const forbidden of [
+    ORCH_CLAIM_TOKEN.toLowerCase(),
+    "leaseexpiresat",
+    "super-secret-endpoint",
+    "secret-p256dh",
+    "secret-auth-key",
+    "authorization",
+    "service-role-key",
+  ]) {
+    assert.ok(!serialized.includes(forbidden), `result leaked forbidden value: ${forbidden}`);
+  }
+});
+
+// 27. Activity payload shape/content.
+test("processReminderCandidate: activity candidate produces a title/urgency-based payload", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendSucceeds();
+
+  await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn: finalizeSuccessReturns(true),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(sendFn.callCount, 1);
+  const parsedPayload = JSON.parse(sendFn.lastArg.payload);
+  assert.equal(parsedPayload.title, "Takda");
+  assert.ok(parsedPayload.body.includes(ORCH_CANDIDATE_ACTIVITY.title));
+  assert.ok(parsedPayload.body.toLowerCase().includes("today"));
+});
+
+// 28. Class payload shape/content.
+test("processReminderCandidate: class candidate produces a subject/start-time-based payload", async () => {
+  global.fetch = subsFetchReturns([{ id: "sub-1", endpoint: "https://push.example/1", p256dh: "p", auth_key: "a" }]);
+
+  const sendFn = sendSucceeds();
+
+  await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_CLASS,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimSucceeds(),
+    reclaimFn: unreachable("reclaimFn"),
+    sendFn,
+    finalizeSuccessFn: finalizeSuccessReturns(true),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(sendFn.callCount, 1);
+  const parsedPayload = JSON.parse(sendFn.lastArg.payload);
+  assert.equal(parsedPayload.title, "Takda");
+  assert.ok(parsedPayload.body.includes(ORCH_CANDIDATE_CLASS.subjectName));
+  assert.ok(parsedPayload.body.includes(ORCH_CANDIDATE_CLASS.startTime));
+});
+
+// 29. No push occurs before ownership acquisition (both the
+// ownership_not_acquired and claim-throws paths already assert
+// sendFn.callCount === 0 above in tests 3 and 4; this test adds the
+// reclaim-throws path for completeness).
+test("processReminderCandidate: no send occurs when ownership is never acquired via either claim or reclaim", async () => {
+  global.fetch = poisonFetch();
+
+  const sendFn = unreachable("sendFn");
+
+  const result = await processReminderCandidate({
+    candidate: ORCH_CANDIDATE_ACTIVITY,
+    userId: ORCH_USER_ID,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    now: orchFixedNow,
+    claimFn: claimFails(),
+    reclaimFn: reclaimThrows(),
+    sendFn,
+    finalizeSuccessFn: unreachable("finalizeSuccessFn"),
+    finalizeFailureFn: unreachable("finalizeFailureFn"),
+  });
+
+  assert.equal(result.outcome, "internal_error");
+  assert.equal(sendFn.callCount, 0);
+});
+
+/* =========================================================
+   STATIC SOURCE CHECKS — handler dormancy + protected-file pinning
+
+   These read the actual source files on disk (never the imported
+   module's runtime behavior) so a future accidental wiring of any
+   dormant helper into the handler, or a byte-level change to
+   api/test-push.js, fails this suite immediately.
+========================================================= */
+
+const SOURCE_PATH = fileURLToPath(new URL("../reminders-delivery-runner.js", import.meta.url));
+const SOURCE_TEXT = readFileSync(SOURCE_PATH, "utf8");
+
+// 30 & 31. Handler has zero call sites to processReminderCandidate or
+// any of the five composed helpers.
+test("source check: the handler function body contains zero call sites to processReminderCandidate or any of the five composed helpers", () => {
+  const handlerStart = SOURCE_TEXT.indexOf("export default async function handler");
+  assert.ok(handlerStart > -1, "handler function not found in source");
+  const handlerBody = SOURCE_TEXT.slice(handlerStart);
+
+  for (const callSite of [
+    "processReminderCandidate(",
+    "claimReminderEvent(",
+    "reclaimExpiredReminderEvent(",
+    "sendReminderToSubscriptions(",
+    "finalizeReminderDeliverySuccess(",
+    "finalizeReminderDeliveryFailure(",
+  ]) {
+    assert.ok(!handlerBody.includes(callSite), `handler body unexpectedly contains a call site: ${callSite}`);
+  }
+});
+
+// 32. Handler remains dryRun: true / liveSendEnabled: false.
+test("source check: the handler still returns dryRun: true and liveSendEnabled: false", () => {
+  assert.ok(SOURCE_TEXT.includes("dryRun: true,"));
+  assert.ok(SOURCE_TEXT.includes("liveSendEnabled: false,"));
+});
+
+// 33. api/test-push.js remains byte-for-byte unchanged (pinned SHA-256).
+test("source check: api/test-push.js remains byte-for-byte unchanged", () => {
+  const testPushPath = fileURLToPath(new URL("../test-push.js", import.meta.url));
+  const contents = readFileSync(testPushPath);
+  const hash = createHash("sha256").update(contents).digest("hex");
+  assert.equal(hash, "9372304b3ca629ad2b891b1b0124302b130bef92ea3767014b6af77368f0ee0b");
 });
 
 test("global.fetch is restored to its original value between tests (afterEach isolation)", () => {
