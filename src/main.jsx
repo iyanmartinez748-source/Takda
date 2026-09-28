@@ -4,6 +4,7 @@ import TakdaApp from "./App";
 import { supabase } from "./lib/supabase";
 import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
 import { unsubscribeFromPush } from "./lib/push";
+import { detectBrowserTimeZone, shouldStoreDetectedTimeZone } from "./lib/timezone";
 import "./index.css";
 
 installSupabaseStorageAdapter();
@@ -1531,6 +1532,34 @@ function MyProfile({
 }
 
 /* =========================
+   TIMEZONE CAPTURE (pre-9E-4C-2 mini-stage)
+========================= */
+
+// Fire-and-forget: fills in profiles.timezone for the currently
+// authenticated user only when their stored value is missing/invalid AND
+// the browser can detect a real IANA zone (src/lib/timezone.js owns both
+// checks — never guesses, never overwrites an already-valid saved zone,
+// e.g. while a user is traveling). Never awaited by its caller and never
+// throws out of itself, so a slow/failed write can never delay or break
+// login/app loading.
+async function syncDetectedTimeZone(user, currentTimeZone) {
+  const detected = detectBrowserTimeZone();
+
+  if (!shouldStoreDetectedTimeZone(currentTimeZone, detected)) return;
+
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ timezone: detected })
+      .eq("id", user.id);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error("Takda timezone sync error:", err);
+  }
+}
+
+/* =========================
    MAIN APP / SESSION
 ========================= */
 
@@ -1601,6 +1630,9 @@ function Root() {
       if (data && data.full_name) {
         setProfile(data);
         setNeedsProfile(false);
+        // Not awaited: a slow/failed timezone write must never delay
+        // profileLoading from clearing below.
+        syncDetectedTimeZone(user, data.timezone);
       } else {
         setProfile(null);
         setNeedsProfile(true);
