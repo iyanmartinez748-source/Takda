@@ -677,6 +677,228 @@ export async function finalizeReminderDeliveryFailure({ userId, dedupKey, claimT
   return { finalized: rows.length > 0 };
 }
 
+/* =========================================================
+   ONE-CANDIDATE REMINDER DELIVERY ORCHESTRATOR — DORMANT FOUNDATION ONLY
+
+   NOT YET CALLED by the handler below. This step only adds and tests
+   processReminderCandidate() in isolation; the endpoint's runtime
+   behavior is unchanged — it remains fully dry-run/read-only
+   (dryRun: true, liveSendEnabled: false, zero reminder_deliveries
+   writes, zero real Web Push calls from the handler's own code path).
+
+   This function composes — never reimplements — claimReminderEvent,
+   reclaimExpiredReminderEvent, sendReminderToSubscriptions,
+   finalizeReminderDeliverySuccess, and finalizeReminderDeliveryFailure
+   (all defined above). All five are accepted as injectable parameters
+   (claimFn/reclaimFn/sendFn/finalizeSuccessFn/finalizeFailureFn,
+   defaulting to the real exported functions) so tests can exercise
+   this orchestrator's own control flow — claim/reclaim decisions,
+   the pre-send lease check, fanout->finalize mapping, ownership-loss
+   handling, internal-error handling — without re-mocking every layer
+   of fetch/response each of those helpers already has its own,
+   separate test coverage for. This is dependency injection via plain
+   parameters, not ESM binding monkey-patching: no export of this file
+   is ever reassigned.
+
+   CLAIM -> RECLAIM:
+   A brand-new event is claimed via claimReminderEvent. If that finds
+   an existing row (claimed: false — which covers a live lease, an
+   already-'sent' row, and an already-'abandoned' row identically; see
+   the Stage 9E-4C-2 orchestration design review for why the initial
+   claim response alone cannot and need not distinguish those three),
+   reclaimExpiredReminderEvent is attempted next; only its own WHERE
+   clause (status = 'claimed' AND lease expired) can distinguish "due
+   for retry" from every other case, so a reclaim failure is always
+   reported as ownership_not_acquired without further action. Neither
+   helper is ever retried, and a thrown error from either immediately
+   returns internal_error without attempting the next step — a claim
+   or reclaim network failure never modifies any row, so there is
+   nothing to compensate for.
+
+   PRE-SEND LEASE SAFETY (see the Stage 9E-4C-2 orchestration design
+   review, "stale-worker send risk"): claim_token fences only the
+   DATABASE write a finalize call makes — it has no effect on whether
+   webpush.sendNotification() itself is allowed to run. A worker whose
+   lease is about to (or already did) expire could still send
+   externally while a second worker has already reclaimed the same
+   row, risking a genuine duplicate notification on the user's device.
+   This check narrows, but cannot eliminate, that window — a
+   check-then-send gap always remains — so it is a duplicate-
+   minimizing safeguard, never a duplicate-eliminating guarantee.
+   `now` is an injectable function (defaulting to Date.now) purely so
+   tests can exercise every lease-boundary case deterministically,
+   without depending on real wall-clock timing.
+
+   ATTEMPT_COUNT DISCIPLINE: this function never touches attempt_count
+   itself — only the two finalize RPCs (called via finalizeSuccessFn/
+   finalizeFailureFn) do that, server-side. A failure-finalize call is
+   made ONLY when a real sendReminderToSubscriptions result exists
+   (including the zero-subscriptions case, which that helper itself
+   already reports as errorCategory: "no_subscriptions" — a genuine
+   event-level delivery failure, not a special case here). Every other
+   failure mode below (ownership not acquired, lease not safe, a
+   claim/reclaim/subscription-query/fanout/finalize-transport error)
+   returns without ever calling either finalize helper, so it can
+   never consume one of the five total attempts on pure infrastructure
+   noise.
+
+   SUBSCRIPTION LOADING is plain inline fetch (not delegated to a
+   named helper, since no separately-tested helper for it exists yet)
+   selecting only id/endpoint/p256dh/auth_key — the exact four fields
+   sendReminderToSubscriptions reads — via the same single-try/catch
+   discipline used throughout this file: a network rejection, non-2xx
+   response, or non-array JSON body all collapse to internal_error,
+   never a raw upstream error, never subscription data logged.
+
+   RESULT SHAPE is deliberately minimal: { outcome, category, dedupKey }
+   only — never claimToken, leaseExpiresAt, any subscription field, any
+   header, or any raw error, matching every other helper's established
+   privacy discipline in this file.
+========================================================= */
+
+const PRE_SEND_LEASE_SAFETY_MS = 30 * 1000;
+
+// Same fixed { title, body } JSON-string contract api/test-push.js and
+// src/sw.js's push handler already establish — no new payload field,
+// no new notification UI, no url (sw.js's existing same-origin-root
+// fallback is untouched). Built from fields reminderEngine.js's
+// candidate objects already carry; never any subscription/claim/auth
+// data.
+function buildActivityReminderBody(candidate) {
+  const title = typeof candidate.title === "string" && candidate.title ? candidate.title : "An activity";
+  if (candidate.urgencyKey === "today") return `"${title}" is due today.`;
+  if (candidate.urgencyKey === "tomorrow") return `"${title}" is due tomorrow.`;
+  return `"${title}" is overdue.`;
+}
+
+function buildClassReminderBody(candidate) {
+  const subjectPart = typeof candidate.subjectName === "string" && candidate.subjectName ? candidate.subjectName : "Class";
+  const startTime = typeof candidate.startTime === "string" && candidate.startTime ? candidate.startTime : "";
+  return startTime ? `${subjectPart} starts at ${startTime}.` : `${subjectPart} is starting soon.`;
+}
+
+function buildReminderPayload(candidate) {
+  const body = candidate?.kind === "class" ? buildClassReminderBody(candidate) : buildActivityReminderBody(candidate);
+  return JSON.stringify({ title: "Takda", body });
+}
+
+// Every return path in processReminderCandidate goes through this —
+// the single choke point guaranteeing the result shape never
+// accidentally grows a sensitive field.
+function buildOrchestratorResult(outcome, candidate) {
+  return { outcome, category: candidate.category, dedupKey: candidate.dedupKey };
+}
+
+export async function processReminderCandidate({
+  candidate,
+  userId,
+  restHeaders,
+  supabaseUrl,
+  now = Date.now,
+  claimFn = claimReminderEvent,
+  reclaimFn = reclaimExpiredReminderEvent,
+  sendFn = sendReminderToSubscriptions,
+  finalizeSuccessFn = finalizeReminderDeliverySuccess,
+  finalizeFailureFn = finalizeReminderDeliveryFailure,
+}) {
+  let ownership;
+
+  try {
+    ownership = await claimFn({
+      userId,
+      category: candidate.category,
+      sourceId: candidate.sourceId,
+      dedupKey: candidate.dedupKey,
+      restHeaders,
+      supabaseUrl,
+    });
+  } catch {
+    return buildOrchestratorResult("internal_error", candidate);
+  }
+
+  if (!ownership.claimed) {
+    try {
+      ownership = await reclaimFn({ userId, dedupKey: candidate.dedupKey, restHeaders, supabaseUrl });
+    } catch {
+      return buildOrchestratorResult("internal_error", candidate);
+    }
+
+    if (!ownership.claimed) {
+      return buildOrchestratorResult("ownership_not_acquired", candidate);
+    }
+  }
+
+  const claimToken = ownership.claimToken;
+  const leaseExpiresAtMs = typeof ownership.leaseExpiresAt === "string" ? Date.parse(ownership.leaseExpiresAt) : NaN;
+
+  if (!Number.isFinite(leaseExpiresAtMs) || leaseExpiresAtMs - now() <= PRE_SEND_LEASE_SAFETY_MS) {
+    return buildOrchestratorResult("lease_not_safe", candidate);
+  }
+
+  let subscriptions;
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/push_subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=id,endpoint,p256dh,auth_key`,
+      { headers: restHeaders }
+    );
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    subscriptions = await response.json();
+
+    if (!Array.isArray(subscriptions)) {
+      throw new Error("non-array response");
+    }
+  } catch {
+    return buildOrchestratorResult("internal_error", candidate);
+  }
+
+  let sendResult;
+  try {
+    sendResult = await sendFn({
+      subscriptions,
+      payload: buildReminderPayload(candidate),
+      userId,
+      restHeaders,
+      supabaseUrl,
+    });
+  } catch {
+    return buildOrchestratorResult("internal_error", candidate);
+  }
+
+  if (sendResult.eventSendSucceeded) {
+    let finalizeResult;
+    try {
+      finalizeResult = await finalizeSuccessFn({ userId, dedupKey: candidate.dedupKey, claimToken, restHeaders, supabaseUrl });
+    } catch {
+      return buildOrchestratorResult("internal_error", candidate);
+    }
+
+    return buildOrchestratorResult(finalizeResult.finalized ? "sent" : "ownership_lost_after_send", candidate);
+  }
+
+  let finalizeResult;
+  try {
+    finalizeResult = await finalizeFailureFn({
+      userId,
+      dedupKey: candidate.dedupKey,
+      claimToken,
+      errorCategory: sendResult.errorCategory,
+      restHeaders,
+      supabaseUrl,
+    });
+  } catch {
+    return buildOrchestratorResult("internal_error", candidate);
+  }
+
+  return buildOrchestratorResult(
+    finalizeResult.finalized ? "failed_finalized" : "ownership_lost_after_failed_send",
+    candidate
+  );
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
