@@ -51,6 +51,15 @@ function setEnv() {
   process.env.VITE_SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   process.env.CRON_SECRET = "good-cron-secret";
+  // Stage 9E-4C-2 gated activation: always reset to a known "disabled"
+  // baseline here too, so no earlier test's activation-flag/VAPID env
+  // mutation can ever leak into a later test regardless of run order —
+  // every test in this file already calls setEnv() first, so this is
+  // a purely additive safety net, not a change to any existing test's
+  // observed behavior (none of them ever read these three vars).
+  delete process.env.REMINDER_DELIVERY_ENABLED;
+  delete process.env.VITE_VAPID_PUBLIC_KEY;
+  delete process.env.VAPID_PRIVATE_KEY;
 }
 
 function createRes() {
@@ -2522,15 +2531,24 @@ test("processReminderCandidate: no send occurs when ownership is never acquired 
 const SOURCE_PATH = fileURLToPath(new URL("../reminders-delivery-runner.js", import.meta.url));
 const SOURCE_TEXT = readFileSync(SOURCE_PATH, "utf8");
 
-// 30 & 31. Handler has zero call sites to processReminderCandidate or
-// any of the five composed helpers.
-test("source check: the handler function body contains zero call sites to processAllEligibleUsers, processReminderCandidate, or any of the five composed helpers", () => {
+// 30 & 31 (UPDATED for Stage 9E-4C-2 gated activation): the handler now
+// intentionally contains EXACTLY ONE call site to processAllEligibleUsers
+// (the gated live-activation branch) -- this assertion was deliberately
+// loosened from "zero" to "exactly one" for that single name only, as
+// the direct, intended result of activation wiring. Every lower-level
+// delivery helper (processReminderCandidate and the five it composes)
+// must still have ZERO direct handler call sites -- they remain
+// reachable only through processAllEligibleUsers, never called
+// directly from this handler.
+test("source check: the handler function body contains EXACTLY ONE call site to processAllEligibleUsers and ZERO call sites to processReminderCandidate or any of the five composed helpers", () => {
   const handlerStart = SOURCE_TEXT.indexOf("export default async function handler");
   assert.ok(handlerStart > -1, "handler function not found in source");
   const handlerBody = SOURCE_TEXT.slice(handlerStart);
 
+  const bulkRunnerCallSiteCount = handlerBody.split("processAllEligibleUsers(").length - 1;
+  assert.equal(bulkRunnerCallSiteCount, 1, `expected exactly one processAllEligibleUsers( call site, found ${bulkRunnerCallSiteCount}`);
+
   for (const callSite of [
-    "processAllEligibleUsers(",
     "processReminderCandidate(",
     "claimReminderEvent(",
     "reclaimExpiredReminderEvent(",
@@ -3313,6 +3331,373 @@ test("processAllEligibleUsers: issues only GET requests -- no reminder_deliverie
   });
 
   assert.ok(fetchMock.calls.length >= 2);
+});
+
+/* =========================================================
+   GATED LIVE ACTIVATION — HANDLER TESTS
+
+   These exercise the actual exported `handler` end-to-end through the
+   real (never injected) processAllEligibleUsers call chain -- there is
+   no dependency-injection seam at the handler level, matching every
+   other handler test already in this file. Safety is achieved the
+   same way those existing tests achieve it: global.fetch is always
+   mocked, so no real network/Supabase call is ever possible, and no
+   test enumerates any real subscription (both new enumeration
+   endpoints are mocked to return empty arrays for every "live path
+   succeeds" test), so processAllEligibleUsers' own per-user loop never
+   executes and no real webpush.sendNotification call is ever reached.
+========================================================= */
+
+// A real, validly-formatted (but not secret/meaningful) VAPID key pair,
+// generated once via the same library function api/test-push.js itself
+// relies on -- avoids hand-crafting base64url values whose exact byte-
+// length requirements would otherwise need to be guessed.
+const VALID_VAPID_KEYS = webpush.generateVAPIDKeys();
+
+function setLiveEnabledEnv() {
+  setEnv();
+  process.env.REMINDER_DELIVERY_ENABLED = "true";
+  process.env.VITE_VAPID_PUBLIC_KEY = VALID_VAPID_KEYS.publicKey;
+  process.env.VAPID_PRIVATE_KEY = VALID_VAPID_KEYS.privateKey;
+}
+
+// Routes only the two bulk-runner enumeration endpoints; throws on any
+// non-GET request or any other URL, so an accidental write or an
+// accidental fall-through into the old per-user compute path is a hard
+// test failure.
+function makeLiveFetchMock({ subscriptionOk = true, retryOk = true, subscriptionRows = [], retryRows = [] } = {}) {
+  const calls = [];
+
+  async function mockFetch(url, options) {
+    const urlStr = String(url);
+    const method = (options?.method || "GET").toUpperCase();
+    calls.push({ url: urlStr, method });
+
+    if (method !== "GET") {
+      throw new Error("Gated live-activation test must never issue a non-GET request: " + method + " " + urlStr);
+    }
+
+    if (urlStr.includes("/rest/v1/push_subscriptions")) {
+      return { ok: subscriptionOk, json: async () => subscriptionRows };
+    }
+
+    if (urlStr.includes("/rest/v1/reminder_deliveries")) {
+      return { ok: retryOk, json: async () => retryRows };
+    }
+
+    throw new Error("Unexpected fetch call in gated live-activation test: " + urlStr);
+  }
+
+  return { mockFetch, calls };
+}
+
+function findRetryEnumerationCall(calls) {
+  return calls.find(
+    (c) => c.url.includes("/rest/v1/reminder_deliveries") && c.url.includes("status=eq.claimed") && c.url.includes("attempt_count=lt.5")
+  );
+}
+
+// 1. Non-GET rejected, bulk runner not called -- proven even with
+// activation fully configured, so the method check cannot be bypassed
+// by an otherwise-correct live request.
+test("gated activation: a non-GET request is rejected with 405 even when activation is fully configured, and the bulk runner is never reached", async () => {
+  setLiveEnabledEnv();
+  global.fetch = async () => {
+    throw new Error("fetch should not be called for a rejected method");
+  };
+
+  const req = { method: "POST", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 405);
+});
+
+// 2. Missing Authorization rejected.
+test("gated activation: a missing Authorization header is rejected with 401 even when activation is fully configured", async () => {
+  setLiveEnabledEnv();
+  global.fetch = async () => {
+    throw new Error("fetch should not be called without valid authorization");
+  };
+
+  const req = { method: "GET", headers: {} };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 401);
+});
+
+// 3. Malformed Authorization (no "Bearer " prefix) rejected.
+test("gated activation: a malformed Authorization header (missing Bearer prefix) is rejected with 401", async () => {
+  setLiveEnabledEnv();
+  global.fetch = async () => {
+    throw new Error("fetch should not be called with a malformed Authorization header");
+  };
+
+  const req = { method: "GET", headers: { authorization: "good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 401);
+});
+
+// 4. Wrong CRON_SECRET rejected.
+test("gated activation: a wrong bearer secret is rejected with 401 even when activation is fully configured", async () => {
+  setLiveEnabledEnv();
+  global.fetch = async () => {
+    throw new Error("fetch should not be called with a wrong bearer secret");
+  };
+
+  const req = { method: "GET", headers: { authorization: "Bearer wrong-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 401);
+});
+
+// 5. Missing CRON_SECRET env var rejected.
+test("gated activation: a missing CRON_SECRET env var yields a sanitized 500 and the bulk runner is never reached", async () => {
+  setLiveEnabledEnv();
+  delete process.env.CRON_SECRET;
+  global.fetch = async () => {
+    throw new Error("fetch should not be called with incomplete configuration");
+  };
+
+  const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 500);
+});
+
+// 6. Missing Supabase URL env var rejected.
+test("gated activation: a missing Supabase URL env var yields a sanitized 500 and the bulk runner is never reached", async () => {
+  setLiveEnabledEnv();
+  delete process.env.VITE_SUPABASE_URL;
+  global.fetch = async () => {
+    throw new Error("fetch should not be called with incomplete configuration");
+  };
+
+  const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 500);
+});
+
+// 7. Missing service-role credential env var rejected.
+test("gated activation: a missing service-role credential env var yields a sanitized 500 and the bulk runner is never reached", async () => {
+  setLiveEnabledEnv();
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  global.fetch = async () => {
+    throw new Error("fetch should not be called with incomplete configuration");
+  };
+
+  const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 500);
+});
+
+// 8-11. Activation flag missing / "false" / "TRUE" / "1" all fall
+// through to the existing, unmodified dry-run report -- the bulk
+// runner's own retry-enumeration query (the one new, distinctive
+// fetch call only the live path issues) must never be observed.
+for (const [label, flagValue] of [
+  ["missing", undefined],
+  ["false", "false"],
+  ["TRUE (wrong case)", "TRUE"],
+  ["1", "1"],
+]) {
+  test(`gated activation: REMINDER_DELIVERY_ENABLED ${label} falls through to the existing dry-run report, and the bulk runner is never reached`, async () => {
+    setEnv();
+    if (flagValue !== undefined) {
+      process.env.REMINDER_DELIVERY_ENABLED = flagValue;
+    }
+
+    const { mockFetch, calls } = makeFetchMock({ subscriptionUserIds: [USER_A] });
+    global.fetch = mockFetch;
+
+    const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+    const res = createRes();
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.dryRun, true);
+    assert.equal(res.body.liveSendEnabled, false);
+    assert.equal(findRetryEnumerationCall(calls), undefined, "retry-enumeration query must never be issued while activation is disabled");
+  });
+}
+
+// 12 & 13. Exact "true" + valid authorization/config calls the bulk
+// runner exactly once (proven by both new enumeration endpoints being
+// hit exactly once, with the retry query's exact filter contract) and
+// returns an aggregate-only live response.
+test("gated activation: exact activation with valid authorization/config calls the bulk runner exactly once and returns an aggregate-only live response", async () => {
+  setLiveEnabledEnv();
+  const { mockFetch, calls } = makeLiveFetchMock();
+  global.fetch = mockFetch;
+
+  const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.dryRun, false);
+  assert.equal(res.body.liveSendEnabled, true);
+  assert.equal(res.body.subscriptionEnumerationSucceeded, true);
+  assert.equal(res.body.retryEnumerationSucceeded, true);
+  assert.equal(res.body.usersConsidered, 0);
+  assert.equal(res.body.userProcessingErrors, 0);
+  assert.equal(res.body.candidatesComputed, 0);
+  assert.deepEqual(res.body.outcomes, {
+    sent: 0,
+    failed_finalized: 0,
+    ownership_not_acquired: 0,
+    ownership_lost_after_send: 0,
+    ownership_lost_after_failed_send: 0,
+    lease_not_safe: 0,
+    internal_error: 0,
+  });
+  assert.deepEqual(Object.keys(res.body).sort(), [
+    "candidatesComputed",
+    "dryRun",
+    "liveSendEnabled",
+    "outcomes",
+    "retryEnumerationSucceeded",
+    "subscriptionEnumerationSucceeded",
+    "userProcessingErrors",
+    "usersConsidered",
+  ]);
+
+  const subsCalls = calls.filter((c) => c.url.includes("/rest/v1/push_subscriptions"));
+  const retryCalls = calls.filter((c) => c.url.includes("/rest/v1/reminder_deliveries"));
+  assert.equal(subsCalls.length, 1, "the bulk runner's subscription enumeration must be issued exactly once");
+  assert.equal(retryCalls.length, 1, "the bulk runner's retry enumeration must be issued exactly once");
+  assert.ok(retryCalls[0].url.includes("status=eq.claimed") && retryCalls[0].url.includes("attempt_count=lt.5"));
+});
+
+// 14. Live runner internal failure (a malformed VAPID key pair, which
+// webpush.setVapidDetails validates and rejects synchronously before
+// any network activity) yields a sanitized 500, never the raw
+// validation error or the invalid key values themselves.
+test("gated activation: a malformed VAPID key pair yields a sanitized 500 and never exposes the raw validation error or key values", async () => {
+  setLiveEnabledEnv();
+  process.env.VITE_VAPID_PUBLIC_KEY = "not-a-valid-vapid-public-key";
+  process.env.VAPID_PRIVATE_KEY = "not-a-valid-vapid-private-key";
+
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when VAPID configuration is invalid");
+  };
+
+  const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 500);
+  const serialized = JSON.stringify(res.body).toLowerCase();
+  assert.ok(!serialized.includes("vapid"));
+  assert.ok(!serialized.includes("not-a-valid"));
+});
+
+// 15. No user-JWT-shaped authentication path can activate bulk
+// delivery -- only an exact CRON_SECRET match can.
+test("gated activation: a Supabase-user-session-shaped bearer value cannot activate bulk delivery", async () => {
+  setLiveEnabledEnv();
+  global.fetch = async () => {
+    throw new Error("fetch should not be called with a non-CRON_SECRET bearer value");
+  };
+
+  const req = {
+    method: "GET",
+    headers: { authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.some-user-session-payload.signature" },
+  };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 401);
+});
+
+// 16. VAPID configuration is never read/validated while activation is
+// disabled, nor while a request is being rejected -- proven two ways:
+// (a) a disabled request still succeeds as the ordinary dry-run report
+// even though no VAPID env var is set anywhere in this test, and (b) a
+// rejected (wrong-secret) request still 401s, not a VAPID-shaped 500,
+// even with the activation flag already "true" and VAPID left unset.
+test("gated activation: VAPID configuration is never read or validated while activation is disabled", async () => {
+  setEnv();
+  const { mockFetch } = makeFetchMock({ subscriptionUserIds: [USER_A] });
+  global.fetch = mockFetch;
+
+  const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.dryRun, true);
+});
+
+test("gated activation: VAPID configuration is never read while a request is being rejected, even with activation already enabled", async () => {
+  setEnv();
+  process.env.REMINDER_DELIVERY_ENABLED = "true";
+  global.fetch = async () => {
+    throw new Error("fetch should not be called for a rejected request");
+  };
+
+  const req = { method: "GET", headers: { authorization: "Bearer wrong-secret" } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 401);
+});
+
+// 17. Web Push is configured (webpush.setVapidDetails) before the
+// bulk runner's first possible network activity -- and therefore
+// strictly before any possible send path, since a send can only ever
+// happen after enumeration/claim network calls.
+test("gated activation: Web Push is configured before the bulk runner's first enumeration fetch call", async () => {
+  setLiveEnabledEnv();
+
+  const originalSetVapidDetails = webpush.setVapidDetails;
+  let fetchCalledYet = false;
+  let setVapidDetailsCalledBeforeFetch = false;
+
+  webpush.setVapidDetails = (...args) => {
+    setVapidDetailsCalledBeforeFetch = !fetchCalledYet;
+    return originalSetVapidDetails.apply(webpush, args);
+  };
+
+  const { mockFetch } = makeLiveFetchMock();
+  global.fetch = async (...args) => {
+    fetchCalledYet = true;
+    return mockFetch(...args);
+  };
+
+  try {
+    const req = { method: "GET", headers: { authorization: "Bearer good-cron-secret" } };
+    const res = createRes();
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(setVapidDetailsCalledBeforeFetch, true, "webpush.setVapidDetails must be configured before any enumeration fetch call");
+  } finally {
+    webpush.setVapidDetails = originalSetVapidDetails;
+  }
 });
 
 test("global.fetch is restored to its original value between tests (afterEach isolation)", () => {
