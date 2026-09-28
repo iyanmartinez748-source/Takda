@@ -17,7 +17,11 @@ import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import webpush from "web-push";
 
-import handler, { sendReminderToSubscriptions } from "../reminders-delivery-runner.js";
+import handler, {
+  sendReminderToSubscriptions,
+  claimReminderEvent,
+  reclaimExpiredReminderEvent,
+} from "../reminders-delivery-runner.js";
 
 // Captured once at module load — before any test has had a chance to
 // mutate either — and restored after EVERY test in this file via a
@@ -661,6 +665,545 @@ test("sendReminderToSubscriptions: safe result contains no endpoint/p256dh/auth/
   // subscriptions/staleIds arrays themselves.
   assert.ok(!("subscriptions" in result));
   assert.ok(!("staleIds" in result));
+});
+
+// ---------------------------------------------------------------------
+// claimReminderEvent / reclaimExpiredReminderEvent — atomic claim +
+// reclaim foundation (Stage 9E-4C-2). NOT called by the handler yet —
+// these tests exercise both helpers directly and in isolation. Several
+// tests below assert exactly one fetch call was made (or that any
+// unexpected method/second call throws), proving neither helper ever
+// performs a prior SELECT-then-decide before its single atomic
+// POST/PATCH.
+// ---------------------------------------------------------------------
+
+const CLAIM_CATEGORY = "activity_due_today";
+const CLAIM_SOURCE_ID = "33333333-3333-3333-3333-333333333333";
+const CLAIM_DEDUP_KEY = "activity-1|today|2026-09-28|2026-09-28";
+
+test("claimReminderEvent: successful insert returns ownership; returned claimToken/leaseExpiresAt match the request body", async () => {
+  const calls = [];
+  global.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  const result = await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(result.claimed, true);
+  assert.equal(result.claimToken, calls[0].body.claim_token);
+  assert.equal(result.leaseExpiresAt, calls[0].body.lease_expires_at);
+});
+
+test("claimReminderEvent: conflict (successful empty array) means ownership NOT acquired", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const result = await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.claimed, false);
+  assert.equal(result.claimToken, null);
+  assert.equal(result.leaseExpiresAt, null);
+});
+
+test("claimReminderEvent: two separate claim calls generate different claim_token values", async () => {
+  const bodies = [];
+  global.fetch = async (url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+  await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(bodies.length, 2);
+  assert.notEqual(bodies[0].claim_token, bodies[1].claim_token);
+});
+
+test("claimReminderEvent: lease_expires_at is approximately 3 minutes in the future", async () => {
+  let capturedBody = null;
+  const before = Date.now();
+  global.fetch = async (url, options) => {
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+  const after = Date.now();
+
+  const leaseMs = new Date(capturedBody.lease_expires_at).getTime();
+  const toleranceMs = 2000;
+  assert.ok(
+    leaseMs >= before + 3 * 60 * 1000 - toleranceMs && leaseMs <= after + 3 * 60 * 1000 + toleranceMs,
+    `lease_expires_at ${capturedBody.lease_expires_at} was not approximately 3 minutes in the future`
+  );
+});
+
+test("claimReminderEvent: request body has status claimed, attempt_count 0, required fields, and omits finalize-only fields", async () => {
+  let capturedBody = null;
+  global.fetch = async (url, options) => {
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(capturedBody.status, "claimed");
+  assert.equal(capturedBody.attempt_count, 0);
+  assert.equal(capturedBody.user_id, USER_A);
+  assert.equal(capturedBody.category, CLAIM_CATEGORY);
+  assert.equal(capturedBody.source_id, CLAIM_SOURCE_ID);
+  assert.equal(capturedBody.dedup_key, CLAIM_DEDUP_KEY);
+  assert.ok(!("delivered_at" in capturedBody));
+  assert.ok(!("sent_at" in capturedBody));
+  assert.ok(!("last_attempt_at" in capturedBody));
+  assert.ok(!("last_error" in capturedBody));
+});
+
+test("claimReminderEvent: URL includes on_conflict=user_id,dedup_key and correct Prefer/Content-Type headers", async () => {
+  let capturedUrl = null;
+  let capturedHeaders = null;
+  global.fetch = async (url, options) => {
+    capturedUrl = String(url);
+    capturedHeaders = options.headers;
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.ok(capturedUrl.includes("/rest/v1/reminder_deliveries"));
+  assert.ok(capturedUrl.includes("on_conflict=user_id,dedup_key"));
+  assert.ok(capturedHeaders.Prefer.includes("return=representation"));
+  assert.ok(capturedHeaders.Prefer.includes("resolution=ignore-duplicates"));
+  assert.equal(capturedHeaders["Content-Type"], "application/json");
+});
+
+test("claimReminderEvent: issues exactly one request — no prior SELECT/GET", async () => {
+  let callCount = 0;
+  global.fetch = async (url, options) => {
+    callCount += 1;
+    if ((options?.method || "GET") !== "POST") {
+      throw new Error("claimReminderEvent must never issue a non-POST request: " + (options?.method || "GET") + " " + url);
+    }
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(callCount, 1);
+});
+
+// A single shared forbidden-substring list for every claim/reclaim
+// failure-message test below: proves the escaped error is the fixed
+// generic string only, never anything derived from the request/
+// response (userId, dedup key, service-role-looking values, auth
+// header names, or a raw response-body fragment).
+const CLAIM_FORBIDDEN_ERROR_SUBSTRINGS = [
+  USER_A.toLowerCase(),
+  CLAIM_DEDUP_KEY.toLowerCase(),
+  "service-role-key",
+  "bearer",
+  "authorization",
+  "raw_response_body_secret",
+  SUPABASE_URL_FOR_HELPER.toLowerCase(),
+  CLAIM_CATEGORY.toLowerCase(),
+];
+
+test("claimReminderEvent: HTTP non-2xx escapes as exactly the fixed generic message", async () => {
+  global.fetch = async () => ({ ok: false, status: 500, json: async () => ({ message: "internal error" }) });
+
+  await assert.rejects(
+    () =>
+      claimReminderEvent({
+        userId: USER_A,
+        category: CLAIM_CATEGORY,
+        sourceId: CLAIM_SOURCE_ID,
+        dedupKey: CLAIM_DEDUP_KEY,
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      }),
+    (err) => {
+      assert.equal(err.message, "Unable to claim reminder event.");
+      return true;
+    }
+  );
+});
+
+test("claimReminderEvent: a network-level fetch rejection (even one containing sensitive-looking text) escapes as only the fixed generic message", async () => {
+  global.fetch = async () => {
+    throw new Error(
+      `getaddrinfo ENOTFOUND ${SUPABASE_URL_FOR_HELPER} while POSTing dedup_key=${CLAIM_DEDUP_KEY} for user ${USER_A} with Authorization: Bearer service-role-key`
+    );
+  };
+
+  try {
+    await claimReminderEvent({
+      userId: USER_A,
+      category: CLAIM_CATEGORY,
+      sourceId: CLAIM_SOURCE_ID,
+      dedupKey: CLAIM_DEDUP_KEY,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected claimReminderEvent to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to claim reminder event.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `claim network-failure error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("claimReminderEvent: a malformed-JSON response.json() failure escapes as only the fixed generic message", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => {
+      throw new SyntaxError("RAW_RESPONSE_BODY_SECRET");
+    },
+  });
+
+  try {
+    await claimReminderEvent({
+      userId: USER_A,
+      category: CLAIM_CATEGORY,
+      sourceId: CLAIM_SOURCE_ID,
+      dedupKey: CLAIM_DEDUP_KEY,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected claimReminderEvent to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to claim reminder event.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `claim malformed-JSON error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("reclaimExpiredReminderEvent: expired claimed row returns ownership with matching token", async () => {
+  const calls = [];
+  global.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  const result = await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, "PATCH");
+  assert.equal(result.claimed, true);
+  assert.equal(result.claimToken, calls[0].body.claim_token);
+});
+
+test("reclaimExpiredReminderEvent: no matching row (successful empty array) means ownership NOT acquired", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const result = await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.claimed, false);
+  assert.equal(result.claimToken, null);
+  assert.equal(result.leaseExpiresAt, null);
+});
+
+test("reclaimExpiredReminderEvent: two separate reclaim calls generate different claim_token values", async () => {
+  const bodies = [];
+  global.fetch = async (url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+  await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(bodies.length, 2);
+  assert.notEqual(bodies[0].claim_token, bodies[1].claim_token);
+});
+
+test("reclaimExpiredReminderEvent: PATCH body contains only claim_token and lease_expires_at", async () => {
+  let capturedBody = null;
+  global.fetch = async (url, options) => {
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.deepEqual(Object.keys(capturedBody).sort(), ["claim_token", "lease_expires_at"]);
+  assert.ok(!("attempt_count" in capturedBody));
+});
+
+test("reclaimExpiredReminderEvent: URL includes all four encoded filters", async () => {
+  let capturedUrl = null;
+  global.fetch = async (url) => {
+    capturedUrl = String(url);
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.ok(capturedUrl.includes(`user_id=eq.${encodeURIComponent(USER_A)}`));
+  assert.ok(capturedUrl.includes(`dedup_key=eq.${encodeURIComponent(CLAIM_DEDUP_KEY)}`));
+  assert.ok(capturedUrl.includes(`status=eq.${encodeURIComponent("claimed")}`));
+  assert.ok(capturedUrl.includes("lease_expires_at=lt."));
+});
+
+test("reclaimExpiredReminderEvent: Prefer is return=representation (no resolution token needed for PATCH)", async () => {
+  let capturedHeaders = null;
+  global.fetch = async (url, options) => {
+    capturedHeaders = options.headers;
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(capturedHeaders.Prefer, "return=representation");
+  assert.equal(capturedHeaders["Content-Type"], "application/json");
+});
+
+test("reclaimExpiredReminderEvent: issues exactly one request — no prior SELECT/GET", async () => {
+  let callCount = 0;
+  global.fetch = async (url, options) => {
+    callCount += 1;
+    if ((options?.method || "GET") !== "PATCH") {
+      throw new Error("reclaimExpiredReminderEvent must never issue a non-PATCH request: " + (options?.method || "GET") + " " + url);
+    }
+    return { ok: true, json: async () => [{ id: "row-1" }] };
+  };
+
+  await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(callCount, 1);
+});
+
+test("reclaimExpiredReminderEvent: HTTP non-2xx escapes as exactly the fixed generic message", async () => {
+  global.fetch = async () => ({ ok: false, status: 500, json: async () => ({ message: "internal error" }) });
+
+  await assert.rejects(
+    () =>
+      reclaimExpiredReminderEvent({
+        userId: USER_A,
+        dedupKey: CLAIM_DEDUP_KEY,
+        restHeaders: REST_HEADERS_FOR_HELPER,
+        supabaseUrl: SUPABASE_URL_FOR_HELPER,
+      }),
+    (err) => {
+      assert.equal(err.message, "Unable to reclaim reminder event.");
+      return true;
+    }
+  );
+});
+
+test("reclaimExpiredReminderEvent: a network-level fetch rejection (even one containing sensitive-looking text) escapes as only the fixed generic message", async () => {
+  global.fetch = async () => {
+    throw new Error(
+      `getaddrinfo ENOTFOUND ${SUPABASE_URL_FOR_HELPER} while PATCHing dedup_key=${CLAIM_DEDUP_KEY} for user ${USER_A} with Authorization: Bearer service-role-key`
+    );
+  };
+
+  try {
+    await reclaimExpiredReminderEvent({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected reclaimExpiredReminderEvent to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to reclaim reminder event.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `reclaim network-failure error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("reclaimExpiredReminderEvent: a malformed-JSON response.json() failure escapes as only the fixed generic message", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => {
+      throw new SyntaxError("RAW_RESPONSE_BODY_SECRET");
+    },
+  });
+
+  try {
+    await reclaimExpiredReminderEvent({
+      userId: USER_A,
+      dedupKey: CLAIM_DEDUP_KEY,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    });
+    assert.fail("expected reclaimExpiredReminderEvent to reject");
+  } catch (err) {
+    assert.equal(err.message, "Unable to reclaim reminder event.");
+    const serialized = err.message.toLowerCase();
+    for (const forbidden of CLAIM_FORBIDDEN_ERROR_SUBSTRINGS) {
+      assert.ok(!serialized.includes(forbidden), `reclaim malformed-JSON error leaked forbidden value: ${forbidden}`);
+    }
+  }
+});
+
+test("claimReminderEvent and reclaimExpiredReminderEvent results contain only claimed/claimToken/leaseExpiresAt", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => [{ id: "row-1" }] });
+
+  const claimResult = await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+  const reclaimResult = await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.deepEqual(Object.keys(claimResult).sort(), ["claimToken", "claimed", "leaseExpiresAt"]);
+  assert.deepEqual(Object.keys(reclaimResult).sort(), ["claimToken", "claimed", "leaseExpiresAt"]);
+});
+
+test("claim/reclaim results never contain userId, dedupKey, the service-role key, Authorization, or academic content — checked for BOTH helpers independently", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => [{ id: "row-1" }] });
+
+  const claimResult = await claimReminderEvent({
+    userId: USER_A,
+    category: CLAIM_CATEGORY,
+    sourceId: CLAIM_SOURCE_ID,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+  const reclaimResult = await reclaimExpiredReminderEvent({
+    userId: USER_A,
+    dedupKey: CLAIM_DEDUP_KEY,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  // claimToken itself is intentionally present in this internal-only
+  // result shape — it is not a forbidden value here. The security
+  // requirement is that the current HTTP handler never serializes this
+  // object at all (confirmed separately by static inspection below),
+  // not that the token is absent from the internal helper result.
+  for (const [label, result] of [
+    ["claim", claimResult],
+    ["reclaim", reclaimResult],
+  ]) {
+    assert.deepEqual(Object.keys(result).sort(), ["claimToken", "claimed", "leaseExpiresAt"], `${label} result has an unexpected key set`);
+
+    const serialized = JSON.stringify(result).toLowerCase();
+    for (const forbidden of [
+      USER_A.toLowerCase(),
+      CLAIM_DEDUP_KEY.toLowerCase(),
+      "service-role-key",
+      "bearer",
+      "authorization",
+      CLAIM_CATEGORY.toLowerCase(),
+    ]) {
+      assert.ok(!serialized.includes(forbidden), `${label} result leaked forbidden field/value: ${forbidden}`);
+    }
+  }
 });
 
 test("global.fetch is restored to its original value between tests (afterEach isolation)", () => {

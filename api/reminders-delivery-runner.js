@@ -361,6 +361,181 @@ export async function sendReminderToSubscriptions({ subscriptions, payload, user
   };
 }
 
+/* =========================================================
+   ATOMIC REMINDER DELIVERY CLAIM + RECLAIM — FOUNDATION ONLY
+
+   NOT YET CALLED by the handler below. This step only adds and tests
+   claimReminderEvent()/reclaimExpiredReminderEvent() in isolation; the
+   endpoint's runtime behavior is unchanged — it remains fully dry-run/
+   read-only (dryRun: true, liveSendEnabled: false, zero
+   reminder_deliveries writes from the handler's own code path). No
+   finalize RPC call, no attempt_count handling, no retry cap, and no
+   activation gate are introduced here — see the Stage 9E-4C-2
+   claim/reclaim design review for why those are deliberately deferred.
+
+   Per that review, ownership is established by the atomic write
+   itself — never by a SELECT-then-decide-then-write sequence — and
+   claim_token is the fencing token every later finalize call must
+   present exactly, so a worker whose claim has since been superseded
+   by a reclaim can never successfully finalize (see
+   supabase/migrations/20260926000000_reminder_delivery_claim_token.sql
+   for the two finalize RPCs these helpers exist to eventually feed,
+   not yet called from here).
+========================================================= */
+
+// The lease every successful claim/reclaim grants — long enough to
+// comfortably cover a normal send attempt, short enough that a
+// genuine crash is retried within a few minutes rather than leaving a
+// time-sensitive reminder stuck. Matches the already-approved 3-minute
+// design; kept as one named constant so both helpers below (and any
+// later retry-sweep code) share a single source of truth.
+const CLAIM_LEASE_MS = 3 * 60 * 1000;
+
+// Atomically attempts to claim a brand-new reminder event. No SELECT
+// is ever performed first — a single INSERT, gated by the existing
+// unique(user_id, dedup_key) constraint via
+// `on_conflict=user_id,dedup_key` + `Prefer: resolution=ignore-
+// duplicates`, is itself the ownership decision. reminder_deliveries
+// has TWO unique constraints (the primary key `id` and
+// unique(user_id, dedup_key)) — the on_conflict query parameter is
+// required so PostgREST targets the latter, never the former (which
+// would never conflict, since a fresh random `id` is generated on
+// every insert, silently defeating dedup entirely).
+//
+// Ownership is read from the RETURNED ARRAY, never from the HTTP
+// status alone: a losing/conflicting insert still returns 2xx (with
+// resolution=ignore-duplicates translating the conflict into a
+// server-side no-op), just with an empty array.
+//
+// Returns ONLY { claimed, claimToken, leaseExpiresAt } — an
+// INTERNAL-ONLY result never meant to be spread into an HTTP
+// response; userId/dedupKey are never echoed back (the caller already
+// has both), and no thrown error message ever includes userId,
+// dedupKey, the response body, or any credential.
+export async function claimReminderEvent({ userId, category, sourceId, dedupKey, restHeaders, supabaseUrl }) {
+  const claimToken = crypto.randomUUID();
+  const leaseExpiresAt = new Date(Date.now() + CLAIM_LEASE_MS).toISOString();
+
+  // The fetch call, its response.ok check, and response.json() are all
+  // inside ONE try/catch so every failure mode — a network-level
+  // rejection, a non-2xx HTTP status, or a malformed-JSON parse error —
+  // escapes through the exact same fixed, generic message. Never the
+  // raw upstream error, never the response body, never userId/dedupKey/
+  // claimToken/the Supabase URL/the service-role key. Deliberately no
+  // console.error here — this is a pure computation helper, not (yet)
+  // wired into the handler's own request-scoped logging.
+  let rows;
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/reminder_deliveries?on_conflict=user_id,dedup_key`, {
+      method: "POST",
+      headers: {
+        ...restHeaders,
+        "Content-Type": "application/json",
+        Prefer: "return=representation,resolution=ignore-duplicates",
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        category,
+        source_id: sourceId,
+        dedup_key: dedupKey,
+        status: "claimed",
+        attempt_count: 0,
+        claim_token: claimToken,
+        lease_expires_at: leaseExpiresAt,
+        // delivered_at is deliberately omitted — its own DEFAULT now()
+        // already captures "row first created at," its documented
+        // legacy meaning. sent_at/last_attempt_at/last_error are never
+        // set here; they belong to a later finalize step.
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    rows = await response.json();
+  } catch {
+    throw new Error("Unable to claim reminder event.");
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { claimed: false, claimToken: null, leaseExpiresAt: null };
+  }
+
+  return { claimed: true, claimToken, leaseExpiresAt };
+}
+
+// Atomically attempts to reclaim an existing 'claimed' event whose
+// lease has expired. No SELECT is ever performed first — a single
+// conditional UPDATE, gated by all four filters together
+// (user_id + dedup_key + status='claimed' + lease_expires_at < now),
+// is itself the ownership decision, exactly mirroring
+// claimReminderEvent's INSERT-decides-ownership approach. Two
+// concurrent reclaim attempts for the same row can never both
+// succeed: PostgreSQL's row lock + READ COMMITTED re-check (see the
+// Stage 9E-4C-2 concurrency review) means the loser's WHERE clause
+// re-evaluates against the winner's already-committed (now
+// future-dated) lease and matches zero rows.
+//
+// A fresh claim_token is minted on every successful reclaim — the
+// fencing mechanism that makes a superseded worker's later finalize
+// attempt (still holding its old token) safely affect zero rows.
+// attempt_count is deliberately never touched here — it increments
+// only during a later, not-yet-implemented finalize step.
+//
+// Same internal-only { claimed, claimToken, leaseExpiresAt } return
+// shape as claimReminderEvent, with the same privacy discipline.
+export async function reclaimExpiredReminderEvent({ userId, dedupKey, restHeaders, supabaseUrl }) {
+  const claimToken = crypto.randomUUID();
+  const nowIso = new Date().toISOString();
+  const leaseExpiresAt = new Date(Date.now() + CLAIM_LEASE_MS).toISOString();
+
+  // Same single-try/catch discipline as claimReminderEvent: every
+  // failure mode (network rejection, non-2xx, malformed JSON) escapes
+  // through the same fixed, generic message only — never raw upstream
+  // details, never logged.
+  let rows;
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/reminder_deliveries` +
+        `?user_id=eq.${encodeURIComponent(userId)}` +
+        `&dedup_key=eq.${encodeURIComponent(dedupKey)}` +
+        `&status=eq.${encodeURIComponent("claimed")}` +
+        `&lease_expires_at=lt.${encodeURIComponent(nowIso)}`,
+      {
+        method: "PATCH",
+        headers: {
+          ...restHeaders,
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify({
+          claim_token: claimToken,
+          lease_expires_at: leaseExpiresAt,
+          // Deliberately the ONLY two fields in this body — status,
+          // delivered_at, sent_at, last_attempt_at, last_error,
+          // category, source_id, and attempt_count are all untouched
+          // by a reclaim.
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    rows = await response.json();
+  } catch {
+    throw new Error("Unable to reclaim reminder event.");
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { claimed: false, claimToken: null, leaseExpiresAt: null };
+  }
+
+  return { claimed: true, claimToken, leaseExpiresAt };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
