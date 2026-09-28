@@ -27,6 +27,7 @@ import handler, {
   finalizeReminderDeliverySuccess,
   finalizeReminderDeliveryFailure,
   processReminderCandidate,
+  processAllEligibleUsers,
 } from "../reminders-delivery-runner.js";
 
 // Captured once at module load — before any test has had a chance to
@@ -2523,12 +2524,13 @@ const SOURCE_TEXT = readFileSync(SOURCE_PATH, "utf8");
 
 // 30 & 31. Handler has zero call sites to processReminderCandidate or
 // any of the five composed helpers.
-test("source check: the handler function body contains zero call sites to processReminderCandidate or any of the five composed helpers", () => {
+test("source check: the handler function body contains zero call sites to processAllEligibleUsers, processReminderCandidate, or any of the five composed helpers", () => {
   const handlerStart = SOURCE_TEXT.indexOf("export default async function handler");
   assert.ok(handlerStart > -1, "handler function not found in source");
   const handlerBody = SOURCE_TEXT.slice(handlerStart);
 
   for (const callSite of [
+    "processAllEligibleUsers(",
     "processReminderCandidate(",
     "claimReminderEvent(",
     "reclaimExpiredReminderEvent(",
@@ -2552,6 +2554,765 @@ test("source check: api/test-push.js remains byte-for-byte unchanged", () => {
   const contents = readFileSync(testPushPath);
   const hash = createHash("sha256").update(contents).digest("hex");
   assert.equal(hash, "9372304b3ca629ad2b891b1b0124302b130bef92ea3767014b6af77368f0ee0b");
+});
+
+/* =========================================================
+   processAllEligibleUsers — BULK RUNNER TESTS
+
+   computeCandidatesForUserFn/processCandidateFn are always explicitly
+   injected as plain mock functions -- never the real imported/internal
+   functions -- so these tests exercise ONLY processAllEligibleUsers'
+   own control flow (enumeration union/dedup, per-source failure
+   handling, per-user/per-candidate failure isolation, aggregate
+   counting), never re-testing logic already covered by
+   computeCandidatesForUser's own indirect handler-report tests above
+   or by processReminderCandidate's own dedicated test section above.
+   global.fetch is used only for the two enumeration queries
+   processAllEligibleUsers issues directly.
+========================================================= */
+
+const BULK_SUPABASE_URL = SUPABASE_URL_FOR_HELPER;
+const BULK_REST_HEADERS = REST_HEADERS_FOR_HELPER;
+
+// Routes global.fetch calls by URL for the two enumeration queries only;
+// throws on anything else (including any non-GET method), so an
+// accidental write from processAllEligibleUsers is a hard test failure.
+// Records every call URL for assertions on the exact query shape.
+function bulkFetchRouter({
+  subscriptionRows,
+  retryRows,
+  subscriptionThrows = false,
+  retryThrows = false,
+  subscriptionNonOk = false,
+  retryNonOk = false,
+  subscriptionMalformedJson = false,
+  retryMalformedJson = false,
+  subscriptionNonArray = false,
+  retryNonArray = false,
+} = {}) {
+  const calls = [];
+
+  async function fn(url, options) {
+    const urlStr = String(url);
+    const method = (options?.method || "GET").toUpperCase();
+    calls.push(urlStr);
+
+    if (method !== "GET") {
+      throw new Error("processAllEligibleUsers must never issue a non-GET request: " + method + " " + urlStr);
+    }
+
+    if (urlStr.includes("/rest/v1/push_subscriptions")) {
+      if (subscriptionThrows) throw new Error("network is down");
+      if (subscriptionMalformedJson) return { ok: true, json: async () => { throw new Error("Unexpected token"); } };
+      if (subscriptionNonArray) return { ok: true, json: async () => ({ not: "an array" }) };
+      return { ok: !subscriptionNonOk, json: async () => subscriptionRows ?? [] };
+    }
+
+    if (urlStr.includes("/rest/v1/reminder_deliveries")) {
+      if (retryThrows) throw new Error("network is down");
+      if (retryMalformedJson) return { ok: true, json: async () => { throw new Error("Unexpected token"); } };
+      if (retryNonArray) return { ok: true, json: async () => ({ not: "an array" }) };
+      return { ok: !retryNonOk, json: async () => retryRows ?? [] };
+    }
+
+    throw new Error("Unexpected fetch call in bulk-runner test: " + urlStr);
+  }
+
+  fn.calls = calls;
+  return fn;
+}
+
+// Records every userId computeCandidatesForUserFn was called with, in
+// order (including duplicates, so a dedup bug is visible), and returns
+// per-user behavior from a plain map: an array of candidates, or the
+// literal string "throw" to simulate computeCandidatesForUser throwing.
+function trackedComputeCandidatesFn(behaviorByUserId) {
+  const calls = [];
+
+  async function fn(userId) {
+    calls.push(userId);
+    const behavior = behaviorByUserId[userId];
+    if (behavior === "throw") {
+      throw new Error("Unable to load reminder data for user " + userId);
+    }
+    return { candidates: Array.isArray(behavior) ? behavior : [] };
+  }
+
+  fn.calls = calls;
+  return fn;
+}
+
+// Returns candidateResult.outcome values in the exact order supplied,
+// one per call, falling back to "internal_error" past the end of the
+// list; a "throw" entry simulates processCandidateFn itself throwing.
+// Records every candidate it was called with, in call order.
+function sequencedProcessCandidateFn(outcomesInOrder) {
+  let index = 0;
+  const calls = [];
+
+  async function fn(args) {
+    calls.push(args.candidate);
+    const next = outcomesInOrder[index];
+    index += 1;
+    if (next === "throw") {
+      throw new Error("Unable to send/finalize reminder.");
+    }
+    return { outcome: next ?? "internal_error", category: args.candidate.category, dedupKey: args.candidate.dedupKey };
+  }
+
+  fn.calls = calls;
+  return fn;
+}
+
+function bulkCandidate(sourceId, dedupKeySuffix = "") {
+  return {
+    kind: "activity",
+    category: "activity_due_today",
+    sourceId,
+    dedupKey: `bulk-activity-${sourceId}${dedupKeySuffix}`,
+    title: `Activity ${sourceId}`,
+    urgencyKey: "today",
+  };
+}
+
+// 1. Subscription enumeration includes a user.
+test("processAllEligibleUsers: a user found via subscription enumeration is processed", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.deepEqual(computeFn.calls, [USER_A]);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 2. Duplicate subscription rows dedupe to one user.
+test("processAllEligibleUsers: duplicate subscription rows for the same user dedupe to a single processing call", async () => {
+  global.fetch = bulkFetchRouter({
+    subscriptionRows: [{ user_id: USER_A }, { user_id: USER_A }, { user_id: USER_A }],
+    retryRows: [],
+  });
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.deepEqual(computeFn.calls, [USER_A]);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 3. Retry enumeration includes zero-subscription claimed user.
+test("processAllEligibleUsers: a zero-subscription user found only via retry enumeration is still processed", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [], retryRows: [{ user_id: USER_B }] });
+  const computeFn = trackedComputeCandidatesFn({ [USER_B]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.deepEqual(computeFn.calls, [USER_B]);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 4. Same user in both sources processed once.
+test("processAllEligibleUsers: a user present in both enumeration sources is processed exactly once", async () => {
+  global.fetch = bulkFetchRouter({
+    subscriptionRows: [{ user_id: USER_A }],
+    retryRows: [{ user_id: USER_A }],
+  });
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.deepEqual(computeFn.calls, [USER_A]);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 5. Retry query uses status=eq.claimed, attempt_count=lt.5, select=user_id.
+test("processAllEligibleUsers: the retry-enumeration query has the exact expected filter/select shape", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [], retryRows: [] });
+  global.fetch = fetchMock;
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  const retryUrl = fetchMock.calls.find((url) => url.includes("/rest/v1/reminder_deliveries"));
+  assert.ok(retryUrl, "expected a reminder_deliveries enumeration call");
+  assert.ok(retryUrl.includes("status=eq.claimed"), "expected status=eq.claimed");
+  assert.ok(retryUrl.includes("attempt_count=lt.5"), "expected attempt_count=lt.5");
+  assert.ok(retryUrl.includes("select=user_id"), "expected select=user_id");
+});
+
+// 6. Subscription query selects only user_id.
+test("processAllEligibleUsers: the subscription-enumeration query selects only user_id and no subscription material", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [], retryRows: [] });
+  global.fetch = fetchMock;
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  const subsUrl = fetchMock.calls.find((url) => url.includes("/rest/v1/push_subscriptions"));
+  assert.ok(subsUrl, "expected a push_subscriptions enumeration call");
+  assert.ok(subsUrl.includes("select=user_id"));
+  for (const forbidden of ["endpoint", "p256dh", "auth_key", "user_agent", "created_at", "last_seen_at"]) {
+    assert.ok(!subsUrl.includes(forbidden), `subscription enumeration query unexpectedly selected: ${forbidden}`);
+  }
+});
+
+// 7. Terminal sent/abandoned users are not introduced by the retry query contract.
+test("processAllEligibleUsers: the retry-enumeration query never references sent or abandoned as a status filter", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [], retryRows: [] });
+  global.fetch = fetchMock;
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  const retryUrl = fetchMock.calls.find((url) => url.includes("/rest/v1/reminder_deliveries"));
+  assert.ok(!retryUrl.includes("eq.sent"));
+  assert.ok(!retryUrl.includes("eq.abandoned"));
+});
+
+// 8 & 9. attempt_count boundary is encoded as a strict "less than 5"
+// filter -- 4 is eligible, 5 is excluded, by the query string itself
+// (the actual row-level filtering happens server-side in PostgREST/
+// Postgres; this test proves the contract this code sends is correct).
+test("processAllEligibleUsers: the attempt_count filter is strictly less-than 5 (4 eligible, 5 excluded by contract)", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [], retryRows: [] });
+  global.fetch = fetchMock;
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  const retryUrl = fetchMock.calls.find((url) => url.includes("/rest/v1/reminder_deliveries"));
+  assert.ok(retryUrl.includes("attempt_count=lt.5"), "lt.5 means attempt_count 4 matches, attempt_count 5 does not");
+});
+
+// 10, 11, 12. Lease state (live, expired, or NULL) is never filtered at
+// the enumeration layer -- the query never selects or filters on
+// lease_expires_at at all, so a returned user_id is processed
+// identically regardless of what lease state its row happens to carry.
+for (const [label, leaseShapedExtra] of [
+  ["live-lease", { lease_expires_at: "2999-01-01T00:00:00.000Z" }],
+  ["expired-lease", { lease_expires_at: "2000-01-01T00:00:00.000Z" }],
+  ["NULL-lease", { lease_expires_at: null }],
+]) {
+  test(`processAllEligibleUsers: a retry-enumerated user with a ${label} row is not filtered at the enumeration layer`, async () => {
+    const fetchMock = bulkFetchRouter({
+      subscriptionRows: [],
+      retryRows: [{ user_id: USER_A, ...leaseShapedExtra }],
+    });
+    global.fetch = fetchMock;
+    const computeFn = trackedComputeCandidatesFn({ [USER_A]: [] });
+
+    const result = await processAllEligibleUsers({
+      restHeaders: BULK_REST_HEADERS,
+      supabaseUrl: BULK_SUPABASE_URL,
+      computeCandidatesForUserFn: computeFn,
+      processCandidateFn: sequencedProcessCandidateFn([]),
+    });
+
+    const retryUrl = fetchMock.calls.find((url) => url.includes("/rest/v1/reminder_deliveries"));
+    assert.ok(!retryUrl.includes("lease_expires_at"), "the retry query must never filter on lease_expires_at");
+    assert.deepEqual(computeFn.calls, [USER_A]);
+    assert.equal(result.usersConsidered, 1);
+  });
+}
+
+// 13. Subscription enumeration succeeds + retry enumeration fails: subscription users still processed.
+test("processAllEligibleUsers: retry-enumeration failure does not prevent subscription-sourced users from being processed", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryThrows: true });
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.subscriptionEnumerationSucceeded, true);
+  assert.equal(result.retryEnumerationSucceeded, false);
+  assert.deepEqual(computeFn.calls, [USER_A]);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 14. Subscription enumeration fails + retry enumeration succeeds: retry users still processed.
+test("processAllEligibleUsers: subscription-enumeration failure does not prevent retry-sourced users from being processed", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionThrows: true, retryRows: [{ user_id: USER_B }] });
+  const computeFn = trackedComputeCandidatesFn({ [USER_B]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+  assert.equal(result.retryEnumerationSucceeded, true);
+  assert.deepEqual(computeFn.calls, [USER_B]);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 15. Both enumeration queries fail: safe aggregate result, zero users processed, no raw errors.
+test("processAllEligibleUsers: both enumeration sources failing yields a safe zero-processing result with no raw errors", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionThrows: true, retryThrows: true });
+  const computeFn = trackedComputeCandidatesFn({});
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+  assert.equal(result.retryEnumerationSucceeded, false);
+  assert.equal(result.usersConsidered, 0);
+  assert.deepEqual(computeFn.calls, []);
+  assert.ok(!JSON.stringify(result).toLowerCase().includes("network is down"));
+});
+
+// 16 & 17. Non-2xx response for each source.
+test("processAllEligibleUsers: subscription-enumeration non-2xx response is treated as that source failing", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionNonOk: true, retryRows: [] });
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+});
+
+test("processAllEligibleUsers: retry-enumeration non-2xx response is treated as that source failing", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [], retryNonOk: true });
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+  assert.equal(result.retryEnumerationSucceeded, false);
+});
+
+// 18. Malformed JSON for either source.
+test("processAllEligibleUsers: malformed JSON from either enumeration source is treated as that source failing", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionMalformedJson: true, retryMalformedJson: true });
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+  assert.equal(result.retryEnumerationSucceeded, false);
+});
+
+// 19. Successful non-array JSON for either source.
+test("processAllEligibleUsers: a successful but non-array JSON body from either enumeration source is treated as that source failing", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionNonArray: true, retryNonArray: true });
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({}),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+  assert.equal(result.retryEnumerationSucceeded, false);
+});
+
+// 20 & 21. Missing/invalid timezone: computeCandidatesForUserFn already
+// reports zero candidates (exactly as the real computeReminderCandidates
+// does for a missing/invalid timezone) -- processCandidateFn must never
+// be called, with no enumeration-layer duplication of that check.
+test("processAllEligibleUsers: a user with zero current candidates (missing timezone) never reaches processCandidateFn", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn([]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [] }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(processFn.calls.length, 0);
+  assert.equal(result.candidatesComputed, 0);
+});
+
+test("processAllEligibleUsers: a user with zero current candidates (invalid timezone) never reaches processCandidateFn", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_B }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn([]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_B]: [] }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(processFn.calls.length, 0);
+  assert.equal(result.candidatesComputed, 0);
+});
+
+// 22 & 24. Whatever computeCandidatesForUserFn returns is passed through
+// unchanged, unfiltered -- covers zero-semesters-legacy and
+// active-semester candidate shapes identically, since the bulk runner
+// never inspects semester/eligibility fields itself.
+test("processAllEligibleUsers: candidates are forwarded to processCandidateFn exactly as computeCandidatesForUserFn produced them", async () => {
+  const candidateA = bulkCandidate("legacy-activity-1");
+  const candidateB = bulkCandidate("active-semester-activity-2");
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn(["sent", "sent"]);
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [candidateA, candidateB] }),
+    processCandidateFn: processFn,
+  });
+
+  assert.deepEqual(processFn.calls, [candidateA, candidateB]);
+});
+
+// 23. Semesters exist but none active => zero candidates => zero processing (same as 20/21's shape).
+test("processAllEligibleUsers: zero candidates from any eligibility gate (e.g. no active semester) results in zero processCandidateFn calls", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn([]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [] }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(processFn.calls.length, 0);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 25. Multiple candidates processed sequentially, in order.
+test("processAllEligibleUsers: multiple candidates for one user are processed sequentially in order", async () => {
+  const candidates = [bulkCandidate("seq-1"), bulkCandidate("seq-2"), bulkCandidate("seq-3")];
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn(["sent", "sent", "sent"]);
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: candidates }),
+    processCandidateFn: processFn,
+  });
+
+  assert.deepEqual(
+    processFn.calls.map((c) => c.sourceId),
+    ["seq-1", "seq-2", "seq-3"]
+  );
+});
+
+// 26. One candidate's internal_error does not stop the next candidate.
+test("processAllEligibleUsers: one candidate's internal_error outcome does not stop the next candidate for that user", async () => {
+  const candidates = [bulkCandidate("err-1"), bulkCandidate("ok-2")];
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn(["internal_error", "sent"]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: candidates }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(processFn.calls.length, 2);
+  assert.equal(result.outcomes.internal_error, 1);
+  assert.equal(result.outcomes.sent, 1);
+});
+
+// 27. processCandidateFn unexpectedly throwing is counted exactly once as internal_error; next candidate still processed.
+test("processAllEligibleUsers: an unexpected processCandidateFn throw is counted exactly once as internal_error and does not stop the next candidate", async () => {
+  const candidates = [bulkCandidate("throw-1"), bulkCandidate("ok-2")];
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn(["throw", "sent"]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: candidates }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(processFn.calls.length, 2);
+  assert.equal(result.outcomes.internal_error, 1);
+  assert.equal(result.outcomes.sent, 1);
+});
+
+// 28. One user's computeCandidatesForUserFn throwing is counted as userProcessingErrors; next user still processed.
+test("processAllEligibleUsers: one user's computeCandidatesForUserFn throw is counted as a userProcessingError and does not stop the next user", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }, { user_id: USER_B }], retryRows: [] });
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: "throw", [USER_B]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.deepEqual(computeFn.calls.sort(), [USER_A, USER_B].sort());
+  assert.equal(result.userProcessingErrors, 1);
+  assert.equal(result.usersConsidered, 2);
+});
+
+// 28b. A computeCandidatesForUserFn that RESOLVES (does not throw) with a
+// malformed result must be treated identically to a thrown error --
+// counted as a userProcessingError, never silently coerced into "zero
+// candidates." trackedComputeCandidatesFn cannot express this (by
+// design it normalizes any non-array behavior into { candidates: [] }),
+// so these use a direct inline computeCandidatesForUserFn returning the
+// malformed value verbatim.
+for (const [label, malformedResult] of [
+  ["null", null],
+  ["an empty object", {}],
+  ["{ candidates: null }", { candidates: null }],
+  ['{ candidates: "unexpected" }', { candidates: "unexpected" }],
+]) {
+  test(`processAllEligibleUsers: computeCandidatesForUserFn resolving to ${label} is counted as a userProcessingError, not zero candidates`, async () => {
+    global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+    const processFn = sequencedProcessCandidateFn([]);
+
+    const result = await processAllEligibleUsers({
+      restHeaders: BULK_REST_HEADERS,
+      supabaseUrl: BULK_SUPABASE_URL,
+      computeCandidatesForUserFn: async () => malformedResult,
+      processCandidateFn: processFn,
+    });
+
+    assert.equal(result.userProcessingErrors, 1);
+    assert.equal(result.candidatesComputed, 0);
+    assert.equal(processFn.calls.length, 0);
+  });
+}
+
+// A malformed result for one user must not stop the next user from
+// processing normally.
+test("processAllEligibleUsers: a malformed computeCandidatesForUserFn result for one user does not stop the next user from processing normally", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }, { user_id: USER_B }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn(["sent"]);
+  const computeFn = async (userId) => (userId === USER_A ? {} : { candidates: [bulkCandidate("after-malformed")] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(result.userProcessingErrors, 1);
+  assert.equal(result.candidatesComputed, 1);
+  assert.equal(processFn.calls.length, 1);
+});
+
+// A legitimate { candidates: [] } result (e.g. invalid timezone) must
+// remain ordinary successful processing, never a userProcessingError.
+test("processAllEligibleUsers: a legitimate { candidates: [] } result is NOT counted as a userProcessingError", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const processFn = sequencedProcessCandidateFn([]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: async () => ({ candidates: [] }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(result.userProcessingErrors, 0);
+  assert.equal(result.candidatesComputed, 0);
+  assert.equal(processFn.calls.length, 0);
+});
+
+// 29. candidatesComputed exact count across multiple users.
+test("processAllEligibleUsers: candidatesComputed is the exact sum of current candidates across all successfully-processed users", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }, { user_id: USER_B }], retryRows: [] });
+  const computeFn = trackedComputeCandidatesFn({
+    [USER_A]: [bulkCandidate("a1"), bulkCandidate("a2")],
+    [USER_B]: [bulkCandidate("b1")],
+  });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn(["sent", "sent", "sent"]),
+  });
+
+  assert.equal(result.candidatesComputed, 3);
+});
+
+// 30 & 31. Every one of the seven outcome counts is exact, with no double-counting.
+test("processAllEligibleUsers: every outcome count is exact across a mixed batch, with no double-counting", async () => {
+  const candidates = Array.from({ length: 7 }, (_, i) => bulkCandidate(`mix-${i}`));
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const outcomesInOrder = [
+    "sent",
+    "failed_finalized",
+    "ownership_not_acquired",
+    "ownership_lost_after_send",
+    "ownership_lost_after_failed_send",
+    "lease_not_safe",
+    "internal_error",
+  ];
+  const processFn = sequencedProcessCandidateFn(outcomesInOrder);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: candidates }),
+    processCandidateFn: processFn,
+  });
+
+  assert.deepEqual(result.outcomes, {
+    sent: 1,
+    failed_finalized: 1,
+    ownership_not_acquired: 1,
+    ownership_lost_after_send: 1,
+    ownership_lost_after_failed_send: 1,
+    lease_not_safe: 1,
+    internal_error: 1,
+  });
+});
+
+// 32. Current-candidate-only behavior: a retry-enumerated user's stale
+// claimed row does NOT independently trigger processCandidateFn when
+// computeCandidatesForUserFn currently returns zero candidates for them.
+test("processAllEligibleUsers: a retry-enumerated user's stale claimed row does not independently trigger processCandidateFn when no current candidate is produced", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [], retryRows: [{ user_id: USER_A }] });
+  const processFn = sequencedProcessCandidateFn([]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [] }),
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(processFn.calls.length, 0);
+  assert.equal(result.candidatesComputed, 0);
+  assert.equal(result.usersConsidered, 1);
+});
+
+// 33. countAlreadyRecorded is NOT used by processAllEligibleUsers (static source check).
+test("source check: processAllEligibleUsers never references countAlreadyRecorded", () => {
+  const bulkRunnerStart = SOURCE_TEXT.indexOf("export async function processAllEligibleUsers");
+  const handlerStart = SOURCE_TEXT.indexOf("export default async function handler");
+  assert.ok(bulkRunnerStart > -1 && handlerStart > bulkRunnerStart, "processAllEligibleUsers not found before the handler");
+  const bulkRunnerBody = SOURCE_TEXT.slice(bulkRunnerStart, handlerStart);
+  assert.ok(!bulkRunnerBody.includes("countAlreadyRecorded"), "processAllEligibleUsers must never call countAlreadyRecorded");
+});
+
+// 34. Aggregate result never contains sensitive fields.
+test("processAllEligibleUsers: aggregate result never contains userId, dedupKey, sourceId, claimToken, or any other sensitive field", async () => {
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+  const candidate = bulkCandidate("sensitive-source-id-123", "|secret-suffix");
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [candidate] }),
+    processCandidateFn: sequencedProcessCandidateFn(["sent"]),
+  });
+
+  const serialized = JSON.stringify(result).toLowerCase();
+  for (const forbidden of [
+    USER_A.toLowerCase(),
+    "sensitive-source-id-123",
+    "secret-suffix",
+    "dedupkey",
+    "sourceid",
+    "claimtoken",
+    "endpoint",
+    "p256dh",
+    "auth_key",
+    "authorization",
+    "service-role-key",
+  ]) {
+    assert.ok(!serialized.includes(forbidden), `aggregate result leaked forbidden value: ${forbidden}`);
+  }
+  // Confirm the result is genuinely counts-only.
+  assert.deepEqual(Object.keys(result).sort(), [
+    "candidatesComputed",
+    "outcomes",
+    "retryEnumerationSucceeded",
+    "subscriptionEnumerationSucceeded",
+    "userProcessingErrors",
+    "usersConsidered",
+  ]);
+});
+
+// 35. No real Web Push occurs during a processAllEligibleUsers run.
+test("processAllEligibleUsers: never triggers a real webpush.sendNotification call", async () => {
+  webpush.sendNotification = async () => {
+    throw new Error("webpush.sendNotification must never be called by processAllEligibleUsers");
+  };
+  global.fetch = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [] });
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [bulkCandidate("no-real-push")] }),
+    processCandidateFn: sequencedProcessCandidateFn(["sent"]),
+  });
+  // No assertion needed beyond not throwing: the mocked
+  // webpush.sendNotification above would have thrown had it been
+  // reached, since processCandidateFn is injected/mocked here.
+});
+
+// 36. No non-GET request (i.e. no write) ever occurs from processAllEligibleUsers itself.
+test("processAllEligibleUsers: issues only GET requests -- no reminder_deliveries or push_subscriptions write of its own", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [{ user_id: USER_A }], retryRows: [{ user_id: USER_B }] });
+  global.fetch = fetchMock;
+
+  await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: trackedComputeCandidatesFn({ [USER_A]: [], [USER_B]: [] }),
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.ok(fetchMock.calls.length >= 2);
 });
 
 test("global.fetch is restored to its original value between tests (afterEach isolation)", () => {

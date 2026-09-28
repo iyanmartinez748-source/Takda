@@ -899,6 +899,242 @@ export async function processReminderCandidate({
   );
 }
 
+/* =========================================================
+   BULK ELIGIBLE-USER REMINDER RUNNER — DORMANT FOUNDATION ONLY
+
+   NOT YET CALLED by the handler below. This step only adds and tests
+   processAllEligibleUsers() in isolation; the endpoint's runtime
+   behavior is unchanged — it remains fully dry-run/read-only
+   (dryRun: true, liveSendEnabled: false, zero reminder_deliveries
+   writes, zero real Web Push calls from the handler's own code path).
+
+   This function composes — never reimplements — the existing
+   computeCandidatesForUser and processReminderCandidate, accepted as
+   injectable parameters (computeCandidatesForUserFn/processCandidateFn,
+   defaulting to the real functions) for the same dependency-injection
+   reason processReminderCandidate itself accepts its five collaborators:
+   so tests can exercise this function's own control flow — enumeration
+   union/dedup, per-source failure handling, per-user/per-candidate
+   failure isolation, aggregate counting — without re-mocking every
+   layer of fetch/response those already-separately-tested functions
+   own internally.
+
+   ELIGIBLE-USER ENUMERATION (per the Stage 9E-4C-2 enumeration design
+   review): the union of (a) every user_id with at least one
+   push_subscriptions row, and (b) every user_id with at least one
+   reminder_deliveries row where status = 'claimed' AND
+   attempt_count < 5. Lease state is deliberately NOT an enumeration
+   filter -- a live-lease row is included same as an expired one, since
+   claimReminderEvent/reclaimExpiredReminderEvent's own atomicity (not
+   this enumeration) is what makes that safe: a live-lease row simply
+   resolves to ownership_not_acquired downstream, at the cost of one
+   wasted claim attempt, never a correctness risk. Source (b) exists
+   specifically so a user whose subscriptions have since been removed
+   (unsubscribed, or stale-cleaned) never permanently strands an
+   in-flight retryable delivery -- without it, such a user would never
+   be enumerated again and their claimed row could never be reclaimed.
+   Enumeration NEVER grants ownership by itself; it only decides which
+   users are worth calling computeCandidatesForUser for. Ownership is
+   still decided exclusively, atomically, by claimReminderEvent/
+   reclaimExpiredReminderEvent inside processCandidateFn.
+
+   CURRENT-CANDIDATE-ONLY RETRY SEMANTICS (documented design decision,
+   not an oversight): this function only ever calls processCandidateFn
+   for candidates computeCandidatesForUserFn CURRENTLY produces. It
+   never reconstructs or retries a notification from an existing
+   reminder_deliveries row independently of a freshly recomputed
+   candidate carrying the exact same dedup_key. Because both dedup-key
+   shapes are date/occurrence-scoped (reminderEngine.js embeds
+   localToday / occurrenceLocalDate), a claimed row whose scoping day
+   or occurrence window has already passed will never be recomputed
+   again and can permanently remain non-terminal -- e.g. yesterday's
+   activity reminder, a class occurrence whose delivery window has
+   closed, or a candidate that stopped being produced because its
+   source activity was completed/deleted or its semester became
+   inactive/archived. This is accepted and intentional for this stage
+   (see the Stage 9E-4C-2 enumeration design review): it causes no
+   incorrect or duplicate send (nothing can ever write to a stranded
+   row again), and it causes no loss of CURRENT reminder capability (a
+   new day/occurrence always gets its own fresh, independently-tracked
+   dedup_key). No cleanup logic, payload reconstruction from source_id,
+   or forced sent/abandoned transition is implemented here or should
+   be inferred as missing -- reconstructing an expired dedup_key's
+   notification would be semantically wrong (its original meaning, e.g.
+   "due today," no longer holds), not merely a data-availability gap.
+
+   countAlreadyRecorded (defined above, used only by the handler's
+   existing dry-run report) is deliberately NEVER called here: it can
+   only answer "does any row exist," not which of claimed-live/claimed-
+   expired-retryable/sent/abandoned that row is in, so using it as a
+   pre-filter would risk silently suppressing a legitimately retryable
+   candidate. Every current candidate is always passed to
+   processCandidateFn; claim/reclaim's own atomic state read remains
+   the sole, authoritative skip-vs-proceed decision.
+
+   Both enumeration queries are plain inline fetch calls (matching
+   processReminderCandidate's own subscription-loading style) rather
+   than named exported helpers, since neither has separate test
+   coverage of its own yet. Each is evaluated and can fail
+   INDEPENDENTLY (fail-open per source): if one source's query fails
+   (network rejection, non-2xx, malformed JSON, or a successful
+   non-array body), processing continues using only the other source's
+   users; only if BOTH fail does this function return immediately with
+   usersConsidered: 0 and no processing, never throwing and never
+   exposing a raw upstream error. Neither query selects any field
+   beyond user_id -- no subscription material (endpoint/p256dh/
+   auth_key/user_agent/created_at/last_seen_at) and no reminder_deliveries
+   field beyond user_id (never dedup_key/source_id/claim_token/
+   last_error/lease_expires_at) ever leaves either query.
+
+   Pagination is deliberately NOT implemented here, matching every
+   other PostgREST read already in this file (none of which handles
+   Content-Range/pagination today) -- a known, already-accepted future
+   scale limitation, not a new one introduced by this function.
+
+   Processing is strictly SEQUENTIAL for both users and candidates (no
+   Promise.all at either level) -- intentional for this foundation
+   stage, matching the handler's own existing sequential per-user loop.
+
+   AGGREGATE RESULT is deliberately minimal: counts only. Never a list
+   of users or candidates, never userId/email/name/dedupKey/sourceId/
+   claimToken/endpoint/p256dh/auth_key/Authorization/service-role key/
+   raw Error/raw upstream body/raw subscription object -- matching
+   every other helper's established privacy discipline in this file.
+========================================================= */
+
+// Each source's enumeration is isolated in its own try/catch, exactly
+// mirroring the single-try/catch-to-generic-outcome discipline used
+// throughout this file: a network rejection, non-2xx response, or a
+// non-array JSON body all collapse to { succeeded: false, userIds: [] }
+// for that source alone, never a thrown error and never a raw upstream
+// detail. Only user_id is ever read off a row.
+async function enumerateSubscriptionUserIds(restHeaders, supabaseUrl) {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/push_subscriptions?select=user_id`, {
+      headers: restHeaders,
+    });
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    const rows = await response.json();
+
+    if (!Array.isArray(rows)) {
+      throw new Error("non-array response");
+    }
+
+    return { succeeded: true, userIds: rows.map((row) => row.user_id).filter(Boolean) };
+  } catch {
+    return { succeeded: false, userIds: [] };
+  }
+}
+
+async function enumerateRetryUserIds(restHeaders, supabaseUrl) {
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/reminder_deliveries?status=eq.${encodeURIComponent("claimed")}&attempt_count=lt.5&select=user_id`,
+      { headers: restHeaders }
+    );
+
+    if (!response.ok) {
+      throw new Error("non-ok response");
+    }
+
+    const rows = await response.json();
+
+    if (!Array.isArray(rows)) {
+      throw new Error("non-array response");
+    }
+
+    return { succeeded: true, userIds: rows.map((row) => row.user_id).filter(Boolean) };
+  } catch {
+    return { succeeded: false, userIds: [] };
+  }
+}
+
+export async function processAllEligibleUsers({
+  restHeaders,
+  supabaseUrl,
+  computeCandidatesForUserFn = computeCandidatesForUser,
+  processCandidateFn = processReminderCandidate,
+}) {
+  const subscriptionResult = await enumerateSubscriptionUserIds(restHeaders, supabaseUrl);
+  const retryResult = await enumerateRetryUserIds(restHeaders, supabaseUrl);
+
+  const subscriptionEnumerationSucceeded = subscriptionResult.succeeded;
+  const retryEnumerationSucceeded = retryResult.succeeded;
+
+  const outcomes = {
+    sent: 0,
+    failed_finalized: 0,
+    ownership_not_acquired: 0,
+    ownership_lost_after_send: 0,
+    ownership_lost_after_failed_send: 0,
+    lease_not_safe: 0,
+    internal_error: 0,
+  };
+
+  if (!subscriptionEnumerationSucceeded && !retryEnumerationSucceeded) {
+    return {
+      subscriptionEnumerationSucceeded,
+      retryEnumerationSucceeded,
+      usersConsidered: 0,
+      userProcessingErrors: 0,
+      candidatesComputed: 0,
+      outcomes,
+    };
+  }
+
+  const userIds = Array.from(new Set([...subscriptionResult.userIds, ...retryResult.userIds].filter(Boolean)));
+
+  let userProcessingErrors = 0;
+  let candidatesComputed = 0;
+
+  for (const userId of userIds) {
+    let result;
+    try {
+      result = await computeCandidatesForUserFn(userId, restHeaders, supabaseUrl);
+    } catch {
+      userProcessingErrors += 1;
+      continue;
+    }
+
+    if (!result || !Array.isArray(result.candidates)) {
+      userProcessingErrors += 1;
+      continue;
+    }
+
+    const candidates = result.candidates;
+    candidatesComputed += candidates.length;
+
+    for (const candidate of candidates) {
+      let outcome;
+      try {
+        const candidateResult = await processCandidateFn({ candidate, userId, restHeaders, supabaseUrl });
+        outcome = candidateResult?.outcome;
+      } catch {
+        outcome = "internal_error";
+      }
+
+      if (Object.prototype.hasOwnProperty.call(outcomes, outcome)) {
+        outcomes[outcome] += 1;
+      } else {
+        outcomes.internal_error += 1;
+      }
+    }
+  }
+
+  return {
+    subscriptionEnumerationSucceeded,
+    retryEnumerationSucceeded,
+    usersConsidered: userIds.length,
+    userProcessingErrors,
+    candidatesComputed,
+    outcomes,
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
