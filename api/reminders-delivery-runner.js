@@ -986,10 +986,27 @@ export async function processReminderCandidate({
    field beyond user_id (never dedup_key/source_id/claim_token/
    last_error/lease_expires_at) ever leaves either query.
 
-   Pagination is deliberately NOT implemented here, matching every
-   other PostgREST read already in this file (none of which handles
-   Content-Range/pagination today) -- a known, already-accepted future
-   scale limitation, not a new one introduced by this function.
+   PAGINATION (Stage 9E-4C-3B): enumerateSubscriptionUserIds and
+   enumerateRetryUserIds each now page through their full result set
+   via deterministic keyset pagination (order=id.asc, id=gt.<lastSeenId>,
+   limit=PAGE_SIZE) rather than a single unbounded request -- see both
+   functions' own docstrings below for the exact all-or-nothing failure
+   contract this introduces (a failure on ANY page, not just the first,
+   fails that entire source, never a silently-partial result).
+
+   EXECUTION TIME BUDGET (Stage 9E-4C-3B): this function also now
+   enforces one internal run deadline (RUN_TIME_BUDGET_MS, see the
+   constant's own documentation below) -- checked ONLY before starting
+   a new user's computeCandidatesForUserFn call and before starting a
+   new candidate's processCandidateFn call, never mid-candidate. Once
+   processCandidateFn has been invoked for a candidate, its own
+   claim -> send -> finalize chain is always awaited to natural
+   completion; the deadline only ever gates whether a NEW piece of work
+   is allowed to START. A reached deadline stops the loop and returns
+   the normal aggregate result (never throws) with deadlineReached:
+   true; every candidate not yet reached is simply never claimed this
+   run -- exactly as safe as any other reason a worker might stop
+   before reaching it, per the existing lease/reclaim design.
 
    Processing is strictly SEQUENTIAL for both users and candidates (no
    Promise.all at either level) -- intentional for this foundation
@@ -1000,7 +1017,52 @@ export async function processReminderCandidate({
    claimToken/endpoint/p256dh/auth_key/Authorization/service-role key/
    raw Error/raw upstream body/raw subscription object -- matching
    every other helper's established privacy discipline in this file.
+   Stage 9E-4C-3B adds exactly three more counts/booleans to this same
+   result -- deadlineReached, usersProcessed, candidatesProcessed --
+   under the identical discipline: never anything more specific than a
+   count or boolean.
 ========================================================= */
+
+// PAGINATION PAGE SIZE (Stage 9E-4C-3B): a conservative implementation
+// default for enumerateSubscriptionUserIds/enumerateRetryUserIds' own
+// keyset pagination below -- NOT a platform maximum and not derived
+// from this project's actual configured PostgREST row cap (which is
+// not established anywhere in this repository). Any page size smaller
+// than the real cap is correct; choosing conservatively only costs
+// extra round trips, never a correctness risk, which is why a fixed
+// value can be set now without first confirming that cap.
+const PAGE_SIZE = 200;
+
+// RUN-LEVEL EXECUTION TIME BUDGET (Stage 9E-4C-3B): processAllEligibleUsers
+// stops starting NEW work (a new user or a new candidate) once this many
+// milliseconds have elapsed since the run began -- see that function's
+// own docstring for exactly where this is checked.
+//
+// Confirmed platform ceiling for this project (Vercel dashboard, Hobby
+// plan, Fluid Compute enabled, Project Settings > Functions > Advanced
+// Settings): Default Function Max Duration = 300000 ms. This constant
+// intentionally stops well short of that at 240000 ms, leaving a fixed
+// 60000 ms of operational headroom.
+//
+// That headroom is a safety-margin HEURISTIC, not a completion
+// GUARANTEE: it exists to give one already-in-flight candidate's
+// claim -> subscription-fetch -> send -> finalize chain (a small,
+// bounded number of sequential network round trips) room to finish
+// naturally after the internal deadline has already been reached, and
+// before the platform's own 300000 ms hard kill lands. It cannot bound
+// how long any individual network call actually takes -- no fetch()
+// call and no webpush.sendNotification() call anywhere in this file
+// carries its own application-level timeout (no AbortController/
+// signal/timeout is used anywhere here), so a sufficiently slow or
+// hung call can still exceed this margin and be hard-killed by the
+// platform mid-chain. That specific failure mode is not new and is
+// already handled safely (never corrupting reminder_deliveries, never
+// double-sending) by the existing claim_token fencing and lease/
+// reclaim design -- this constant reduces how often it happens, it
+// does not eliminate the possibility. Adding a per-request timeout is
+// a deliberately separate, not-yet-implemented hardening step -- out
+// of scope for this stage.
+const RUN_TIME_BUDGET_MS = 240000;
 
 // Each source's enumeration is isolated in its own try/catch, exactly
 // mirroring the single-try/catch-to-generic-outcome discipline used
@@ -1008,56 +1070,122 @@ export async function processReminderCandidate({
 // non-array JSON body all collapse to { succeeded: false, userIds: [] }
 // for that source alone, never a thrown error and never a raw upstream
 // detail. Only user_id is ever read off a row.
+// PAGINATED (Stage 9E-4C-3B): pages through every push_subscriptions
+// row via deterministic keyset pagination -- order=id.asc, limit=
+// PAGE_SIZE, and id=gt.<lastSeenId> on every page after the first --
+// never offset/limit pagination, which would both re-scan skipped rows
+// and be unsafe under concurrent inserts/deletes mid-sweep. `id` (this
+// table's own primary key) is selected ONLY as the next page's cursor;
+// no subscription/device field (endpoint/p256dh/auth_key/user_agent/
+// created_at/last_seen_at) is ever selected here, exactly as before.
+//
+// ALL-OR-NOTHING PER SOURCE: a failure on ANY page -- not just the
+// first -- collapses this entire source to { succeeded: false,
+// userIds: [] }, discarding whatever earlier pages already
+// accumulated. A later-page failure is deliberately NEVER reported as
+// "succeeded with a partial result": that would silently reintroduce
+// the exact unbounded-result omission this pagination exists to fix,
+// just relocated to a page boundary, and could incorrectly suppress
+// otherwise-eligible users (including retryable ones) from ever being
+// enumerated again this run. The loop stops -- and the accumulated
+// rows so far are treated as complete -- only when a page legitimately
+// returns fewer than PAGE_SIZE rows.
 async function enumerateSubscriptionUserIds(restHeaders, supabaseUrl) {
+  const userIds = [];
+  let lastSeenId = null;
+
   try {
-    const response = await fetch(`${supabaseUrl}/rest/v1/push_subscriptions?select=user_id`, {
-      headers: restHeaders,
-    });
+    for (;;) {
+      const cursorFilter = lastSeenId ? `&id=gt.${encodeURIComponent(lastSeenId)}` : "";
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/push_subscriptions?select=user_id,id&order=id.asc&limit=${PAGE_SIZE}${cursorFilter}`,
+        { headers: restHeaders }
+      );
 
-    if (!response.ok) {
-      throw new Error("non-ok response");
+      if (!response.ok) {
+        throw new Error("non-ok response");
+      }
+
+      const rows = await response.json();
+
+      if (!Array.isArray(rows)) {
+        throw new Error("non-array response");
+      }
+
+      for (const row of rows) {
+        if (row.user_id) userIds.push(row.user_id);
+      }
+
+      if (rows.length < PAGE_SIZE) break;
+
+      lastSeenId = rows[rows.length - 1].id;
     }
 
-    const rows = await response.json();
-
-    if (!Array.isArray(rows)) {
-      throw new Error("non-array response");
-    }
-
-    return { succeeded: true, userIds: rows.map((row) => row.user_id).filter(Boolean) };
+    return { succeeded: true, userIds };
   } catch {
     return { succeeded: false, userIds: [] };
   }
 }
 
+// PAGINATED (Stage 9E-4C-3B): same keyset pagination strategy as
+// enumerateSubscriptionUserIds above -- order=id.asc, limit=PAGE_SIZE,
+// id=gt.<lastSeenId> on every page after the first, same all-or-
+// nothing-per-source failure contract on any page. The existing
+// status=eq.claimed / attempt_count=lt.5 filter contract is completely
+// unchanged; `id` (this table's own primary key) is selected ONLY as
+// the pagination cursor -- dedup_key/claim_token/last_error/
+// lease_expires_at are never selected here, exactly as before.
 async function enumerateRetryUserIds(restHeaders, supabaseUrl) {
+  const userIds = [];
+  let lastSeenId = null;
+
   try {
-    const response = await fetch(
-      `${supabaseUrl}/rest/v1/reminder_deliveries?status=eq.${encodeURIComponent("claimed")}&attempt_count=lt.5&select=user_id`,
-      { headers: restHeaders }
-    );
+    for (;;) {
+      const cursorFilter = lastSeenId ? `&id=gt.${encodeURIComponent(lastSeenId)}` : "";
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/reminder_deliveries?status=eq.${encodeURIComponent(
+          "claimed"
+        )}&attempt_count=lt.5&select=user_id,id&order=id.asc&limit=${PAGE_SIZE}${cursorFilter}`,
+        { headers: restHeaders }
+      );
 
-    if (!response.ok) {
-      throw new Error("non-ok response");
+      if (!response.ok) {
+        throw new Error("non-ok response");
+      }
+
+      const rows = await response.json();
+
+      if (!Array.isArray(rows)) {
+        throw new Error("non-array response");
+      }
+
+      for (const row of rows) {
+        if (row.user_id) userIds.push(row.user_id);
+      }
+
+      if (rows.length < PAGE_SIZE) break;
+
+      lastSeenId = rows[rows.length - 1].id;
     }
 
-    const rows = await response.json();
-
-    if (!Array.isArray(rows)) {
-      throw new Error("non-array response");
-    }
-
-    return { succeeded: true, userIds: rows.map((row) => row.user_id).filter(Boolean) };
+    return { succeeded: true, userIds };
   } catch {
     return { succeeded: false, userIds: [] };
   }
 }
 
+// `now` and `runTimeBudgetMs` are injectable (defaulting to Date.now
+// and the real RUN_TIME_BUDGET_MS constant) purely so tests can
+// exercise every deadline-boundary case deterministically, without
+// depending on real wall-clock timing -- the same pattern
+// processReminderCandidate's own `now` parameter already establishes.
 export async function processAllEligibleUsers({
   restHeaders,
   supabaseUrl,
   computeCandidatesForUserFn = computeCandidatesForUser,
   processCandidateFn = processReminderCandidate,
+  now = Date.now,
+  runTimeBudgetMs = RUN_TIME_BUDGET_MS,
 }) {
   const subscriptionResult = await enumerateSubscriptionUserIds(restHeaders, supabaseUrl);
   const retryResult = await enumerateRetryUserIds(restHeaders, supabaseUrl);
@@ -1083,15 +1211,34 @@ export async function processAllEligibleUsers({
       userProcessingErrors: 0,
       candidatesComputed: 0,
       outcomes,
+      deadlineReached: false,
+      usersProcessed: 0,
+      candidatesProcessed: 0,
     };
   }
 
   const userIds = Array.from(new Set([...subscriptionResult.userIds, ...retryResult.userIds].filter(Boolean)));
 
+  // Established once, at run start -- never recomputed. Checked ONLY at
+  // the top of each loop below (never mid-candidate): see the "EXECUTION
+  // TIME BUDGET" note in this function's own section docstring above for
+  // why that placement is what makes an already-started claim -> send ->
+  // finalize chain safe to let finish naturally.
+  const runDeadlineAt = now() + runTimeBudgetMs;
+
   let userProcessingErrors = 0;
   let candidatesComputed = 0;
+  let usersProcessed = 0;
+  let candidatesProcessed = 0;
+  let deadlineReached = false;
 
   for (const userId of userIds) {
+    if (now() >= runDeadlineAt) {
+      deadlineReached = true;
+      break;
+    }
+    usersProcessed += 1;
+
     let result;
     try {
       result = await computeCandidatesForUserFn(userId, restHeaders, supabaseUrl);
@@ -1109,6 +1256,12 @@ export async function processAllEligibleUsers({
     candidatesComputed += candidates.length;
 
     for (const candidate of candidates) {
+      if (now() >= runDeadlineAt) {
+        deadlineReached = true;
+        break;
+      }
+      candidatesProcessed += 1;
+
       let outcome;
       try {
         const candidateResult = await processCandidateFn({ candidate, userId, restHeaders, supabaseUrl });
@@ -1132,6 +1285,9 @@ export async function processAllEligibleUsers({
     userProcessingErrors,
     candidatesComputed,
     outcomes,
+    deadlineReached,
+    usersProcessed,
+    candidatesProcessed,
   };
 }
 
@@ -1242,7 +1398,9 @@ export default async function handler(req, res) {
          result: counts only. Never a user id, email/name, dedupKey,
          sourceId, claimToken, subscription field, Authorization,
          CRON_SECRET, service-role credential, VAPID private key, or
-         raw upstream error/body.
+         raw upstream error/body. deadlineReached/usersProcessed/
+         candidatesProcessed (Stage 9E-4C-3B) are passed through under
+         the exact same discipline -- counts/booleans only.
       ========================================= */
 
       return res.status(200).json({
@@ -1254,6 +1412,9 @@ export default async function handler(req, res) {
         userProcessingErrors: liveResult.userProcessingErrors,
         candidatesComputed: liveResult.candidatesComputed,
         outcomes: liveResult.outcomes,
+        deadlineReached: liveResult.deadlineReached,
+        usersProcessed: liveResult.usersProcessed,
+        candidatesProcessed: liveResult.candidatesProcessed,
       });
     } catch (error) {
       console.error("Takda reminder delivery runner live execution error:", error.message);

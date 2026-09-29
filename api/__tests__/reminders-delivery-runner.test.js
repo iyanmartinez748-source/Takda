@@ -2574,6 +2574,29 @@ test("source check: api/test-push.js remains byte-for-byte unchanged", () => {
   assert.equal(hash, "9372304b3ca629ad2b891b1b0124302b130bef92ea3767014b6af77368f0ee0b");
 });
 
+// Stage 9E-4C-3B: RUN_TIME_BUDGET_MS must remain a fixed, documented
+// value safely below the confirmed Vercel platform ceiling for this
+// project (300000 ms -- Hobby plan, Fluid Compute enabled, Project
+// Settings > Functions > Advanced Settings > Default Function Max
+// Duration, confirmed directly from the dashboard, never guessed).
+test("source check: RUN_TIME_BUDGET_MS is fixed, documented, and safely below the confirmed 300000 ms platform ceiling", () => {
+  const match = SOURCE_TEXT.match(/const RUN_TIME_BUDGET_MS = (\d+);/);
+  assert.ok(match, "RUN_TIME_BUDGET_MS constant not found in source");
+  const value = Number(match[1]);
+  assert.equal(value, 240000);
+  assert.ok(value < 300000, "RUN_TIME_BUDGET_MS must stay below the confirmed 300000 ms Vercel platform ceiling");
+  assert.ok(SOURCE_TEXT.includes("300000"), "the documented platform ceiling (300000 ms) must be referenced in source");
+});
+
+// Stage 9E-4C-3B: confirms the pagination/deadline hardening work in
+// this stage did not loosen the existing gated-activation contract --
+// every gated-activation behavior test elsewhere in this file already
+// exercises this exhaustively (wrong-case, wrong-type, empty, unset);
+// this is a direct, minimal source-level confirmation alongside them.
+test('source check: the live-activation gate remains the exact strict-equality check against "true"', () => {
+  assert.ok(SOURCE_TEXT.includes('process.env.REMINDER_DELIVERY_ENABLED === "true"'));
+});
+
 /* =========================================================
    processAllEligibleUsers — BULK RUNNER TESTS
 
@@ -2596,6 +2619,38 @@ const BULK_REST_HEADERS = REST_HEADERS_FOR_HELPER;
 // throws on anything else (including any non-GET method), so an
 // accidental write from processAllEligibleUsers is a hard test failure.
 // Records every call URL for assertions on the exact query shape.
+// Stage 9E-4C-3B: slices `rows` (expected pre-sorted ascending by
+// `.id`, matching the real order=id.asc contract) the same way real
+// keyset pagination would, by reading `limit=` and `id=gt.<cursor>`
+// straight out of the request URL. This lets one router config
+// transparently serve either a single-page or a genuinely multi-page
+// enumeration query -- for any config with fewer rows than the real
+// PAGE_SIZE, this always resolves to exactly one page (the entire
+// configured array, since it is shorter than `limit`), which is why
+// every pre-existing test below (all of which configure well under
+// PAGE_SIZE rows) is unaffected by this change.
+function paginateRows(rows, urlStr) {
+  const list = rows ?? [];
+  const limitMatch = urlStr.match(/limit=(\d+)/);
+  const limit = limitMatch ? Number(limitMatch[1]) : list.length;
+  const cursorMatch = urlStr.match(/id=gt\.([^&]+)/);
+  const cursor = cursorMatch ? decodeURIComponent(cursorMatch[1]) : null;
+  const startIndex = cursor === null ? 0 : list.findIndex((row) => String(row.id) === cursor) + 1;
+  return list.slice(startIndex, startIndex + limit);
+}
+
+// Generates `count` rows with sequential, zero-padded, ascending string
+// ids (e.g. "id-000001") and a distinct user_id per row -- enough to
+// exercise real multi-page keyset pagination (order=id.asc, id=gt.
+// <cursor>) without needing real UUIDs, since these mocks never
+// validate id shape.
+function makeSequentialRows(count, userIdPrefix) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `id-${String(i + 1).padStart(6, "0")}`,
+    user_id: `${userIdPrefix}-${i + 1}`,
+  }));
+}
+
 function bulkFetchRouter({
   subscriptionRows,
   retryRows,
@@ -2607,6 +2662,16 @@ function bulkFetchRouter({
   retryMalformedJson = false,
   subscriptionNonArray = false,
   retryNonArray = false,
+  // Stage 9E-4C-3B: fail (or return a malformed body for) only a page
+  // AFTER the first -- i.e. only once the request URL already carries
+  // an id=gt.<cursor> filter -- to exercise "a later page fails" as
+  // distinct from "the first page fails" (subscriptionThrows/
+  // retryThrows/etc. above, which fail unconditionally on every call,
+  // including the first).
+  subscriptionFailFromPage2 = false,
+  retryFailFromPage2 = false,
+  subscriptionNonArrayFromPage2 = false,
+  retryNonArrayFromPage2 = false,
 } = {}) {
   const calls = [];
 
@@ -2614,6 +2679,7 @@ function bulkFetchRouter({
     const urlStr = String(url);
     const method = (options?.method || "GET").toUpperCase();
     calls.push(urlStr);
+    const isLaterPage = urlStr.includes("id=gt.");
 
     if (method !== "GET") {
       throw new Error("processAllEligibleUsers must never issue a non-GET request: " + method + " " + urlStr);
@@ -2623,14 +2689,18 @@ function bulkFetchRouter({
       if (subscriptionThrows) throw new Error("network is down");
       if (subscriptionMalformedJson) return { ok: true, json: async () => { throw new Error("Unexpected token"); } };
       if (subscriptionNonArray) return { ok: true, json: async () => ({ not: "an array" }) };
-      return { ok: !subscriptionNonOk, json: async () => subscriptionRows ?? [] };
+      if (isLaterPage && subscriptionFailFromPage2) throw new Error("network is down on a later page");
+      if (isLaterPage && subscriptionNonArrayFromPage2) return { ok: true, json: async () => ({ not: "an array" }) };
+      return { ok: !subscriptionNonOk, json: async () => paginateRows(subscriptionRows, urlStr) };
     }
 
     if (urlStr.includes("/rest/v1/reminder_deliveries")) {
       if (retryThrows) throw new Error("network is down");
       if (retryMalformedJson) return { ok: true, json: async () => { throw new Error("Unexpected token"); } };
       if (retryNonArray) return { ok: true, json: async () => ({ not: "an array" }) };
-      return { ok: !retryNonOk, json: async () => retryRows ?? [] };
+      if (isLaterPage && retryFailFromPage2) throw new Error("network is down on a later page");
+      if (isLaterPage && retryNonArrayFromPage2) return { ok: true, json: async () => ({ not: "an array" }) };
+      return { ok: !retryNonOk, json: async () => paginateRows(retryRows, urlStr) };
     }
 
     throw new Error("Unexpected fetch call in bulk-runner test: " + urlStr);
@@ -3292,11 +3362,14 @@ test("processAllEligibleUsers: aggregate result never contains userId, dedupKey,
   // Confirm the result is genuinely counts-only.
   assert.deepEqual(Object.keys(result).sort(), [
     "candidatesComputed",
+    "candidatesProcessed",
+    "deadlineReached",
     "outcomes",
     "retryEnumerationSucceeded",
     "subscriptionEnumerationSucceeded",
     "userProcessingErrors",
     "usersConsidered",
+    "usersProcessed",
   ]);
 });
 
@@ -3331,6 +3404,317 @@ test("processAllEligibleUsers: issues only GET requests -- no reminder_deliverie
   });
 
   assert.ok(fetchMock.calls.length >= 2);
+});
+
+/* =========================================================
+   PAGINATION & EXECUTION-BUDGET TESTS — Stage 9E-4C-3B
+========================================================= */
+
+// 1. Multi-page subscription enumeration.
+test("processAllEligibleUsers: multi-page subscription enumeration (>PAGE_SIZE rows) processes every user across pages", async () => {
+  const rows = makeSequentialRows(201, "sub-user"); // PAGE_SIZE=200 -> forces a 2nd page
+  const fetchMock = bulkFetchRouter({ subscriptionRows: rows, retryRows: [] });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn(Object.fromEntries(rows.map((r) => [r.user_id, []])));
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.usersConsidered, 201);
+  assert.deepEqual(computeFn.calls.slice().sort(), rows.map((r) => r.user_id).sort());
+
+  const subsCalls = fetchMock.calls.filter((u) => u.includes("/rest/v1/push_subscriptions"));
+  assert.equal(subsCalls.length, 2, "201 rows at PAGE_SIZE 200 must require exactly two page fetches");
+  assert.ok(!subsCalls[0].includes("id=gt."), "the first page must not carry a cursor filter");
+  assert.ok(subsCalls[1].includes("id=gt."), "the second page must carry an id=gt. cursor filter");
+});
+
+// 2. Multi-page retry enumeration.
+test("processAllEligibleUsers: multi-page retry enumeration (>PAGE_SIZE rows) processes every user across pages", async () => {
+  const rows = makeSequentialRows(201, "retry-user");
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [], retryRows: rows });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn(Object.fromEntries(rows.map((r) => [r.user_id, []])));
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.usersConsidered, 201);
+  assert.deepEqual(computeFn.calls.slice().sort(), rows.map((r) => r.user_id).sort());
+
+  const retryCalls = fetchMock.calls.filter((u) => u.includes("/rest/v1/reminder_deliveries"));
+  assert.equal(retryCalls.length, 2, "201 rows at PAGE_SIZE 200 must require exactly two page fetches");
+  assert.ok(retryCalls.every((u) => u.includes("status=eq.claimed") && u.includes("attempt_count=lt.5")));
+});
+
+// 3. Exact PAGE_SIZE boundary -- no skipped id.
+test("processAllEligibleUsers: exactly PAGE_SIZE rows still includes the final row (no off-by-one skip at the page boundary)", async () => {
+  const rows = makeSequentialRows(200, "boundary-user"); // exactly PAGE_SIZE
+  const fetchMock = bulkFetchRouter({ subscriptionRows: rows, retryRows: [] });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn(Object.fromEntries(rows.map((r) => [r.user_id, []])));
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.usersConsidered, 200);
+  const lastRowUserId = rows[rows.length - 1].user_id;
+  assert.ok(computeFn.calls.includes(lastRowUserId), "the 200th (final) row of an exact-PAGE_SIZE page must not be skipped");
+
+  const subsCalls = fetchMock.calls.filter((u) => u.includes("/rest/v1/push_subscriptions"));
+  assert.equal(subsCalls.length, 2, "a full first page must always trigger a second (confirming-empty) page fetch");
+});
+
+// 4. Set dedup preserved across pagination sources/pages.
+test("processAllEligibleUsers: Set dedup still holds for a user appearing on a later page of one source and in another source", async () => {
+  const subRows = makeSequentialRows(201, "dedup-user");
+  const overlapUserId = subRows[subRows.length - 1].user_id; // lives on subscription page 2
+  const retryRows = [{ id: "id-999999", user_id: overlapUserId }];
+  const fetchMock = bulkFetchRouter({ subscriptionRows: subRows, retryRows });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn(Object.fromEntries(subRows.map((r) => [r.user_id, []])));
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.usersConsidered, 201, "the overlapping user must be counted once, not twice");
+  const occurrences = computeFn.calls.filter((id) => id === overlapUserId).length;
+  assert.equal(occurrences, 1, "the overlapping user must be processed exactly once");
+});
+
+// 5. Page-1 pagination failure.
+test("processAllEligibleUsers: a page-1 subscription failure fails the whole source even when the dataset would otherwise have spanned multiple pages", async () => {
+  const rows = makeSequentialRows(201, "would-paginate");
+  const fetchMock = bulkFetchRouter({ subscriptionRows: rows, retryRows: [], subscriptionNonOk: true });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn({});
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+  assert.equal(computeFn.calls.length, 0);
+});
+
+// 6. Later-page pagination failure discards partial accumulation.
+test("processAllEligibleUsers: a later-page subscription failure discards the earlier page's accumulated rows and fails the whole source", async () => {
+  const rows = makeSequentialRows(201, "partial-then-fail"); // page 1 (200 rows) succeeds, page 2 must fail
+  const fetchMock = bulkFetchRouter({ subscriptionRows: rows, retryRows: [], subscriptionFailFromPage2: true });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn({});
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.subscriptionEnumerationSucceeded, false);
+  // The 200 users successfully read on page 1 must never be forwarded
+  // to processing -- a later-page failure is never a partial success.
+  assert.equal(computeFn.calls.length, 0);
+  assert.equal(result.usersConsidered, 0);
+});
+
+// 7. Malformed/non-array later page fails the whole source.
+test("processAllEligibleUsers: a malformed/non-array response on a later retry page fails the whole source, not just that page", async () => {
+  const rows = makeSequentialRows(200, "retry-partial-then-malformed"); // page 1 succeeds fully (== PAGE_SIZE, forces page 2)
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [], retryRows: rows, retryNonArrayFromPage2: true });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn({});
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+  });
+
+  assert.equal(result.retryEnumerationSucceeded, false);
+  assert.equal(computeFn.calls.length, 0);
+  assert.equal(result.usersConsidered, 0);
+});
+
+// 8. Deadline before the first user.
+test("processAllEligibleUsers: a deadline already reached before the first user starts zero work and reports deadlineReached", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [{ id: "id-000001", user_id: USER_A }], retryRows: [] });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: [] });
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+    now: () => 0,
+    runTimeBudgetMs: -1,
+  });
+
+  assert.equal(computeFn.calls.length, 0);
+  assert.equal(result.usersProcessed, 0);
+  assert.equal(result.candidatesProcessed, 0);
+  assert.equal(result.deadlineReached, true);
+  assert.equal(result.usersConsidered, 1, "enumeration itself is unaffected by the deadline -- only processing stops");
+});
+
+// 9. Deadline between users.
+test("processAllEligibleUsers: a deadline crossed between users stops before the next user starts, letting the first finish", async () => {
+  const fetchMock = bulkFetchRouter({
+    subscriptionRows: [
+      { id: "id-000001", user_id: USER_A },
+      { id: "id-000002", user_id: USER_B },
+    ],
+    retryRows: [],
+  });
+  global.fetch = fetchMock;
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: [], [USER_B]: [] });
+
+  let nowCallCount = 0;
+  const now = () => {
+    nowCallCount += 1;
+    // Call 1: runDeadlineAt computation. Call 2: pre-user check for
+    // USER_A (must pass). Call 3: pre-user check for USER_B (must
+    // report the deadline already reached).
+    return nowCallCount <= 2 ? 0 : 1_000_000;
+  };
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: sequencedProcessCandidateFn([]),
+    now,
+    runTimeBudgetMs: 500_000,
+  });
+
+  assert.deepEqual(computeFn.calls, [USER_A]);
+  assert.equal(result.usersProcessed, 1);
+  assert.equal(result.deadlineReached, true);
+  assert.equal(result.usersConsidered, 2, "enumeration still reports the full eligible set");
+});
+
+// 10. Deadline between candidates.
+test("processAllEligibleUsers: a deadline crossed between candidates for one user stops before the next candidate starts", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [{ id: "id-000001", user_id: USER_A }], retryRows: [] });
+  global.fetch = fetchMock;
+  const twoCandidates = [bulkCandidate("cand-1"), bulkCandidate("cand-2")];
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: twoCandidates });
+  const processFn = sequencedProcessCandidateFn(["sent", "sent"]);
+
+  let nowCallCount = 0;
+  const now = () => {
+    nowCallCount += 1;
+    // Call 1: deadline computation. Call 2: pre-user check (pass).
+    // Call 3: pre-candidate check for candidate 1 (pass). Call 4:
+    // pre-candidate check for candidate 2 (deadline reached).
+    return nowCallCount <= 3 ? 0 : 1_000_000;
+  };
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: processFn,
+    now,
+    runTimeBudgetMs: 500_000,
+  });
+
+  assert.equal(processFn.calls.length, 1, "only the first candidate should have been started");
+  assert.equal(result.candidatesProcessed, 1);
+  assert.equal(result.candidatesComputed, 2, "computeCandidatesForUserFn's own count is unaffected by the deadline");
+  assert.equal(result.deadlineReached, true);
+});
+
+// 11. An already-started candidate is allowed to finish normally.
+test("processAllEligibleUsers: a candidate already in flight when the deadline is crossed is still allowed to finish and its outcome is recorded", async () => {
+  const fetchMock = bulkFetchRouter({ subscriptionRows: [{ id: "id-000001", user_id: USER_A }], retryRows: [] });
+  global.fetch = fetchMock;
+  const twoCandidates = [bulkCandidate("cand-1"), bulkCandidate("cand-2")];
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: twoCandidates });
+
+  let deadlinePassedDuringFirstCandidate = false;
+  const processCalls = [];
+  async function processFn(args) {
+    processCalls.push(args.candidate);
+    if (processCalls.length === 1) {
+      // Simulate real time elapsing PAST the deadline WHILE this
+      // candidate's own claim -> send -> finalize chain is still
+      // running -- it must still be allowed to complete normally.
+      deadlinePassedDuringFirstCandidate = true;
+    }
+    return { outcome: "sent", category: args.candidate.category, dedupKey: args.candidate.dedupKey };
+  }
+
+  const now = () => (deadlinePassedDuringFirstCandidate ? 1_000_000 : 0);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: processFn,
+    now,
+    runTimeBudgetMs: 500_000,
+  });
+
+  // The first candidate ran to completion and its outcome was recorded
+  // normally -- it was never aborted despite the clock reporting the
+  // deadline reached during its own execution.
+  assert.equal(processCalls.length, 1);
+  assert.equal(result.outcomes.sent, 1);
+  assert.equal(result.candidatesProcessed, 1);
+  // The SECOND candidate was correctly never started, proving the
+  // deadline check only ever gates the *next* piece of work.
+  assert.equal(result.deadlineReached, true);
+});
+
+// 12. deadlineReached/usersProcessed/candidatesProcessed reporting -- the normal (not-cut-short) case.
+test("processAllEligibleUsers: deadlineReached is false and usersProcessed/candidatesProcessed match the full counts when nothing is cut short", async () => {
+  const fetchMock = bulkFetchRouter({
+    subscriptionRows: [
+      { id: "id-000001", user_id: USER_A },
+      { id: "id-000002", user_id: USER_B },
+    ],
+    retryRows: [],
+  });
+  global.fetch = fetchMock;
+  const candidatesForA = [bulkCandidate("a-1")];
+  const candidatesForB = [bulkCandidate("b-1"), bulkCandidate("b-2")];
+  const computeFn = trackedComputeCandidatesFn({ [USER_A]: candidatesForA, [USER_B]: candidatesForB });
+  const processFn = sequencedProcessCandidateFn(["sent", "sent", "sent"]);
+
+  const result = await processAllEligibleUsers({
+    restHeaders: BULK_REST_HEADERS,
+    supabaseUrl: BULK_SUPABASE_URL,
+    computeCandidatesForUserFn: computeFn,
+    processCandidateFn: processFn,
+  });
+
+  assert.equal(result.deadlineReached, false);
+  assert.equal(result.usersProcessed, result.usersConsidered);
+  assert.equal(result.candidatesProcessed, result.candidatesComputed);
+  assert.equal(result.usersProcessed, 2);
+  assert.equal(result.candidatesProcessed, 3);
 });
 
 /* =========================================================
@@ -3560,6 +3944,9 @@ test("gated activation: exact activation with valid authorization/config calls t
   assert.equal(res.body.usersConsidered, 0);
   assert.equal(res.body.userProcessingErrors, 0);
   assert.equal(res.body.candidatesComputed, 0);
+  assert.equal(res.body.deadlineReached, false);
+  assert.equal(res.body.usersProcessed, 0);
+  assert.equal(res.body.candidatesProcessed, 0);
   assert.deepEqual(res.body.outcomes, {
     sent: 0,
     failed_finalized: 0,
@@ -3571,6 +3958,8 @@ test("gated activation: exact activation with valid authorization/config calls t
   });
   assert.deepEqual(Object.keys(res.body).sort(), [
     "candidatesComputed",
+    "candidatesProcessed",
+    "deadlineReached",
     "dryRun",
     "liveSendEnabled",
     "outcomes",
@@ -3578,6 +3967,7 @@ test("gated activation: exact activation with valid authorization/config calls t
     "subscriptionEnumerationSucceeded",
     "userProcessingErrors",
     "usersConsidered",
+    "usersProcessed",
   ]);
 
   const subsCalls = calls.filter((c) => c.url.includes("/rest/v1/push_subscriptions"));
