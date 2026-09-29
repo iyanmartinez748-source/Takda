@@ -258,6 +258,47 @@ function categorizeSendError(error) {
   return statusCode === 404 || statusCode === 410 ? "stale_subscription" : "push_send_failed";
 }
 
+/* =========================================================
+   PER-DEVICE PUSH OBSERVABILITY — Stage 9E-4C-6C
+
+   OBSERVABILITY ONLY: the two helpers below never influence
+   sentCount/failedCount/eventSendSucceeded/staleIds/cleanup/claim/
+   reclaim/finalize/dedup in any way -- they only derive a coarse,
+   non-identifying device label and emit one log line per send
+   attempt, purely as a side effect, so an operator can tell iOS vs
+   Windows delivery outcomes apart after the fact.
+========================================================= */
+
+// Reduces a subscription's user_agent to one of exactly three coarse
+// labels -- never the raw user_agent string itself, which is never
+// logged or returned by anything in this file. A missing/non-string
+// user_agent (e.g. a test double, or a pre-Stage-9E-4C-6C row) safely
+// falls through to "other" rather than throwing.
+function deviceTypeFromUserAgent(userAgent) {
+  if (typeof userAgent !== "string") return "other";
+  if (/iPhone|iPad/i.test(userAgent)) return "ios";
+  if (/Windows/i.test(userAgent)) return "windows";
+  return "other";
+}
+
+// The single choke point for this stage's structured log line --
+// emits ONLY the four approved fields below, in a fixed shape, never
+// spreading a caller-supplied object. No subscription id, user id,
+// endpoint, key material, raw user_agent, payload, or any other
+// identifier is ever a parameter here, so none can ever reach this
+// log by accident.
+function logDeviceResult(deviceType, ok, stale, errorCategory) {
+  console.log(
+    JSON.stringify({
+      event: "reminder_push_device_result",
+      deviceType,
+      ok,
+      stale,
+      errorCategory,
+    })
+  );
+}
+
 // Best-effort cleanup, deliberately isolated from the send outcome:
 // deletes only the given 404/410 ("gone") subscription ids, scoped by
 // BOTH id and user_id (never weakened to id alone), using the same
@@ -334,8 +375,13 @@ export async function sendReminderToSubscriptions({ subscriptions, payload, user
   }
 
   const results = await Promise.allSettled(
-    subscriptions.map((sub) =>
-      webpush
+    subscriptions.map((sub) => {
+      // Computed once per subscription and used only for the log line
+      // below -- never included in this function's returned outcome
+      // objects, which keep their exact pre-existing shape.
+      const deviceType = deviceTypeFromUserAgent(sub.user_agent);
+
+      return webpush
         .sendNotification(
           {
             endpoint: sub.endpoint,
@@ -347,9 +393,16 @@ export async function sendReminderToSubscriptions({ subscriptions, payload, user
           payload,
           { timeout: WEB_PUSH_TIMEOUT_MS }
         )
-        .then(() => ({ id: sub.id, ok: true }))
-        .catch((error) => ({ id: sub.id, ok: false, category: categorizeSendError(error) }))
-    )
+        .then(() => {
+          logDeviceResult(deviceType, true, false, null);
+          return { id: sub.id, ok: true };
+        })
+        .catch((error) => {
+          const category = categorizeSendError(error);
+          logDeviceResult(deviceType, false, category === "stale_subscription", category);
+          return { id: sub.id, ok: false, category };
+        });
+    })
   );
 
   const outcomes = results.map((r) => (r.status === "fulfilled" ? r.value : { ok: false, category: "push_send_failed" }));
@@ -863,8 +916,13 @@ export async function processReminderCandidate({
 
   let subscriptions;
   try {
+    // user_agent added (Stage 9E-4C-6C) solely so sendFn below can derive
+    // a coarse, non-identifying device label for its per-device log line
+    // (see deviceTypeFromUserAgent/logDeviceResult) -- it is never used
+    // for any claim/reclaim/send/finalize decision, never persisted to
+    // reminder_deliveries, and never logged in raw form anywhere.
     const response = await fetch(
-      `${supabaseUrl}/rest/v1/push_subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=id,endpoint,p256dh,auth_key`,
+      `${supabaseUrl}/rest/v1/push_subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=id,endpoint,p256dh,auth_key,user_agent`,
       { headers: restHeaders }
     );
 
