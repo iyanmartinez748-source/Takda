@@ -1,0 +1,35 @@
+name: Takda Reminder Delivery Scheduler
+
+on:
+  # GitHub Actions enforces a 5-minute minimum interval for scheduled
+  # workflows; timing is best-effort, not exact.
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: takda-reminder-delivery-scheduler
+  cancel-in-progress: false
+
+jobs:
+  invoke-reminder-delivery-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Invoke reminder delivery runner
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --location \
+            --request GET \
+            --connect-timeout 10 \
+            --max-time 310 \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            https://takda-ecru.vercel.app/api/reminders-delivery-runner
