@@ -296,9 +296,22 @@ const SUPABASE_URL_FOR_HELPER = "https://example.supabase.co";
 const REST_HEADERS_FOR_HELPER = { apikey: "service-role-key", Authorization: "Bearer service-role-key" };
 const HELPER_PAYLOAD = JSON.stringify({ title: "Takda", body: "test" });
 
-function makeSubscription(id, outcome) {
+function makeSubscription(id, outcome, userAgent) {
   // outcome: "ok" | 404 | 410 | "timeout" | "error" (a generic, non-stale failure)
-  return { id, endpoint: `https://push.example/${id}`, p256dh: `p256dh-${id}`, auth_key: `auth-${id}`, __outcome: outcome };
+  // userAgent (Stage 9E-4C-6C, optional, undefined unless a test passes
+  // one explicitly): fed straight through to sendReminderToSubscriptions'
+  // internal deviceTypeFromUserAgent. Every pre-existing call site below
+  // omits this argument, so it stays undefined for them exactly as
+  // before -- no pre-existing test asserts anything about deviceType, so
+  // this addition changes no existing test's observed behavior.
+  return {
+    id,
+    endpoint: `https://push.example/${id}`,
+    p256dh: `p256dh-${id}`,
+    auth_key: `auth-${id}`,
+    user_agent: userAgent,
+    __outcome: outcome,
+  };
 }
 
 function mockWebPushSendNotification(subscriptionsByEndpoint) {
@@ -695,6 +708,294 @@ test("sendReminderToSubscriptions: safe result contains no endpoint/p256dh/auth/
   // subscriptions/staleIds arrays themselves.
   assert.ok(!("subscriptions" in result));
   assert.ok(!("staleIds" in result));
+});
+
+// ---------------------------------------------------------------------
+// Stage 9E-4C-6C: privacy-safe per-device push observability. These
+// tests exercise ONLY the new side-effect console.log line
+// (deviceTypeFromUserAgent + logDeviceResult, both internal/unexported)
+// via sendReminderToSubscriptions' already-exported entry point. None
+// of sentCount/failedCount/eventSendSucceeded/staleDetectedCount/
+// staleRemovedCount/cleanupStatus/errorCategory behavior is re-asserted
+// here beyond what the sections above already cover, and none of those
+// existing tests are touched. console.log is captured and restored
+// per-test (never left patched across tests), mirroring this file's
+// existing per-test mock/restore discipline for global.fetch/
+// webpush.sendNotification.
+// ---------------------------------------------------------------------
+
+async function withCapturedLogs(run) {
+  const originalConsoleLog = console.log;
+  const lines = [];
+  console.log = (line) => {
+    lines.push(line);
+  };
+  try {
+    await run();
+  } finally {
+    console.log = originalConsoleLog;
+  }
+  return lines;
+}
+
+function parseDeviceResultLogs(lines) {
+  return lines.map((line) => JSON.parse(line)).filter((entry) => entry.event === "reminder_push_device_result");
+}
+
+test("device observability: an iPhone user_agent logs deviceType 'ios'", async () => {
+  const sub = makeSubscription("sub-iphone", "ok", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when nothing is stale");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const deviceLogs = parseDeviceResultLogs(logs);
+  assert.equal(deviceLogs.length, 1);
+  assert.equal(deviceLogs[0].deviceType, "ios");
+});
+
+test("device observability: an iPad user_agent logs deviceType 'ios'", async () => {
+  const sub = makeSubscription("sub-ipad", "ok", "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when nothing is stale");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const deviceLogs = parseDeviceResultLogs(logs);
+  assert.equal(deviceLogs.length, 1);
+  assert.equal(deviceLogs[0].deviceType, "ios");
+});
+
+test("device observability: a Windows user_agent logs deviceType 'windows'", async () => {
+  const sub = makeSubscription("sub-windows", "ok", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when nothing is stale");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const deviceLogs = parseDeviceResultLogs(logs);
+  assert.equal(deviceLogs.length, 1);
+  assert.equal(deviceLogs[0].deviceType, "windows");
+});
+
+test("device observability: a missing or unrecognized user_agent logs deviceType 'other'", async () => {
+  const subMissing = makeSubscription("sub-missing-ua", "ok"); // no third arg -> user_agent undefined
+  const subOther = makeSubscription("sub-other-ua", "ok", "Mozilla/5.0 (Linux; Android 14)");
+  webpush.sendNotification = mockWebPushSendNotification(
+    new Map([
+      [subMissing.endpoint, subMissing],
+      [subOther.endpoint, subOther],
+    ])
+  );
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when nothing is stale");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [subMissing, subOther],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const deviceLogs = parseDeviceResultLogs(logs);
+  assert.equal(deviceLogs.length, 2);
+  assert.ok(deviceLogs.every((entry) => entry.deviceType === "other"));
+});
+
+test("device observability: a successful device log contains only the five approved fields, with ok true/stale false/errorCategory null", async () => {
+  const sub = makeSubscription("sub-ok-shape", "ok", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when nothing is stale");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const [entry] = parseDeviceResultLogs(logs);
+  assert.deepEqual(Object.keys(entry).sort(), ["deviceType", "errorCategory", "event", "ok", "stale"].sort());
+  assert.equal(entry.event, "reminder_push_device_result");
+  assert.equal(entry.deviceType, "windows");
+  assert.equal(entry.ok, true);
+  assert.equal(entry.stale, false);
+  assert.equal(entry.errorCategory, null);
+});
+
+test("device observability: a 404 device log reports ok=false, stale=true, errorCategory='stale_subscription'", async () => {
+  const sub = makeSubscription("sub-404-ua", 404, "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const [entry] = parseDeviceResultLogs(logs);
+  assert.equal(entry.deviceType, "ios");
+  assert.equal(entry.ok, false);
+  assert.equal(entry.stale, true);
+  assert.equal(entry.errorCategory, "stale_subscription");
+});
+
+test("device observability: a 410 device log reports ok=false, stale=true, errorCategory='stale_subscription'", async () => {
+  const sub = makeSubscription("sub-410-ua", 410, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const [entry] = parseDeviceResultLogs(logs);
+  assert.equal(entry.deviceType, "windows");
+  assert.equal(entry.ok, false);
+  assert.equal(entry.stale, true);
+  assert.equal(entry.errorCategory, "stale_subscription");
+});
+
+test("device observability: a generic (non-stale) failure logs stale=false, errorCategory='push_send_failed'", async () => {
+  const sub = makeSubscription("sub-generic-fail", "error", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called — this failure is not stale (404/410)");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const [entry] = parseDeviceResultLogs(logs);
+  assert.equal(entry.deviceType, "ios");
+  assert.equal(entry.ok, false);
+  assert.equal(entry.stale, false);
+  assert.equal(entry.errorCategory, "push_send_failed");
+});
+
+test("device observability: a timed-out send logs stale=false, errorCategory='push_send_failed'", async () => {
+  const sub = makeSubscription("sub-timeout-ua", "timeout", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called -- a timeout alone must never trigger stale-subscription cleanup");
+  };
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [sub],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const [entry] = parseDeviceResultLogs(logs);
+  assert.equal(entry.deviceType, "windows");
+  assert.equal(entry.ok, false);
+  assert.equal(entry.stale, false);
+  assert.equal(entry.errorCategory, "push_send_failed");
+});
+
+test("device observability: the structured log never contains subscription id, endpoint, keys, raw user_agent, or payload content", async () => {
+  const subOk = makeSubscription("sub-secret-ok", "ok", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)");
+  const subStale = makeSubscription("sub-secret-stale", 410, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  webpush.sendNotification = mockWebPushSendNotification(
+    new Map([
+      [subOk.endpoint, subOk],
+      [subStale.endpoint, subStale],
+    ])
+  );
+  global.fetch = async () => ({ ok: true, json: async () => [] });
+
+  const logs = await withCapturedLogs(() =>
+    sendReminderToSubscriptions({
+      subscriptions: [subOk, subStale],
+      payload: HELPER_PAYLOAD,
+      userId: USER_A,
+      restHeaders: REST_HEADERS_FOR_HELPER,
+      supabaseUrl: SUPABASE_URL_FOR_HELPER,
+    })
+  );
+
+  const deviceLogs = parseDeviceResultLogs(logs);
+  assert.equal(deviceLogs.length, 2);
+
+  const serialized = logs.join("\n").toLowerCase();
+  for (const forbidden of [
+    "sub-secret-ok",
+    "sub-secret-stale",
+    "push.example",
+    "p256dh",
+    "auth_key",
+    "auth-sub-secret",
+    "iphone",
+    "windows nt",
+    USER_A.toLowerCase(),
+    "takda",
+    "test",
+    "bearer",
+    "service-role-key",
+  ]) {
+    assert.ok(!serialized.includes(forbidden), `device result log leaked forbidden field/value: ${forbidden}`);
+  }
 });
 
 // ---------------------------------------------------------------------
