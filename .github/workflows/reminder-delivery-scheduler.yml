@@ -24,7 +24,6 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl \
-            --fail-with-body \
             --silent \
             --show-error \
             --location \
@@ -32,4 +31,7 @@ jobs:
             --connect-timeout 10 \
             --max-time 310 \
             --header "Authorization: Bearer ${CRON_SECRET}" \
+            --output /dev/null \
+            --write-out "HTTP status: %{http_code}\n" \
+            --fail \
             https://takda-ecru.vercel.app/api/reminders-delivery-runner
