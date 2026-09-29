@@ -2697,12 +2697,20 @@ test("source check: the handler still returns dryRun: true and liveSendEnabled: 
   assert.ok(SOURCE_TEXT.includes("liveSendEnabled: false,"));
 });
 
-// 33. api/test-push.js remains byte-for-byte unchanged (pinned SHA-256).
-test("source check: api/test-push.js remains byte-for-byte unchanged", () => {
+// 33. api/test-push.js remains unchanged (pinned SHA-256, line-ending independent).
+test("source check: api/test-push.js remains byte-for-byte unchanged (line-ending independent)", () => {
   const testPushPath = fileURLToPath(new URL("../test-push.js", import.meta.url));
-  const contents = readFileSync(testPushPath);
-  const hash = createHash("sha256").update(contents).digest("hex");
-  assert.equal(hash, "9372304b3ca629ad2b891b1b0124302b130bef92ea3767014b6af77368f0ee0b");
+  // Read as text and normalize CRLF -> LF before hashing, so this check
+  // is independent of the checkout platform's own line-ending behavior
+  // (e.g. Windows core.autocrlf=true converting LF -> CRLF on checkout)
+  // while still failing on any real content change. The canonical value
+  // below is the SHA-256 of this file's actual git-tracked (LF) blob --
+  // verified directly via `git show <ref>:api/test-push.js | sha256sum`
+  // during the Stage 9E-4C-5C portability investigation.
+  const contents = readFileSync(testPushPath, "utf8");
+  const normalized = contents.replace(/\r\n/g, "\n");
+  const hash = createHash("sha256").update(normalized, "utf8").digest("hex");
+  assert.equal(hash, "10bc23703eee844924388b5b9b648d8689861681db6676c5348ec540fafa858b");
 });
 
 // Stage 9E-4C-3B: RUN_TIME_BUDGET_MS must remain a fixed, documented
