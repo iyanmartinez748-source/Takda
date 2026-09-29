@@ -297,7 +297,7 @@ const REST_HEADERS_FOR_HELPER = { apikey: "service-role-key", Authorization: "Be
 const HELPER_PAYLOAD = JSON.stringify({ title: "Takda", body: "test" });
 
 function makeSubscription(id, outcome) {
-  // outcome: "ok" | 404 | 410 | "error" (a generic, non-stale failure)
+  // outcome: "ok" | 404 | 410 | "timeout" | "error" (a generic, non-stale failure)
   return { id, endpoint: `https://push.example/${id}`, p256dh: `p256dh-${id}`, auth_key: `auth-${id}`, __outcome: outcome };
 }
 
@@ -312,6 +312,17 @@ function mockWebPushSendNotification(subscriptionsByEndpoint) {
       const err = new Error("Gone");
       err.statusCode = outcome;
       throw err;
+    }
+
+    if (outcome === "timeout") {
+      // Mirrors the exact rejection shape web-push 3.6.7 produces on a
+      // real options.timeout socket timeout (Stage 9E-4C-5C/5A source
+      // verification): a plain Error with no statusCode property at
+      // all -- deliberately distinct from the generic 500-ish "error"
+      // outcome below, so a test using this outcome exercises
+      // categorizeSendError's fallback via a genuinely absent
+      // statusCode, not merely a non-404/410 one.
+      throw new Error("Socket timeout");
     }
 
     const err = new Error("Simulated upstream push failure");
@@ -645,16 +656,18 @@ test("sendReminderToSubscriptions: stale subscription ids are individually encod
 test("sendReminderToSubscriptions: safe result contains no endpoint/p256dh/auth/bearer/raw subscription/raw upstream error material", async () => {
   const subOk = makeSubscription("sub-ok", "ok");
   const subStale = makeSubscription("sub-stale", 410);
+  const subTimeout = makeSubscription("sub-timeout", "timeout");
   webpush.sendNotification = mockWebPushSendNotification(
     new Map([
       [subOk.endpoint, subOk],
       [subStale.endpoint, subStale],
+      [subTimeout.endpoint, subTimeout],
     ])
   );
   global.fetch = async () => ({ ok: true, json: async () => [] });
 
   const result = await sendReminderToSubscriptions({
-    subscriptions: [subOk, subStale],
+    subscriptions: [subOk, subStale, subTimeout],
     payload: HELPER_PAYLOAD,
     userId: USER_A,
     restHeaders: REST_HEADERS_FOR_HELPER,
@@ -673,6 +686,7 @@ test("sendReminderToSubscriptions: safe result contains no endpoint/p256dh/auth/
     "push.example",
     "gone",
     "simulated upstream push failure",
+    "socket timeout",
   ]) {
     assert.ok(!serialized.includes(forbidden), `helper result leaked forbidden field/value: ${forbidden}`);
   }
@@ -681,6 +695,123 @@ test("sendReminderToSubscriptions: safe result contains no endpoint/p256dh/auth/
   // subscriptions/staleIds arrays themselves.
   assert.ok(!("subscriptions" in result));
   assert.ok(!("staleIds" in result));
+});
+
+// ---------------------------------------------------------------------
+// Stage 9E-4C-5C: native web-push per-device send timeout
+// (WEB_PUSH_TIMEOUT_MS, passed as options.timeout). These tests prove
+// the timeout is actually wired through to webpush.sendNotification,
+// and that a timeout is otherwise indistinguishable from any other
+// non-stale send failure to every layer downstream -- no change to
+// categorizeSendError, the stale-detection filter, or the finalize/
+// retry pipeline was needed, so none of those are re-tested here
+// beyond what the existing sections above already cover.
+// ---------------------------------------------------------------------
+
+test("sendReminderToSubscriptions: passes { timeout: 10000 } as the third argument to webpush.sendNotification", async () => {
+  const sub = makeSubscription("sub-timeout-check", "ok");
+  const calls = [];
+  webpush.sendNotification = async (subscription, payload, options) => {
+    calls.push({ subscription, payload, options });
+  };
+  global.fetch = async () => {
+    throw new Error("fetch should not be called when nothing is stale");
+  };
+
+  await sendReminderToSubscriptions({
+    subscriptions: [sub],
+    payload: HELPER_PAYLOAD,
+    userId: USER_A,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].options, { timeout: 10000 });
+});
+
+test("sendReminderToSubscriptions: a timed-out device send is treated as an ordinary failed send, never stale", async () => {
+  const sub = makeSubscription("sub-timeout", "timeout");
+  webpush.sendNotification = mockWebPushSendNotification(new Map([[sub.endpoint, sub]]));
+  global.fetch = async () => {
+    throw new Error("fetch should not be called -- a timeout alone must never trigger stale-subscription cleanup");
+  };
+
+  const result = await sendReminderToSubscriptions({
+    subscriptions: [sub],
+    payload: HELPER_PAYLOAD,
+    userId: USER_A,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.eventSendSucceeded, false);
+  assert.equal(result.sentCount, 0);
+  assert.equal(result.failedCount, 1);
+  assert.equal(result.staleDetectedCount, 0, "a timeout must never be counted as stale");
+  assert.equal(result.staleRemovedCount, 0);
+  assert.equal(result.cleanupStatus, "not_needed");
+  assert.equal(result.errorCategory, "push_send_failed");
+});
+
+test("sendReminderToSubscriptions: all devices timing out is an event-level failure identical in shape to any other all-fail case", async () => {
+  const sub1 = makeSubscription("sub-timeout-1", "timeout");
+  const sub2 = makeSubscription("sub-timeout-2", "timeout");
+  webpush.sendNotification = mockWebPushSendNotification(
+    new Map([
+      [sub1.endpoint, sub1],
+      [sub2.endpoint, sub2],
+    ])
+  );
+  global.fetch = async () => {
+    throw new Error("fetch should not be called -- timeouts here are not stale (404/410)");
+  };
+
+  const result = await sendReminderToSubscriptions({
+    subscriptions: [sub1, sub2],
+    payload: HELPER_PAYLOAD,
+    userId: USER_A,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.eventSendSucceeded, false);
+  assert.equal(result.sentCount, 0);
+  assert.equal(result.failedCount, 2);
+  assert.equal(result.staleDetectedCount, 0);
+  // Same errorCategory an ordinary all-fail case already produces --
+  // this is exactly what feeds finalizeReminderDeliveryFailure's
+  // p_error, so the existing (unmodified) retry/abandon behavior
+  // applies identically regardless of the failure being a timeout.
+  assert.equal(result.errorCategory, "push_send_failed");
+});
+
+test("sendReminderToSubscriptions: one device succeeds while another times out -- event still succeeds", async () => {
+  const subOk = makeSubscription("sub-ok", "ok");
+  const subTimeout = makeSubscription("sub-timeout", "timeout");
+  webpush.sendNotification = mockWebPushSendNotification(
+    new Map([
+      [subOk.endpoint, subOk],
+      [subTimeout.endpoint, subTimeout],
+    ])
+  );
+  global.fetch = async () => {
+    throw new Error("fetch should not be called -- the failure here is a timeout, not stale (404/410)");
+  };
+
+  const result = await sendReminderToSubscriptions({
+    subscriptions: [subOk, subTimeout],
+    payload: HELPER_PAYLOAD,
+    userId: USER_A,
+    restHeaders: REST_HEADERS_FOR_HELPER,
+    supabaseUrl: SUPABASE_URL_FOR_HELPER,
+  });
+
+  assert.equal(result.eventSendSucceeded, true);
+  assert.equal(result.sentCount, 1);
+  assert.equal(result.failedCount, 1);
+  assert.equal(result.staleDetectedCount, 0);
+  assert.equal(result.errorCategory, null);
 });
 
 // ---------------------------------------------------------------------
@@ -2566,12 +2697,20 @@ test("source check: the handler still returns dryRun: true and liveSendEnabled: 
   assert.ok(SOURCE_TEXT.includes("liveSendEnabled: false,"));
 });
 
-// 33. api/test-push.js remains byte-for-byte unchanged (pinned SHA-256).
-test("source check: api/test-push.js remains byte-for-byte unchanged", () => {
+// 33. api/test-push.js remains unchanged (pinned SHA-256, line-ending independent).
+test("source check: api/test-push.js remains byte-for-byte unchanged (line-ending independent)", () => {
   const testPushPath = fileURLToPath(new URL("../test-push.js", import.meta.url));
-  const contents = readFileSync(testPushPath);
-  const hash = createHash("sha256").update(contents).digest("hex");
-  assert.equal(hash, "9372304b3ca629ad2b891b1b0124302b130bef92ea3767014b6af77368f0ee0b");
+  // Read as text and normalize CRLF -> LF before hashing, so this check
+  // is independent of the checkout platform's own line-ending behavior
+  // (e.g. Windows core.autocrlf=true converting LF -> CRLF on checkout)
+  // while still failing on any real content change. The canonical value
+  // below is the SHA-256 of this file's actual git-tracked (LF) blob --
+  // verified directly via `git show <ref>:api/test-push.js | sha256sum`
+  // during the Stage 9E-4C-5C portability investigation.
+  const contents = readFileSync(testPushPath, "utf8");
+  const normalized = contents.replace(/\r\n/g, "\n");
+  const hash = createHash("sha256").update(normalized, "utf8").digest("hex");
+  assert.equal(hash, "10bc23703eee844924388b5b9b648d8689861681db6676c5348ec540fafa858b");
 });
 
 // Stage 9E-4C-3B: RUN_TIME_BUDGET_MS must remain a fixed, documented

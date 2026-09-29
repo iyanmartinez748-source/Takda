@@ -221,6 +221,31 @@ async function countAlreadyRecorded(userId, dedupKeys, restHeaders, supabaseUrl)
    call today.
 ========================================================= */
 
+// WEB PUSH PER-DEVICE SEND TIMEOUT (Stage 9E-4C-5C): passed as
+// options.timeout to webpush.sendNotification below. Verified directly
+// against the web-push package's own source at the exact pinned version
+// (3.6.7 — see package.json/package-lock.json): a nonzero
+// options.timeout is applied to the underlying Node https.request as
+// its own socket timeout, and a 'timeout' event handler on that
+// request calls pushRequest.destroy(new Error('Socket timeout')) —
+// this is a REAL destroy of the outbound HTTPS request/socket, not
+// merely "stop waiting for a promise." The resulting rejection is a
+// plain Error with no statusCode property, so categorizeSendError
+// below correctly falls through to "push_send_failed" — never
+// "stale_subscription" — requiring no change to categorizeSendError,
+// the Promise.allSettled fan-out below, or anything in the finalize/
+// retry pipeline downstream: a timeout is indistinguishable from any
+// other non-stale send failure once categorized, and is retried/
+// abandoned exactly the same way an ordinary failure already is.
+//
+// 10 seconds is long enough for ordinary Web Push delivery, far short
+// of RUN_TIME_BUDGET_MS (240000 ms), and — because subscriptions.map
+// below already fans out concurrently via Promise.allSettled — bounds
+// the ENTIRE send step for one candidate to roughly this one value
+// regardless of how many devices that candidate's user has, never
+// device_count * timeout.
+const WEB_PUSH_TIMEOUT_MS = 10000;
+
 // Reduces an upstream web-push failure to one of a small, fixed set of
 // safe category strings — never the subscription endpoint/p256dh/
 // auth_key, never a raw header/token value, and never the upstream
@@ -319,7 +344,8 @@ export async function sendReminderToSubscriptions({ subscriptions, payload, user
               auth: sub.auth_key,
             },
           },
-          payload
+          payload,
+          { timeout: WEB_PUSH_TIMEOUT_MS }
         )
         .then(() => ({ id: sub.id, ok: true }))
         .catch((error) => ({ id: sub.id, ok: false, category: categorizeSendError(error) }))
