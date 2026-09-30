@@ -463,6 +463,19 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [semesters]
   );
   const hasActiveSemesterForReminders = activeSemesterId !== null;
+  // Phase 10A Implementation #4: Dashboard active-semester context label.
+  // The ACTIVE-scoped Dashboard block (Next Class/Today's Classes/Smart
+  // Reminders/Smart Insights — see reminderRelevantActivities/
+  // currentSemesterSubjectIds above) always reflects activeSemesterId,
+  // never selectedSemesterId. This boolean is the sole condition for
+  // showing a short label explaining that, computed here (not inside
+  // Dashboard) so the presentational Dashboard component never needs to
+  // know selectedSemesterId or perform semester comparisons itself.
+  // Hidden whenever there is no ambiguity to explain: no semesters at
+  // all, no active semester to name, or the browsed semester already IS
+  // the active one.
+  const showActiveSemesterContext =
+    semesters.length > 0 && activeSemesterId !== null && selectedSemesterId !== activeSemesterId;
   const reminderRelevantActivities = useMemo(() => {
     if (semesters.length === 0) {
       return enrichedActivities.filter((a) => (a.semesterId ?? null) === null);
@@ -1346,6 +1359,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               nextClass={nextClass}
               todaysClasses={todaysClasses}
               smartInsights={smartInsightDescriptors}
+              showActiveSemesterContext={showActiveSemesterContext}
             />
           )}
 
@@ -2233,6 +2247,7 @@ function Dashboard({
   nextClass,
   todaysClasses,
   smartInsights,
+  showActiveSemesterContext,
 }) {
   const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
   const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
@@ -2250,6 +2265,12 @@ function Dashboard({
         <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
         <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
       </div>
+
+      {showActiveSemesterContext && (
+        <div className="rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 text-xs text-slate-500 mb-4">
+          Current classes, reminders, and insights are from {activeSemesterName} (Active).
+        </div>
+      )}
 
       <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
       <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
