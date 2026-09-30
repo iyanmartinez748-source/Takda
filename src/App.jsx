@@ -22,6 +22,7 @@ import {
 } from "./lib/notifications";
 import { subscribeToPush, unsubscribeFromPush, sendTestPush } from "./lib/push";
 import { generateRecurrenceDates, RecurrenceValidationError } from "./lib/recurrence";
+import { computeSmartInsights } from "./lib/planningEngine";
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
 
@@ -471,6 +472,27 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     }
     return enrichedActivities.filter((a) => a.semesterId === activeSemesterId);
   }, [enrichedActivities, semesters.length, activeSemesterId]);
+
+  // Phase 10A Implementation #2: Smart Insights. Reuses
+  // reminderRelevantActivities AS-IS (already ACTIVE-semester-scoped,
+  // never selectedSemesterId, with the exact same zero-semesters/
+  // no-active-semester rules Smart Reminders above already follows) —
+  // no second semester filter is introduced here. computeSmartInsights
+  // itself already excludes completed activities and treats every
+  // recurring occurrence as independent, so nothing further is filtered
+  // here. `now` is read fresh at the point of computation (this file has
+  // no existing shared "now" value to reuse, matching how
+  // computeStatus/urgency/greeting already each call new Date()
+  // independently) and is not tracked as a dependency, exactly like
+  // contextMessage/focusLists above.
+  const smartInsights = useMemo(
+    () =>
+      computeSmartInsights({
+        activities: reminderRelevantActivities,
+        now: new Date(),
+      }),
+    [reminderRelevantActivities]
+  );
 
   // Phase 9D Stage 9D-4A: Today's Classes / Next Class are scoped to the
   // ACTIVE semester using the exact same rule as Smart Reminders just above
@@ -1287,6 +1309,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onOpenReminders={openReminders}
               nextClass={nextClass}
               todaysClasses={todaysClasses}
+              smartInsights={smartInsights}
             />
           )}
 
@@ -2173,6 +2196,7 @@ function Dashboard({
   onOpenReminders,
   nextClass,
   todaysClasses,
+  smartInsights,
 }) {
   const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
   const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
@@ -2203,6 +2227,8 @@ function Dashboard({
         onOpenSubject={onOpenSubject}
         onOpenReminders={onOpenReminders}
       />
+
+      <SmartInsightsSection insights={smartInsights} />
 
       <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
 
@@ -2388,6 +2414,39 @@ function FocusTile({ tile, active, style, onSelect }) {
         {tile.label}
       </span>
     </button>
+  );
+}
+
+/* ---------------- Smart Insights (Phase 10A — planningEngine.js) ---------------- */
+// Purely presentational: `insights` already comes fully computed from
+// TakdaApp's computeSmartInsights(reminderRelevantActivities) call above —
+// this component invents nothing, never recomputes any date/status logic,
+// and renders only each insight's own `message`. Reuses the existing
+// SectionHeader/DashboardEmptyState components and the same plain
+// white-card pattern already used by the Grades "Academic Insights"
+// section, rather than introducing any new visual pattern.
+function SmartInsightsSection({ insights }) {
+  const list = Array.isArray(insights) ? insights : [];
+
+  return (
+    <>
+      <SectionHeader title="Smart Insights" />
+      {list.length === 0 ? (
+        <DashboardEmptyState
+          icon={CheckCircle2}
+          title="No workload alerts right now"
+          subtitle="Your current academic workload looks clear."
+        />
+      ) : (
+        <div className="flex flex-col gap-2 mb-7">
+          {list.map((insight) => (
+            <div key={insight.type} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F]">
+              {insight.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
