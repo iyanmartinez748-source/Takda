@@ -1608,7 +1608,38 @@ function Root() {
     [profile, planCheckTick]
   );
 
-  async function checkProfile(user) {
+  // Tab-return loading-flash fix: identifies the user id for whom Root
+  // currently holds a successfully loaded, usable profile — deliberately
+  // NOT "the current session's user id." Only ever set inside
+  // checkProfile's own success branch below (never before the fetch,
+  // never merely because a session exists, never after a failed/missing
+  // profile), so a previously-failed or not-yet-attempted check always
+  // remains untrusted and therefore still blocking on retry. A plain
+  // ref (not React state) is used deliberately: the onAuthStateChange
+  // callback below is created once, inside an effect with an empty
+  // dependency array, so any session/profile STATE it closed over would
+  // be permanently stale (always the initial null values) for the
+  // listener's entire lifetime. A ref's `.current` is read fresh on
+  // every invocation regardless of when the closure was created, so
+  // this avoids that trap without adding session/profile to the effect
+  // dependency array (which would tear down and resubscribe the auth
+  // listener on every session/profile change).
+  const authedUserIdWithProfileRef = useRef(null);
+
+  // silent=true: a background revalidation for a user we already trust
+  // (see authedUserIdWithProfileRef above) — refreshes profile data
+  // (name/timezone/plan fields) without ever toggling profileLoading, so
+  // Root's full-screen "Loading Takda…" gate never replaces an
+  // already-mounted, already-authenticated app merely because Supabase's
+  // own visibility-triggered session recovery re-emitted SIGNED_IN for
+  // the same already-signed-in user. A silent check can only ever
+  // IMPROVE state (apply a fresh usable profile) or no-op (leave
+  // whatever was already there untouched) — it never regresses the app
+  // into ProfileSetup or a cleared-profile state, so a transient network
+  // hiccup during a silent background check can never visibly disrupt
+  // an already-working session. silent=false (the default) is byte-for-
+  // byte the original, unconditionally blocking behavior.
+  async function checkProfile(user, { silent = false } = {}) {
     if (!user) {
       setProfile(null);
       setNeedsProfile(false);
@@ -1616,7 +1647,7 @@ function Root() {
       return;
     }
 
-    setProfileLoading(true);
+    if (!silent) setProfileLoading(true);
 
     try {
       const { data, error } = await supabase
@@ -1630,23 +1661,33 @@ function Root() {
       if (data && data.full_name) {
         setProfile(data);
         setNeedsProfile(false);
+        authedUserIdWithProfileRef.current = user.id;
         // Not awaited: a slow/failed timezone write must never delay
         // profileLoading from clearing below.
         syncDetectedTimeZone(user, data.timezone);
-      } else {
+      } else if (!silent) {
         setProfile(null);
         setNeedsProfile(true);
       }
+      // silent + no usable profile: leave existing profile/needsProfile
+      // state exactly as it was — never surface ProfileSetup as a side
+      // effect of a background revalidation. The next non-silent check
+      // (e.g. a genuine re-login) will resolve it normally.
     } catch (err) {
       console.error(
         "Profile loading error:",
         err
       );
 
-      setProfile(null);
-      setNeedsProfile(true);
+      if (!silent) {
+        setProfile(null);
+        setNeedsProfile(true);
+      }
+      // silent errors are logged only, for the same reason as above — a
+      // transient hiccup during a background revalidation must never
+      // disrupt an already-working app.
     } finally {
-      setProfileLoading(false);
+      if (!silent) setProfileLoading(false);
     }
   }
 
@@ -1703,6 +1744,10 @@ function Root() {
             setShowProfile(false);
             setShowPro(false);
             setLoading(false);
+            // Reset trust so the next authenticated view (even a
+            // same-user re-login) always gets a full, blocking check
+            // rather than silently trusting state from before sign-out.
+            authedUserIdWithProfileRef.current = null;
             return;
           }
 
@@ -1710,7 +1755,16 @@ function Root() {
             event === "SIGNED_IN" &&
             newSession?.user
           ) {
-            checkProfile(newSession.user);
+            // Tab-return loading-flash fix: Supabase's own internal
+            // visibility-triggered session recovery re-emits SIGNED_IN
+            // for the SAME already-authenticated user on ordinary tab
+            // return (see authedUserIdWithProfileRef's own comment
+            // above) — comparing against a ref, never against
+            // session/profile React state (which this closure would
+            // otherwise see as permanently stale).
+            const isSameKnownUser =
+              authedUserIdWithProfileRef.current === newSession.user.id;
+            checkProfile(newSession.user, { silent: isSameKnownUser });
           }
 
           setLoading(false);
