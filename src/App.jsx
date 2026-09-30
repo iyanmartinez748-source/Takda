@@ -494,6 +494,42 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     [reminderRelevantActivities]
   );
 
+  // Phase 10A Implementation #3: overdue-only Smart Insight action.
+  // Smart Insights are computed from the ACTIVE semester's activities
+  // (reminderRelevantActivities above) — so before reusing the existing
+  // goToActivities Activities-navigation handler, selectedSemesterId
+  // (the transient viewing choice) must be synchronized to
+  // activeSemesterId first, or the destination Activities list
+  // (viewEnrichedActivities, which is selectedSemesterId-scoped) could
+  // show a different semester's activities than the ones this insight
+  // actually counted. Only done when semesters actually exist and one
+  // is active — when semesters.length === 0, selectedSemesterId is
+  // never touched here (it stays whatever the existing legacy
+  // zero-semester behavior already has it at, i.e. null), so a legacy/
+  // no-adoption user's Unassigned bucket is never disturbed.
+  function activateOverdueSmartInsight() {
+    if (semesters.length > 0 && activeSemesterId !== null) {
+      setSelectedSemesterId(activeSemesterId);
+    }
+    goToActivities("overdue");
+  }
+
+  // Attaches onActivate ONLY to the "overdue" insight — near_term_deadlines
+  // and busiest_upcoming_day have no exact existing Activities filter/
+  // navigation equivalent (see the Phase 10A Implementation #3 audit), so
+  // they are deliberately left as plain display-only insight objects,
+  // unchanged from what computeSmartInsights already returns. This never
+  // mutates smartInsights itself and never teaches SmartInsightsSection
+  // anything about ACTIVITY_FILTER_KEYS/semester rules/goToActivities —
+  // it only decides WHICH insight gets a callback.
+  const smartInsightDescriptors = useMemo(
+    () =>
+      smartInsights.map((insight) =>
+        insight.type === "overdue" ? { ...insight, onActivate: activateOverdueSmartInsight } : insight
+      ),
+    [smartInsights]
+  );
+
   // Phase 9D Stage 9D-4A: Today's Classes / Next Class are scoped to the
   // ACTIVE semester using the exact same rule as Smart Reminders just above
   // (reminderRelevantActivities) — zero semesters ever created keeps
@@ -1309,7 +1345,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onOpenReminders={openReminders}
               nextClass={nextClass}
               todaysClasses={todaysClasses}
-              smartInsights={smartInsights}
+              smartInsights={smartInsightDescriptors}
             />
           )}
 
@@ -2425,6 +2461,13 @@ function FocusTile({ tile, active, style, onSelect }) {
 // SectionHeader/DashboardEmptyState components and the same plain
 // white-card pattern already used by the Grades "Academic Insights"
 // section, rather than introducing any new visual pattern.
+//
+// Phase 10A Implementation #3: an insight becomes a real <button> only
+// when TakdaApp attached an `onActivate` callback to it (currently only
+// the "overdue" insight) — this component never decides which insight
+// types are actionable, never knows about ACTIVITY_FILTER_KEYS,
+// selectedSemesterId/activeSemesterId, or goToActivities; it only checks
+// whether the field is present.
 function SmartInsightsSection({ insights }) {
   const list = Array.isArray(insights) ? insights : [];
 
@@ -2439,11 +2482,22 @@ function SmartInsightsSection({ insights }) {
         />
       ) : (
         <div className="flex flex-col gap-2 mb-7">
-          {list.map((insight) => (
-            <div key={insight.type} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F]">
-              {insight.message}
-            </div>
-          ))}
+          {list.map((insight) =>
+            insight.onActivate ? (
+              <button
+                key={insight.type}
+                type="button"
+                onClick={insight.onActivate}
+                className="w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F] transition-colors duration-150 hover:border-slate-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+              >
+                {insight.message}
+              </button>
+            ) : (
+              <div key={insight.type} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F]">
+                {insight.message}
+              </div>
+            )
+          )}
         </div>
       )}
     </>
