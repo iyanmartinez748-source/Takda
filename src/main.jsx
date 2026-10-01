@@ -6,6 +6,8 @@ import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
 import { unsubscribeFromPush } from "./lib/push";
 import { detectBrowserTimeZone, shouldStoreDetectedTimeZone } from "./lib/timezone";
 import AboutPage from "./public/AboutPage";
+import PrivacyPage from "./public/PrivacyPage";
+import privacyPolicyContent from "./public/privacyPolicyContent";
 import "./index.css";
 
 installSupabaseStorageAdapter();
@@ -35,16 +37,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout }) {
   const [legalPage, setLegalPage] = useState(null);
 
   const legalContent = {
-    privacy: {
-      title: "Privacy Policy",
-      body: [
-        "Takda collects account information such as your email address and the profile details you choose to provide so the app can provide your student workspace.",
-        "Academic information you add, such as subjects, activities, grades, calendar items, and notes, is used to provide Takda's features and is associated with your account.",
-        "Takda uses service providers, including Supabase for authentication and data storage and Vercel for website hosting. We do not sell your personal information.",
-        "You are responsible for the information you choose to enter. Avoid storing highly sensitive information that is not necessary for managing your schoolwork.",
-        "This policy may be updated as Takda develops. Material changes should be reflected on this page."
-      ]
-    },
+    privacy: privacyPolicyContent,
     terms: {
       title: "Terms of Service",
       body: [
@@ -1626,8 +1619,13 @@ function Root() {
   const defaultTitleRef = useRef(document.title);
 
   useEffect(() => {
-    document.title =
-      pathname === "/about" ? "About Takda | Takda" : defaultTitleRef.current;
+    if (pathname === "/about") {
+      document.title = "About Takda | Takda";
+    } else if (pathname === "/privacy") {
+      document.title = "Privacy Policy | Takda";
+    } else {
+      document.title = defaultTitleRef.current;
+    }
   }, [pathname]);
 
   // getTakdaPlan(profile) compares profile.pro_until to Date.now(), so its
@@ -1832,6 +1830,27 @@ function Root() {
   if (pathname === "/about" && !isRecovery) {
     return (
       <AboutPage
+        isAuthenticated={!!session}
+        onNavigateHome={() => navigateTo("/")}
+        onLogin={() => {
+          navigateTo("/");
+          setPublicScreen("auth");
+        }}
+        onSignup={() => {
+          navigateTo("/");
+          setPublicScreen("signup");
+        }}
+      />
+    );
+  }
+
+  // Phase B2 Implementation #2: same minimal pathname-routing pattern as
+  // /about above — standalone, public, no session dependency, and
+  // gated by !isRecovery so PASSWORD_RECOVERY keeps its existing
+  // absolute priority over this page exactly as it does over /about.
+  if (pathname === "/privacy" && !isRecovery) {
+    return (
+      <PrivacyPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
         onLogin={() => {
