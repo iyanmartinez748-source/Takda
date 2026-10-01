@@ -5,6 +5,7 @@ import { supabase } from "./lib/supabase";
 import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
 import { unsubscribeFromPush } from "./lib/push";
 import { detectBrowserTimeZone, shouldStoreDetectedTimeZone } from "./lib/timezone";
+import AboutPage from "./public/AboutPage";
 import "./index.css";
 
 installSupabaseStorageAdapter();
@@ -30,7 +31,7 @@ function getInitials(name, email = "") {
    PUBLIC LANDING PAGE
 ========================= */
 
-function LandingPage({ onLogin, onSignup }) {
+function LandingPage({ onLogin, onSignup, onNavigateAbout }) {
   const [legalPage, setLegalPage] = useState(null);
 
   const legalContent = {
@@ -201,6 +202,7 @@ function LandingPage({ onLogin, onSignup }) {
               </div>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
+              <button type="button" onClick={onNavigateAbout} className="hover:text-[#3D2FE0]">About</button>
               <button type="button" onClick={() => setLegalPage("privacy")} className="hover:text-[#3D2FE0]">Privacy Policy</button>
               <button type="button" onClick={() => setLegalPage("terms")} className="hover:text-[#3D2FE0]">Terms of Service</button>
               <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">Contact / Support</a>
@@ -1584,6 +1586,50 @@ function Root() {
 
   const [publicScreen, setPublicScreen] = useState("landing");
 
+  // Phase B2 Implementation #1: minimal pathname routing for a small set
+  // of fully public pages (currently only /about). Deliberately NOT a
+  // router — no dependency, no route table — and deliberately kept
+  // separate from Supabase session semantics: this state is never read
+  // by, and never influences, the session/profile/loading/isRecovery
+  // logic above or below it. It only decides what Root DISPLAYS for the
+  // current URL; the auth effect further below still runs unconditionally
+  // on every render regardless of pathname, so session handling,
+  // PASSWORD_RECOVERY, and the tab-return fix are all completely
+  // unaffected by which page is currently showing.
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    function handlePopState() {
+      setPathname(window.location.pathname);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Pushes a new history entry and updates local state together — a bare
+  // pushState() fires no event of its own, so React would never notice
+  // the URL changed without this explicit setPathname call alongside it.
+  // A no-op when already on the target path, so clicking "Home" while
+  // already on "/" never adds a duplicate history entry.
+  function navigateTo(path) {
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setPathname(path);
+  }
+
+  // Phase B2 Implementation #1: minimal route-aware <title>. No SEO
+  // package, no canonical tag, no Open Graph infrastructure. The default
+  // title is captured from document.title itself (set by index.html) at
+  // first render, rather than hardcoded here, so leaving /about always
+  // restores whatever the real default was — not an assumed literal.
+  const defaultTitleRef = useRef(document.title);
+
+  useEffect(() => {
+    document.title =
+      pathname === "/about" ? "About Takda | Takda" : defaultTitleRef.current;
+  }, [pathname]);
+
   // getTakdaPlan(profile) compares profile.pro_until to Date.now(), so its
   // result only changes when something forces a re-render. Recheck on an
   // interval and when the tab regains focus/visibility so a session left
@@ -1775,6 +1821,31 @@ function Root() {
       listener.subscription.unsubscribe();
   }, []);
 
+  /* PUBLIC: ABOUT PAGE */
+
+  // Phase B2 Implementation #1: deliberately placed before the loading
+  // gate below so /about never waits on auth/profile resolution — it
+  // needs no session data at all. The explicit `!isRecovery` guard keeps
+  // PASSWORD_RECOVERY's existing absolute priority completely intact:
+  // if a recovery flow is in progress, control falls through exactly as
+  // it did before this change, unaffected by pathname.
+  if (pathname === "/about" && !isRecovery) {
+    return (
+      <AboutPage
+        isAuthenticated={!!session}
+        onNavigateHome={() => navigateTo("/")}
+        onLogin={() => {
+          navigateTo("/");
+          setPublicScreen("auth");
+        }}
+        onSignup={() => {
+          navigateTo("/");
+          setPublicScreen("signup");
+        }}
+      />
+    );
+  }
+
   /* LOADING */
 
   if (loading || profileLoading) {
@@ -1835,6 +1906,7 @@ function Root() {
       <LandingPage
         onLogin={() => setPublicScreen("auth")}
         onSignup={() => setPublicScreen("signup")}
+        onNavigateAbout={() => navigateTo("/about")}
       />
     );
   }
