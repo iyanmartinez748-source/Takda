@@ -8,6 +8,8 @@ import { detectBrowserTimeZone, shouldStoreDetectedTimeZone } from "./lib/timezo
 import AboutPage from "./public/AboutPage";
 import PrivacyPage from "./public/PrivacyPage";
 import privacyPolicyContent from "./public/privacyPolicyContent";
+import TermsPage from "./public/TermsPage";
+import termsOfServiceContent from "./public/termsOfServiceContent";
 import "./index.css";
 
 installSupabaseStorageAdapter();
@@ -38,16 +40,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout }) {
 
   const legalContent = {
     privacy: privacyPolicyContent,
-    terms: {
-      title: "Terms of Service",
-      body: [
-        "Takda is a student productivity tool for organizing academic tasks and information. By using Takda, you agree to use the service lawfully and responsibly.",
-        "You are responsible for maintaining the security of your account and for the content you add to your workspace.",
-        "Takda is provided on an as-available basis. While we work to keep the service reliable, uninterrupted availability or permanent preservation of every item cannot be guaranteed.",
-        "Do not misuse the service, attempt unauthorized access, interfere with other users, or upload unlawful or harmful content.",
-        "Features and these terms may change as Takda grows. Continued use after an update means you accept the updated terms."
-      ]
-    }
+    terms: termsOfServiceContent
   };
 
   const features = [
@@ -1623,6 +1616,8 @@ function Root() {
       document.title = "About Takda | Takda";
     } else if (pathname === "/privacy") {
       document.title = "Privacy Policy | Takda";
+    } else if (pathname === "/terms") {
+      document.title = "Terms of Service | Takda";
     } else {
       document.title = defaultTitleRef.current;
     }
@@ -1851,6 +1846,28 @@ function Root() {
   if (pathname === "/privacy" && !isRecovery) {
     return (
       <PrivacyPage
+        isAuthenticated={!!session}
+        onNavigateHome={() => navigateTo("/")}
+        onLogin={() => {
+          navigateTo("/");
+          setPublicScreen("auth");
+        }}
+        onSignup={() => {
+          navigateTo("/");
+          setPublicScreen("signup");
+        }}
+      />
+    );
+  }
+
+  // Phase B2 Implementation #3: same minimal pathname-routing pattern as
+  // /about and /privacy above — standalone, public, no session
+  // dependency, and gated by !isRecovery so PASSWORD_RECOVERY keeps its
+  // existing absolute priority over this page exactly as it does over
+  // /about and /privacy.
+  if (pathname === "/terms" && !isRecovery) {
+    return (
+      <TermsPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
         onLogin={() => {
