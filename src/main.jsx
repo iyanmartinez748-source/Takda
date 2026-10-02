@@ -10,6 +10,7 @@ import PrivacyPage from "./public/PrivacyPage";
 import privacyPolicyContent from "./public/privacyPolicyContent";
 import TermsPage from "./public/TermsPage";
 import termsOfServiceContent from "./public/termsOfServiceContent";
+import HelpPage from "./public/HelpPage";
 import "./index.css";
 
 installSupabaseStorageAdapter();
@@ -35,7 +36,7 @@ function getInitials(name, email = "") {
    PUBLIC LANDING PAGE
 ========================= */
 
-function LandingPage({ onLogin, onSignup, onNavigateAbout }) {
+function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigateHelp }) {
   const [legalPage, setLegalPage] = useState(null);
 
   const legalContent = {
@@ -191,6 +192,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout }) {
               <button type="button" onClick={onNavigateAbout} className="hover:text-[#3D2FE0]">About</button>
               <button type="button" onClick={() => setLegalPage("privacy")} className="hover:text-[#3D2FE0]">Privacy Policy</button>
               <button type="button" onClick={() => setLegalPage("terms")} className="hover:text-[#3D2FE0]">Terms of Service</button>
+              <button type="button" onClick={onNavigateHelp} className="hover:text-[#3D2FE0]">Help / FAQ</button>
               <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">Contact / Support</a>
             </div>
           </div>
@@ -1618,6 +1620,8 @@ function Root() {
       document.title = "Privacy Policy | Takda";
     } else if (pathname === "/terms") {
       document.title = "Terms of Service | Takda";
+    } else if (pathname === "/help") {
+      document.title = "Help & FAQ | Takda";
     } else {
       document.title = defaultTitleRef.current;
     }
@@ -1827,6 +1831,7 @@ function Root() {
       <AboutPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
           setPublicScreen("auth");
@@ -1848,6 +1853,7 @@ function Root() {
       <PrivacyPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
           setPublicScreen("auth");
@@ -1870,6 +1876,30 @@ function Root() {
       <TermsPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateHelp={() => navigateTo("/help")}
+        onLogin={() => {
+          navigateTo("/");
+          setPublicScreen("auth");
+        }}
+        onSignup={() => {
+          navigateTo("/");
+          setPublicScreen("signup");
+        }}
+      />
+    );
+  }
+
+  // Phase B2 Implementation #4: same minimal pathname-routing pattern as
+  // /about, /privacy, and /terms above — standalone, public, no session
+  // dependency, and gated by !isRecovery so PASSWORD_RECOVERY keeps its
+  // existing absolute priority over this page exactly as it does over
+  // /about, /privacy, and /terms.
+  if (pathname === "/help" && !isRecovery) {
+    return (
+      <HelpPage
+        isAuthenticated={!!session}
+        onNavigateHome={() => navigateTo("/")}
+        onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
           setPublicScreen("auth");
@@ -1943,6 +1973,7 @@ function Root() {
         onLogin={() => setPublicScreen("auth")}
         onSignup={() => setPublicScreen("signup")}
         onNavigateAbout={() => navigateTo("/about")}
+        onNavigateHelp={() => navigateTo("/help")}
       />
     );
   }
