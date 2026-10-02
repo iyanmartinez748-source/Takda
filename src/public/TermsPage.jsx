@@ -7,11 +7,12 @@ import termsOfServiceContent from "./termsOfServiceContent";
 // (src/main.jsx), the sole owner of those decisions. Renders the same
 // termsOfServiceContent used by the Landing Terms modal, so the
 // wording can never drift between the two surfaces.
-export default function TermsPage({ isAuthenticated, onNavigateHome, onLogin, onSignup }) {
+export default function TermsPage({ isAuthenticated, onNavigateHome, onNavigateHelp, onLogin, onSignup }) {
   return (
     <PublicLayout
       isAuthenticated={isAuthenticated}
       onNavigateHome={onNavigateHome}
+      onNavigateHelp={onNavigateHelp}
       onLogin={onLogin}
       onSignup={onSignup}
     >

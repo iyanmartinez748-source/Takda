@@ -7,14 +7,15 @@
 // typography/color tokens LandingPage (src/main.jsx) already
 // establishes, rather than introducing a new visual language.
 //
-// Footer intentionally links only Home and Contact — standalone
-// /privacy, /terms, and /help pages do not exist yet (Phase B2
-// Implementation #1 is /about only), so no link to them is created
-// here. The existing Privacy/Terms modals on LandingPage are untouched
-// and unrelated to this component.
+// Footer intentionally links only Home, Contact, and (Phase B2
+// Implementation #4) Help/FAQ when onNavigateHelp is supplied —
+// standalone /privacy and /terms pages still have no link here, which
+// is pre-existing and left alone. The existing Privacy/Terms modals on
+// LandingPage are untouched and unrelated to this component.
 export default function PublicLayout({
   isAuthenticated = false,
   onNavigateHome,
+  onNavigateHelp,
   onLogin,
   onSignup,
   children,
@@ -84,6 +85,11 @@ export default function PublicLayout({
               <button type="button" onClick={onNavigateHome} className="hover:text-[#3D2FE0]">
                 Home
               </button>
+              {onNavigateHelp && (
+                <button type="button" onClick={onNavigateHelp} className="hover:text-[#3D2FE0]">
+                  Help / FAQ
+                </button>
+              )}
               <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">
                 Contact / Support
               </a>
