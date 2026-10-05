@@ -1,3 +1,4 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Sitemap: https://takda-ecru.vercel.app/sitemap.xml
