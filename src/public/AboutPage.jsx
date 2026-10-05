@@ -6,7 +6,7 @@ import PublicLayout from "./PublicLayout";
 // (src/main.jsx), the sole owner of those decisions. Every feature
 // listed below is an already-verified, currently-shipped Takda
 // capability — nothing here is an invented or unsupported claim.
-export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateHelp, onLogin, onSignup }) {
+export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateAbout, onNavigatePrivacy, onNavigateTerms, onNavigateHelp, onLogin, onSignup }) {
   const features = [
     ["📚", "Subjects", "Keep classes, schedules, teachers, and rooms organized in one place."],
     ["✅", "Activities & Deadlines", "Track assignments, projects, quizzes, and due dates."],
@@ -22,6 +22,9 @@ export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateH
     <PublicLayout
       isAuthenticated={isAuthenticated}
       onNavigateHome={onNavigateHome}
+      onNavigateAbout={onNavigateAbout}
+      onNavigatePrivacy={onNavigatePrivacy}
+      onNavigateTerms={onNavigateTerms}
       onNavigateHelp={onNavigateHelp}
       onLogin={onLogin}
       onSignup={onSignup}

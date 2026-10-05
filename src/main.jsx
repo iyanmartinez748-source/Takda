@@ -36,7 +36,7 @@ function getInitials(name, email = "") {
    PUBLIC LANDING PAGE
 ========================= */
 
-function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigateHelp }) {
+function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, onNavigateTerms, onNavigateHelp }) {
   const [legalPage, setLegalPage] = useState(null);
 
   const legalContent = {
@@ -189,10 +189,10 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigateHelp }) {
               </div>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
-              <button type="button" onClick={onNavigateAbout} className="hover:text-[#3D2FE0]">About</button>
-              <button type="button" onClick={() => setLegalPage("privacy")} className="hover:text-[#3D2FE0]">Privacy Policy</button>
-              <button type="button" onClick={() => setLegalPage("terms")} className="hover:text-[#3D2FE0]">Terms of Service</button>
-              <button type="button" onClick={onNavigateHelp} className="hover:text-[#3D2FE0]">Help / FAQ</button>
+              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[#3D2FE0]">About</a>
+              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[#3D2FE0]">Privacy Policy</a>
+              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[#3D2FE0]">Terms of Service</a>
+              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[#3D2FE0]">Help / FAQ</a>
               <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">Contact / Support</a>
             </div>
           </div>
@@ -1831,6 +1831,9 @@ function Root() {
       <AboutPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateAbout={() => navigateTo("/about")}
+        onNavigatePrivacy={() => navigateTo("/privacy")}
+        onNavigateTerms={() => navigateTo("/terms")}
         onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
@@ -1853,6 +1856,9 @@ function Root() {
       <PrivacyPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateAbout={() => navigateTo("/about")}
+        onNavigatePrivacy={() => navigateTo("/privacy")}
+        onNavigateTerms={() => navigateTo("/terms")}
         onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
@@ -1876,6 +1882,9 @@ function Root() {
       <TermsPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateAbout={() => navigateTo("/about")}
+        onNavigatePrivacy={() => navigateTo("/privacy")}
+        onNavigateTerms={() => navigateTo("/terms")}
         onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
@@ -1899,6 +1908,9 @@ function Root() {
       <HelpPage
         isAuthenticated={!!session}
         onNavigateHome={() => navigateTo("/")}
+        onNavigateAbout={() => navigateTo("/about")}
+        onNavigatePrivacy={() => navigateTo("/privacy")}
+        onNavigateTerms={() => navigateTo("/terms")}
         onNavigateHelp={() => navigateTo("/help")}
         onLogin={() => {
           navigateTo("/");
@@ -1973,6 +1985,8 @@ function Root() {
         onLogin={() => setPublicScreen("auth")}
         onSignup={() => setPublicScreen("signup")}
         onNavigateAbout={() => navigateTo("/about")}
+        onNavigatePrivacy={() => navigateTo("/privacy")}
+        onNavigateTerms={() => navigateTo("/terms")}
         onNavigateHelp={() => navigateTo("/help")}
       />
     );

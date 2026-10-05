@@ -7,11 +7,14 @@ import privacyPolicyContent from "./privacyPolicyContent";
 // (src/main.jsx), the sole owner of those decisions. Renders the same
 // privacyPolicyContent used by the Landing Privacy modal, so the
 // wording can never drift between the two surfaces.
-export default function PrivacyPage({ isAuthenticated, onNavigateHome, onNavigateHelp, onLogin, onSignup }) {
+export default function PrivacyPage({ isAuthenticated, onNavigateHome, onNavigateAbout, onNavigatePrivacy, onNavigateTerms, onNavigateHelp, onLogin, onSignup }) {
   return (
     <PublicLayout
       isAuthenticated={isAuthenticated}
       onNavigateHome={onNavigateHome}
+      onNavigateAbout={onNavigateAbout}
+      onNavigatePrivacy={onNavigatePrivacy}
+      onNavigateTerms={onNavigateTerms}
       onNavigateHelp={onNavigateHelp}
       onLogin={onLogin}
       onSignup={onSignup}

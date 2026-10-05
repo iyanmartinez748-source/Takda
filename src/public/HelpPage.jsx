@@ -6,11 +6,14 @@ import helpContent from "./helpContent";
 // isAuthenticated and the navigation callbacks are supplied by Root
 // (src/main.jsx), the sole owner of those decisions. FAQ content is
 // imported from helpContent so wording lives in one place.
-export default function HelpPage({ isAuthenticated, onNavigateHome, onNavigateHelp, onLogin, onSignup }) {
+export default function HelpPage({ isAuthenticated, onNavigateHome, onNavigateAbout, onNavigatePrivacy, onNavigateTerms, onNavigateHelp, onLogin, onSignup }) {
   return (
     <PublicLayout
       isAuthenticated={isAuthenticated}
       onNavigateHome={onNavigateHome}
+      onNavigateAbout={onNavigateAbout}
+      onNavigatePrivacy={onNavigatePrivacy}
+      onNavigateTerms={onNavigateTerms}
       onNavigateHelp={onNavigateHelp}
       onLogin={onLogin}
       onSignup={onSignup}
