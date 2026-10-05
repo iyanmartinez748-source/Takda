@@ -1,4 +1,6 @@
 import { supabase } from "./supabase";
+import { normalizeExternalUrl } from "./materialLinks";
+import { toSubjectMaterial } from "./subjectMaterials";
 
 let hydratedUserId = null;
 
@@ -452,6 +454,140 @@ export async function archiveSemester(semesterId) {
   }
 
   return toSemester(normalizeRpcSemesterRow(data));
+}
+
+// -------------------------
+// DEDICATED SUBJECT MATERIAL (LINK) WRITE METHODS
+// -------------------------
+// Hybrid Lesson Materials #2: deliberately separate from get()/set()/
+// performSave(), same reasoning as the semester write methods above —
+// subject_materials is never part of the generic subjects/activities/
+// notes/grades snapshot sync, so there is no deleteRemovedRows(
+// "subject_materials", ...) and no way for a material to be removed
+// just because it's absent from some array. This stage only
+// implements material_type = 'link' behavior; 'upload' rows are a
+// later stage.
+
+export async function loadSubjectMaterials() {
+  const user = await requireUser();
+
+  const { data, error } = await supabase
+    .from("subject_materials")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at");
+
+  if (error) {
+    console.error("Takda: unable to load subject materials", error);
+    throw error;
+  }
+
+  return (data || []).map(toSubjectMaterial);
+}
+
+export async function createSubjectMaterialLink({ subjectId, title, description, externalUrl } = {}) {
+  const user = await requireUser();
+
+  if (!subjectId) {
+    throw new Error("Takda: a subjectId is required to add a material.");
+  }
+
+  const trimmedTitle = (title || "").trim();
+
+  if (!trimmedTitle) {
+    throw new Error("Takda: a material title is required.");
+  }
+
+  const trimmedDescription = (description || "").trim();
+  const normalizedUrl = normalizeExternalUrl(externalUrl);
+
+  const { data, error } = await supabase
+    .from("subject_materials")
+    .insert({
+      user_id: user.id,
+      subject_id: subjectId,
+      material_type: "link",
+      title: trimmedTitle,
+      description: trimmedDescription || null,
+      external_url: normalizedUrl,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Takda: unable to create material link", error);
+    throw error;
+  }
+
+  return toSubjectMaterial(data);
+}
+
+// Scoped to id + user_id + material_type = 'link' in the query itself
+// (not just RLS) so this can never touch another user's row, and can
+// never touch an 'upload' row even if given its id — if the row isn't
+// owned by the current user or isn't a link, the WHERE clause matches
+// zero rows and .single() below fails loudly rather than silently
+// converting/ignoring it.
+export async function updateSubjectMaterialLink(id, { title, description, externalUrl } = {}) {
+  const user = await requireUser();
+
+  if (!id) {
+    throw new Error("Takda: a material id is required to update it.");
+  }
+
+  const trimmedTitle = (title || "").trim();
+
+  if (!trimmedTitle) {
+    throw new Error("Takda: a material title is required.");
+  }
+
+  const trimmedDescription = (description || "").trim();
+  const normalizedUrl = normalizeExternalUrl(externalUrl);
+
+  const { data, error } = await supabase
+    .from("subject_materials")
+    .update({
+      title: trimmedTitle,
+      description: trimmedDescription || null,
+      external_url: normalizedUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .eq("material_type", "link")
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Takda: unable to update material link", error);
+    throw error;
+  }
+
+  return toSubjectMaterial(data);
+}
+
+// Same id + user_id + material_type = 'link' query-level scoping as
+// the update above — deleting an 'upload' row's id through this
+// function is a safe no-op, not an accidental deletion. No Storage
+// cleanup here: a link material never had a Storage object.
+export async function deleteSubjectMaterialLink(id) {
+  const user = await requireUser();
+
+  if (!id) {
+    throw new Error("Takda: a material id is required to delete it.");
+  }
+
+  const { error } = await supabase
+    .from("subject_materials")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .eq("material_type", "link");
+
+  if (error) {
+    console.error("Takda: unable to delete material link", error);
+    throw error;
+  }
 }
 
 export function installSupabaseStorageAdapter() {
