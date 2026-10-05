@@ -1550,6 +1550,53 @@ async function syncDetectedTimeZone(user, currentTimeZone) {
 }
 
 /* =========================
+   PUBLIC ROUTE METADATA
+========================= */
+
+// Phase B2 Implementation #4: single source of truth for per-route
+// <title>/description/canonical/Open Graph/Twitter values, consumed by
+// the pathname-keyed effect below. ROOT doubles as the fallback for any
+// pathname that isn't exactly one of these five — deliberately, so an
+// unknown/nonexistent SPA path never gets a canonical URL built from
+// arbitrary, possibly-fake pathname text.
+const ROUTE_METADATA = {
+  "/": {
+    title: "Takda — Student Academic Planner",
+    description: "Organize subjects, activities, deadlines, notes, calendar, and grades in one student academic planner.",
+    canonical: "https://takda-ecru.vercel.app/"
+  },
+  "/about": {
+    title: "About Takda | Takda",
+    description: "What Takda offers students: subjects, activities, calendar, notes, grades, semesters, recurring activities, and reminders — plus Free and Pro plans.",
+    canonical: "https://takda-ecru.vercel.app/about"
+  },
+  "/privacy": {
+    title: "Privacy Policy | Takda",
+    description: "How Takda collects and uses account and academic information, including the service providers involved.",
+    canonical: "https://takda-ecru.vercel.app/privacy"
+  },
+  "/terms": {
+    title: "Terms of Service | Takda",
+    description: "The terms governing use of Takda, including account responsibility and acceptable use.",
+    canonical: "https://takda-ecru.vercel.app/terms"
+  },
+  "/help": {
+    title: "Help & FAQ | Takda",
+    description: "Answers to common questions about creating an account, using Takda's features, and Free vs Pro plans.",
+    canonical: "https://takda-ecru.vercel.app/help"
+  }
+};
+
+// Updates an existing head tag's attribute in place rather than creating
+// a new node — index.html already ships one of each tag this function
+// is ever called with, so this never produces duplicates across
+// repeated navigation. Safely no-ops (never throws) if a tag is
+// unexpectedly missing from the document.
+function setMetaAttribute(selector, attribute, value) {
+  document.querySelector(selector)?.setAttribute(attribute, value);
+}
+
+/* =========================
    MAIN APP / SESSION
 ========================= */
 
@@ -1606,25 +1653,26 @@ function Root() {
     setPathname(path);
   }
 
-  // Phase B2 Implementation #1: minimal route-aware <title>. No SEO
-  // package, no canonical tag, no Open Graph infrastructure. The default
-  // title is captured from document.title itself (set by index.html) at
-  // first render, rather than hardcoded here, so leaving /about always
-  // restores whatever the real default was — not an assumed literal.
-  const defaultTitleRef = useRef(document.title);
-
+  // Phase B2 Implementation #4: route-aware <title>/description/
+  // canonical/Open Graph/Twitter metadata, driven by the ROUTE_METADATA
+  // map above. Any pathname other than the five known public routes
+  // (including mid-navigation/unknown paths) falls back to ROOT's
+  // metadata rather than ever constructing a canonical URL from
+  // arbitrary pathname text.
   useEffect(() => {
-    if (pathname === "/about") {
-      document.title = "About Takda | Takda";
-    } else if (pathname === "/privacy") {
-      document.title = "Privacy Policy | Takda";
-    } else if (pathname === "/terms") {
-      document.title = "Terms of Service | Takda";
-    } else if (pathname === "/help") {
-      document.title = "Help & FAQ | Takda";
-    } else {
-      document.title = defaultTitleRef.current;
-    }
+    const meta = ROUTE_METADATA[pathname] || ROUTE_METADATA["/"];
+
+    document.title = meta.title;
+    setMetaAttribute('meta[name="description"]', "content", meta.description);
+    setMetaAttribute('link[rel="canonical"]', "href", meta.canonical);
+    setMetaAttribute('meta[property="og:title"]', "content", meta.title);
+    setMetaAttribute('meta[property="og:description"]', "content", meta.description);
+    setMetaAttribute('meta[property="og:type"]', "content", "website");
+    setMetaAttribute('meta[property="og:url"]', "content", meta.canonical);
+    setMetaAttribute('meta[property="og:site_name"]', "content", "Takda");
+    setMetaAttribute('meta[name="twitter:card"]', "content", "summary");
+    setMetaAttribute('meta[name="twitter:title"]', "content", meta.title);
+    setMetaAttribute('meta[name="twitter:description"]', "content", meta.description);
   }, [pathname]);
 
   // getTakdaPlan(profile) compares profile.pro_until to Date.now(), so its
