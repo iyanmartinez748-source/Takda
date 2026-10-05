@@ -7,14 +7,19 @@
 // typography/color tokens LandingPage (src/main.jsx) already
 // establishes, rather than introducing a new visual language.
 //
-// Footer intentionally links only Home, Contact, and (Phase B2
-// Implementation #4) Help/FAQ when onNavigateHelp is supplied —
-// standalone /privacy and /terms pages still have no link here, which
-// is pre-existing and left alone. The existing Privacy/Terms modals on
-// LandingPage are untouched and unrelated to this component.
+// Public navigation fix: footer links are real <a href> elements (not
+// just onClick buttons) so every public route is crawlable and linked
+// from every other public page, with onClick/preventDefault still
+// driving the existing navigateTo/pushState SPA navigation — no new
+// router, no second popstate listener. Each link is optional (rendered
+// only when its callback is supplied) so a caller that omits one simply
+// doesn't show it, matching the pre-existing Help/FAQ pattern.
 export default function PublicLayout({
   isAuthenticated = false,
   onNavigateHome,
+  onNavigateAbout,
+  onNavigatePrivacy,
+  onNavigateTerms,
   onNavigateHelp,
   onLogin,
   onSignup,
@@ -82,13 +87,48 @@ export default function PublicLayout({
               </div>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
-              <button type="button" onClick={onNavigateHome} className="hover:text-[#3D2FE0]">
+              <a
+                href="/"
+                onClick={(event) => { event.preventDefault(); onNavigateHome(); }}
+                className="hover:text-[#3D2FE0]"
+              >
                 Home
-              </button>
+              </a>
+              {onNavigateAbout && (
+                <a
+                  href="/about"
+                  onClick={(event) => { event.preventDefault(); onNavigateAbout(); }}
+                  className="hover:text-[#3D2FE0]"
+                >
+                  About
+                </a>
+              )}
+              {onNavigatePrivacy && (
+                <a
+                  href="/privacy"
+                  onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }}
+                  className="hover:text-[#3D2FE0]"
+                >
+                  Privacy Policy
+                </a>
+              )}
+              {onNavigateTerms && (
+                <a
+                  href="/terms"
+                  onClick={(event) => { event.preventDefault(); onNavigateTerms(); }}
+                  className="hover:text-[#3D2FE0]"
+                >
+                  Terms of Service
+                </a>
+              )}
               {onNavigateHelp && (
-                <button type="button" onClick={onNavigateHelp} className="hover:text-[#3D2FE0]">
+                <a
+                  href="/help"
+                  onClick={(event) => { event.preventDefault(); onNavigateHelp(); }}
+                  className="hover:text-[#3D2FE0]"
+                >
                   Help / FAQ
-                </button>
+                </a>
               )}
               <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">
                 Contact / Support
