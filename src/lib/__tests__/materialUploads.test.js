@@ -18,7 +18,12 @@ import {
   deriveMaterialUploadTitle,
   MaterialUploadValidationError,
   MAX_MATERIAL_UPLOAD_BYTES,
+  TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+  MaterialUploadQuotaError,
+  wouldExceedMaterialUploadQuota,
 } from "../materialUploads.js";
+
+const MIB = 1024 * 1024;
 
 function fakeFile({ name = "document.pdf", size = 1024, type = "application/pdf" } = {}) {
   return { name, size, type };
@@ -214,4 +219,84 @@ test("getMaterialUploadExtension returns the canonical extension for the validat
   // never from the filename's own ".pdf" suffix. This does not assert
   // or imply the underlying bytes are genuinely a JPEG image.
   assert.equal(getMaterialUploadExtension("image/jpeg"), "jpg");
+});
+
+// ---------------------------------------------------------
+// TEMP ACCOUNT-WIDE UPLOAD QUOTA
+// ---------------------------------------------------------
+
+test("TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES is exactly 25 MiB in binary bytes", () => {
+  assert.equal(TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES, 26214400);
+  assert.equal(TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES, 25 * MIB);
+});
+
+test("wouldExceedMaterialUploadQuota allows 0 usage + 1 byte", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(0, 1), false);
+});
+
+test("wouldExceedMaterialUploadQuota allows 0 usage + 10 MiB", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(0, 10 * MIB), false);
+});
+
+test("wouldExceedMaterialUploadQuota allows a total landing exactly on the 25 MiB limit", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(15 * MIB, 10 * MIB), false);
+});
+
+test("wouldExceedMaterialUploadQuota rejects one byte over the 25 MiB limit", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(15 * MIB, 10 * MIB + 1), true);
+});
+
+test("wouldExceedMaterialUploadQuota rejects a total well over the limit", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(20 * MIB, 10 * MIB), true);
+});
+
+test("wouldExceedMaterialUploadQuota rejects usage already at the limit plus one more byte", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(25 * MIB, 1), true);
+});
+
+// External link materials never call this upload quota helper; link
+// exclusion is enforced by the upload-only data-layer path
+// (storageAdapter.js), not by anything in this pure module — this
+// module has no concept of material_type at all, so there is no
+// meaningful assertion to make about it here.
+
+test("wouldExceedMaterialUploadQuota rejects invalid current usage values", () => {
+  assert.throws(() => wouldExceedMaterialUploadQuota(NaN, 1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(Infinity, 1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(-1, 1));
+  assert.throws(() => wouldExceedMaterialUploadQuota("20", 1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(null, 1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(undefined, 1));
+});
+
+test("wouldExceedMaterialUploadQuota rejects invalid new file size values", () => {
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, NaN));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, Infinity));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 0));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, -1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, "10"));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, null));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, undefined));
+});
+
+test("MaterialUploadQuotaError carries name, code, and metadata", () => {
+  const error = new MaterialUploadQuotaError("Takda: over quota.", {
+    limitBytes: TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+    currentUsageBytes: 20 * MIB,
+    newFileSize: 10 * MIB,
+  });
+
+  assert.equal(error.name, "MaterialUploadQuotaError");
+  assert.equal(error.code, "quota_exceeded");
+  assert.equal(error.limitBytes, TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES);
+  assert.equal(error.currentUsageBytes, 20 * MIB);
+  assert.equal(error.newFileSize, 10 * MIB);
+  assert.ok(error instanceof Error);
+});
+
+test("MaterialUploadQuotaError works with no metadata supplied", () => {
+  const error = new MaterialUploadQuotaError("Takda: over quota.");
+  assert.equal(error.name, "MaterialUploadQuotaError");
+  assert.equal(error.code, "quota_exceeded");
+  assert.equal(error.limitBytes, undefined);
 });

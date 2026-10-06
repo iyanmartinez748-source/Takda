@@ -144,3 +144,58 @@ export function deriveMaterialUploadTitle(fileName) {
   const withoutExtension = trimmed.slice(0, lastDotIndex).trim();
   return withoutExtension || trimmed;
 }
+
+// TEMPORARY universal account-wide direct-upload safety rail — this is
+// NOT the final Free/Pro quota design (that is a later, separate
+// stage). It applies identically to every account regardless of
+// entitlement, purely to protect the project's limited (1 GB) Supabase
+// Storage pool before any real Free/Pro differentiation exists. Exact
+// binary bytes (25 * 1024 * 1024 = 26214400), deliberately not a
+// decimal-MB approximation.
+export const TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+
+// A SEPARATE failure category from MaterialUploadValidationError: that
+// class is about whether a single file's own shape (name/size/MIME) is
+// valid; this one is about whether uploading it would push the whole
+// account over its temporary account-wide storage limit — a check that
+// depends on account state, not on anything intrinsic to the file
+// itself. Keeping the two error types distinct lets a future UI give
+// different messaging (e.g. "pick a different file" vs. "delete
+// something or free up space") instead of conflating them under one
+// code. Metadata is deliberately limited to plain numbers useful for
+// that future messaging — never a user id, storage path, token, or any
+// other sensitive/internal detail.
+export class MaterialUploadQuotaError extends Error {
+  constructor(message, { limitBytes, currentUsageBytes, newFileSize } = {}) {
+    super(message);
+    this.name = "MaterialUploadQuotaError";
+    this.code = "quota_exceeded";
+    this.limitBytes = limitBytes;
+    this.currentUsageBytes = currentUsageBytes;
+    this.newFileSize = newFileSize;
+  }
+}
+
+// Pure threshold check: does currentUsageBytes + newFileSize exceed the
+// temporary account-wide limit? Strictly greater-than, never >=, so a
+// total that lands exactly ON the limit is still allowed. Both inputs
+// are validated defensively — this helper never silently produces a
+// misleading quota result from bad data (NaN/Infinity/negative usage,
+// or a non-positive file size); it throws instead, since quota
+// protection must never silently disappear because of unexpected
+// input.
+export function wouldExceedMaterialUploadQuota(currentUsageBytes, newFileSize) {
+  if (!Number.isFinite(currentUsageBytes) || currentUsageBytes < 0) {
+    throw new Error(
+      "Takda: current upload usage must be a finite, non-negative number."
+    );
+  }
+
+  if (!Number.isFinite(newFileSize) || newFileSize <= 0) {
+    throw new Error(
+      "Takda: new file size must be a finite, positive number."
+    );
+  }
+
+  return currentUsageBytes + newFileSize > TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES;
+}
