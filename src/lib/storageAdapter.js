@@ -162,6 +162,111 @@ async function deleteRemovedRows(table, userId, desiredIds) {
   }
 }
 
+// Hybrid Lesson Materials #5B.5: subject deletion must remove any
+// uploaded files' Storage objects BEFORE the subjects row (and its
+// subject_materials cascade) is deleted — once the subjects DELETE
+// commits, the cascade destroys the only remaining record of each
+// upload's storage_path, making any post-delete Storage cleanup
+// impossible to target correctly. This deliberately does NOT reuse or
+// modify the generic deleteRemovedRows helper above (still used
+// unchanged by activities/notes/grades/subject_schedules below) —
+// subjects alone need this extra Storage step tied to the exact same
+// removed-id set, and forcing that into the shared helper would risk
+// every other entity type's delete path for no benefit.
+async function deleteRemovedSubjectsWithMaterialCleanup(userId, desiredSubjectIds) {
+  const { data: existingSubjects, error: fetchError } = await supabase
+    .from("subjects")
+    .select("id")
+    .eq("user_id", userId);
+
+  if (fetchError) {
+    console.error("Takda: unable to read subjects before delete sync", fetchError);
+    throw fetchError;
+  }
+
+  const desiredSet = new Set(desiredSubjectIds);
+
+  const removedSubjectIds = (existingSubjects || [])
+    .map((row) => row.id)
+    .filter((id) => !desiredSet.has(id));
+
+  if (removedSubjectIds.length === 0) return;
+
+  // Only 'upload' rows ever have a Storage object — link rows are never
+  // queried here and disappear purely through the DB cascade below,
+  // exactly like deleteSubjectMaterialLink's own delete (no Storage
+  // call for links).
+  const { data: uploadRows, error: materialsFetchError } = await supabase
+    .from("subject_materials")
+    .select("storage_path")
+    .eq("user_id", userId)
+    .eq("material_type", "upload")
+    .in("subject_id", removedSubjectIds);
+
+  if (materialsFetchError) {
+    console.error(
+      "Takda: unable to read upload materials before subject delete cleanup",
+      materialsFetchError
+    );
+    throw materialsFetchError;
+  }
+
+  const paths = new Set();
+  const userPrefix = `${userId}/`;
+
+  for (const row of uploadRows || []) {
+    const path = row.storage_path;
+
+    // Fail loudly rather than silently skip: a missing/invalid/
+    // out-of-namespace path on a row the DB itself says is an 'upload'
+    // means something is already wrong, and letting the subjects
+    // DELETE below proceed would destroy the only evidence of it via
+    // cascade before anyone could investigate or recover it. The
+    // suffix (everything after the owner prefix) is inspected with
+    // .trim() for validation purposes only — the exact, untrimmed
+    // path string from the DB is what gets added to the Set below and
+    // is what is eventually passed to Storage remove(); it is never
+    // rewritten.
+    const isValidPath =
+      typeof path === "string" &&
+      path.startsWith(userPrefix) &&
+      path.slice(userPrefix.length).trim().length > 0;
+
+    if (!isValidPath) {
+      throw new Error(
+        "Takda: found an upload material with an invalid storage path; stopping before any deletion."
+      );
+    }
+
+    paths.add(path);
+  }
+
+  if (paths.size > 0) {
+    const { error: removeError } = await supabase.storage
+      .from("subject-materials")
+      .remove(Array.from(paths));
+
+    if (removeError) {
+      console.error(
+        "Takda: unable to remove upload files for deleted subjects",
+        removeError
+      );
+      throw removeError;
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("subjects")
+    .delete()
+    .eq("user_id", userId)
+    .in("id", removedSubjectIds);
+
+  if (deleteError) {
+    console.error("Takda: unable to delete removed subjects", deleteError);
+    throw deleteError;
+  }
+}
+
 async function performSave(value) {
   const user = await getUser();
 
@@ -345,8 +450,7 @@ async function performSave(value) {
     subjectSchedules.map((sch) => sch.id)
   );
 
-  await deleteRemovedRows(
-    "subjects",
+  await deleteRemovedSubjectsWithMaterialCleanup(
     user.id,
     subjects.map((s) => s.id)
   );
