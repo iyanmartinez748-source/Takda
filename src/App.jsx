@@ -3,7 +3,7 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag, ChevronDown, Bell, Link2
+  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText
 } from "lucide-react";
 import {
   createSemester,
@@ -14,7 +14,15 @@ import {
   createSubjectMaterialLink,
   updateSubjectMaterialLink,
   deleteSubjectMaterialLink,
+  createSubjectMaterialUpload,
+  deleteSubjectMaterialUpload,
 } from "./lib/storageAdapter";
+import {
+  validateMaterialUploadFile,
+  deriveMaterialUploadTitle,
+  MaterialUploadValidationError,
+  MaterialUploadQuotaError,
+} from "./lib/materialUploads";
 import {
   getNotificationPermission,
   getNotificationsEnabledPreference,
@@ -232,6 +240,11 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [materialsError, setMaterialsError] = useState("");
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState(null);
+  // Hybrid Lesson Materials #5C: a separate modal/state from the link
+  // modal above — upload is a different workflow (a file, not a URL)
+  // and never supports edit/replace in this stage, so it has no
+  // "editing" counterpart to editingMaterial.
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [limitNotice, setLimitNotice] = useState(null);
   // Stage 4D: which semester is currently being VIEWED. Deliberately a
@@ -1083,6 +1096,63 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     }
   }
 
+  // Hybrid Lesson Materials #5C: same defense-in-depth reasoning as
+  // createMaterialLink above — re-derives the SAME creation permission
+  // from the subjectId actually given here, never trusting only that
+  // the calling UI already disabled the Upload File button. This check
+  // happens BEFORE createSubjectMaterialUpload is ever called, so a
+  // semester-blocked upload attempt never performs a quota query or a
+  // Storage call.
+  async function createMaterialUpload(subjectId, payload) {
+    const subjectSemesterId = subjectMap[subjectId]?.semesterId ?? null;
+    const canCreate = subjectSemesterId === null || subjectSemesterId === activeSemesterId;
+    if (!canCreate) {
+      setSemesterNotice("Switch to your active semester to add a lesson material.");
+      throw new Error("Switch to your active semester to add a lesson material.");
+    }
+    const created = await createSubjectMaterialUpload({ subjectId, ...payload });
+    setMaterials((prev) => [...prev, created]);
+    return created;
+  }
+
+  // Mirrors deleteMaterialLink's shape exactly, but calls the upload
+  // data layer (Storage-first delete, already built in #5B/#5B.5).
+  async function deleteMaterialUpload(id) {
+    const material = materials.find((m) => m.id === id);
+    if (material && isSemesterArchived(subjectMap[material.subjectId]?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
+    if (!window.confirm("Delete this lesson material?")) return;
+    try {
+      await deleteSubjectMaterialUpload(id);
+      setMaterials((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      // Unlike the link delete path, deleteSubjectMaterialUpload can
+      // throw a raw Storage/Supabase error (it has no custom error
+      // class of its own) — a generic message here, with the real
+      // error only logged to console, never shown to the user.
+      console.error("Takda: unable to delete material upload", e);
+      setMaterialsError("Unable to delete this lesson material right now. Please try again.");
+    }
+  }
+
+  // Single dispatch point so a material's DB delete function can never be
+  // mismatched with its actual material_type — an upload row must never
+  // reach deleteSubjectMaterialLink (whose query would simply match zero
+  // rows while the UI optimistically removed the card, orphaning the
+  // real row and its Storage object), and a link must never reach the
+  // upload delete path. An unrecognized materialType performs no
+  // destructive action at all.
+  async function deleteMaterial(material) {
+    if (material.materialType === "upload") {
+      return deleteMaterialUpload(material.id);
+    }
+    if (material.materialType === "link") {
+      return deleteMaterialLink(material.id);
+    }
+  }
+
   // Strip derived/enriched fields (computedStatus, urgencyKey, subject) before
   // an activity is loaded into the edit form, so they never get written back
   // into storage as if they were real, persisted data.
@@ -1544,8 +1614,9 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               canAddMaterials={canAddMaterials}
               materialsReadOnly={materialsReadOnly}
               onAddMaterial={() => { setEditingMaterial(null); setShowMaterialModal(true); }}
+              onAddUpload={() => setShowUploadModal(true)}
               onEditMaterial={(m) => { setEditingMaterial(m); setShowMaterialModal(true); }}
-              onDeleteMaterial={deleteMaterialLink}
+              onDeleteMaterial={deleteMaterial}
             />
           )}
 
@@ -1639,6 +1710,13 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               ? updateMaterialLink(editingMaterial.id, payload)
               : createMaterialLink(activeSubjectId, payload)
           }
+        />
+      )}
+
+      {showUploadModal && (
+        <MaterialUploadModal
+          onClose={() => setShowUploadModal(false)}
+          onSave={(payload) => createMaterialUpload(activeSubjectId, payload)}
         />
       )}
 
@@ -2945,7 +3023,7 @@ function SubjectDetail({
   canCreate = true, readOnly = false,
   materials = [], materialsLoading = false, materialsError = "",
   canAddMaterials = true, materialsReadOnly = false,
-  onAddMaterial, onEditMaterial, onDeleteMaterial,
+  onAddMaterial, onAddUpload, onEditMaterial, onDeleteMaterial,
 }) {
   const [noteText, setNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null);
@@ -3057,37 +3135,71 @@ function SubjectDetail({
 
       <h2 className="text-sm font-semibold text-slate-700 mb-2.5 mt-7">Lesson Materials</h2>
       {materialsError && <div className="text-sm text-red-500 mb-2">{materialsError}</div>}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <span className="text-xs text-slate-400">{materialsLoading ? "Loading…" : `${materials.length} material${materials.length === 1 ? "" : "s"}`}</span>
-        <button
-          onClick={onAddMaterial}
-          disabled={!canAddMaterials}
-          title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
-          className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canAddMaterials ? "opacity-40" : ""}`}
-          style={{ color: "#3D2FE0" }}
-        ><Plus size={13} /> Add Link</button>
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          <button
+            onClick={onAddUpload}
+            disabled={!canAddMaterials}
+            title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
+            className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canAddMaterials ? "opacity-40" : ""}`}
+            style={{ color: "#3D2FE0" }}
+          ><Plus size={13} /> Upload File</button>
+          <button
+            onClick={onAddMaterial}
+            disabled={!canAddMaterials}
+            title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
+            className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canAddMaterials ? "opacity-40" : ""}`}
+            style={{ color: "#3D2FE0" }}
+          ><Plus size={13} /> Add Link</button>
+        </div>
       </div>
       {!materialsLoading && materials.length === 0 ? (
         <EmptyRow text="No lesson materials yet." />
       ) : (
         <div className="flex flex-col gap-2">
-          {materials.map((m) => (
-            <MaterialLinkCard
-              key={m.id}
-              material={m}
-              readOnly={materialsReadOnly}
-              deleting={deletingMaterialId === m.id}
-              onEdit={() => onEditMaterial(m)}
-              onDelete={async () => {
-                setDeletingMaterialId(m.id);
-                try {
-                  await onDeleteMaterial(m.id);
-                } finally {
-                  setDeletingMaterialId(null);
-                }
-              }}
-            />
-          ))}
+          {materials.map((m) => {
+            const deleting = deletingMaterialId === m.id;
+            const handleDelete = async () => {
+              setDeletingMaterialId(m.id);
+              try {
+                await onDeleteMaterial(m);
+              } finally {
+                setDeletingMaterialId(null);
+              }
+            };
+
+            // Explicit materialType dispatch — never inferred from the
+            // presence/absence of externalUrl/storagePath. An unknown
+            // future material_type renders a safe, non-actionable card
+            // rather than being silently treated as a link.
+            if (m.materialType === "link") {
+              return (
+                <MaterialLinkCard
+                  key={m.id}
+                  material={m}
+                  readOnly={materialsReadOnly}
+                  deleting={deleting}
+                  onEdit={() => onEditMaterial(m)}
+                  onDelete={handleDelete}
+                />
+              );
+            }
+
+            if (m.materialType === "upload") {
+              return (
+                <MaterialUploadCard
+                  key={m.id}
+                  material={m}
+                  readOnly={materialsReadOnly}
+                  deleting={deleting}
+                  onDelete={handleDelete}
+                />
+              );
+            }
+
+            return <UnknownMaterialCard key={m.id} material={m} />;
+          })}
         </div>
       )}
     </div>
@@ -3183,6 +3295,156 @@ function MaterialLinkModal({ material, onClose, onSave }) {
         style={{ background: "#3D2FE0" }}
       >
         {saving ? "Saving..." : "Save Material"}
+      </button>
+    </ModalShell>
+  );
+}
+
+// Hybrid Lesson Materials #5C: upload-specific — no Open/Download/
+// Preview (that is #6, via a signed URL) and no Edit/Replace (no
+// data-layer function exists for it; delete + re-upload is the only
+// path for now). Deliberately a separate component from
+// MaterialLinkCard rather than branching inside it, since the two
+// material types share almost nothing presentation-wise beyond the
+// outer card shell.
+function MaterialUploadCard({ material, readOnly, deleting, onDelete }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
+      <span className="shrink-0 mt-0.5 text-slate-400"><FileText size={16} /></span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate">{material.title}</div>
+        {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
+        {material.fileName && <div className="text-xs text-slate-400 mt-1 truncate">{material.fileName}</div>}
+      </div>
+      <div className="flex shrink-0 gap-1">
+        <button onClick={onDelete} disabled={readOnly || deleting} aria-label="Delete lesson material" title="Delete" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+      </div>
+    </div>
+  );
+}
+
+// Safe fallback for any material_type this version of the UI doesn't
+// recognize — displays only inert text, with NO Open/Edit/Delete
+// control of any kind, so a future third material type can never be
+// silently mishandled as a link or trigger an accidental mutation.
+function UnknownMaterialCard({ material }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 opacity-70">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate">{material.title}</div>
+        {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
+      </div>
+    </div>
+  );
+}
+
+function MaterialUploadModal({ onClose, onSave }) {
+  const [file, setFile] = useState(null);
+  const [fileError, setFileError] = useState("");
+  const [title, setTitle] = useState("");
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function handleFileChange(e) {
+    const selected = e.target.files?.[0] || null;
+    setFile(selected);
+    setError("");
+
+    if (!selected) {
+      setFileError("");
+      return;
+    }
+
+    try {
+      validateMaterialUploadFile(selected);
+      setFileError("");
+
+      // Only auto-fill (and only from a file that actually validated)
+      // while the user hasn't typed their own title yet — selecting a
+      // different file afterward must never overwrite a manually-
+      // entered title, and an invalid file must never auto-fill at all.
+      if (!titleTouched) {
+        const derived = deriveMaterialUploadTitle(selected.name);
+        if (derived) setTitle(derived);
+      }
+    } catch (err) {
+      setFileError(err.message || "That file can't be uploaded.");
+    }
+  }
+
+  function handleTitleChange(e) {
+    setTitleTouched(true);
+    setTitle(e.target.value);
+  }
+
+  const trimmedTitle = title.trim();
+
+  async function handleSubmit() {
+    if (!file || !trimmedTitle) return;
+
+    // Re-validate immediately before submitting rather than relying
+    // solely on the earlier file-change event — the same helper
+    // (validateMaterialUploadFile) the data layer itself uses, so no
+    // rule is duplicated here.
+    try {
+      validateMaterialUploadFile(file);
+    } catch (err) {
+      setFileError(err.message || "That file can't be uploaded.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({ title: trimmedTitle, description: description.trim(), file });
+      onClose();
+    } catch (e) {
+      if (e instanceof MaterialUploadValidationError) {
+        setFileError(e.message);
+      } else if (e instanceof MaterialUploadQuotaError || e?.code === "quota_exceeded") {
+        // Both checks recognize the SAME condition — instanceof is the
+        // primary check; the .code fallback is extra defense-in-depth
+        // only, never a different message/behavior. Never surfaces
+        // limitBytes/currentUsageBytes/newFileSize or any backend
+        // detail to the user.
+        setError(
+          "Your lesson-material uploads have reached the temporary storage limit. Delete an uploaded file to free space, or use Add Link instead."
+        );
+      } else {
+        setError("Unable to upload this file right now. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell title="Upload File" onClose={onClose}>
+      <Field label="File *">
+        <input
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+          onChange={handleFileChange}
+          className={inputCls}
+        />
+      </Field>
+      {fileError && <p className="text-xs text-red-500 -mt-2 mb-3">{fileError}</p>}
+      <Field label="Title *">
+        <input className={inputCls} value={title} onChange={handleTitleChange} placeholder="e.g. Lesson 1 — Skeletal System" />
+      </Field>
+      <Field label="Description">
+        <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes" />
+      </Field>
+      {error && <p className="text-xs text-red-500 -mt-2 mb-3">{error}</p>}
+      <button
+        disabled={!file || !trimmedTitle || !!fileError || saving}
+        onClick={handleSubmit}
+        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
+        style={{ background: "#3D2FE0" }}
+      >
+        {saving ? "Uploading..." : "Upload File"}
       </button>
     </ModalShell>
   );
