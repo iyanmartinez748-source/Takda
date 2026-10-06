@@ -3,13 +3,17 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag, ChevronDown, Bell
+  MoreHorizontal, Flag, ChevronDown, Bell, Link2
 } from "lucide-react";
 import {
   createSemester,
   updateSemesterMetadata,
   activateSemester,
   archiveSemester,
+  loadSubjectMaterials,
+  createSubjectMaterialLink,
+  updateSubjectMaterialLink,
+  deleteSubjectMaterialLink,
 } from "./lib/storageAdapter";
 import {
   getNotificationPermission,
@@ -218,6 +222,16 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [saveError, setSaveError] = useState(false);
+  // Hybrid Lesson Materials #3: deliberately separate state from
+  // subjects/activities/notes/grades above — subject_materials was kept
+  // out of the generic takda-app-data snapshot in Hybrid Materials #2,
+  // so it is loaded, saved, and error-reported independently and never
+  // joins the save effect's dependency array below.
+  const [materials, setMaterials] = useState([]);
+  const [materialsLoading, setMaterialsLoading] = useState(true);
+  const [materialsError, setMaterialsError] = useState("");
+  const [showMaterialModal, setShowMaterialModal] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState(null);
   const [showMore, setShowMore] = useState(false);
   const [limitNotice, setLimitNotice] = useState(null);
   // Stage 4D: which semester is currently being VIEWED. Deliberately a
@@ -283,6 +297,27 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         // no existing data yet
       } finally {
         setReady(true);
+      }
+    })();
+  }, []);
+
+  // Hybrid Lesson Materials #3: load subject_materials independently of
+  // the snapshot above and of `ready` — a slow/failed materials load
+  // must never block the rest of Takda (Subjects/Activities/Grades/
+  // Calendar all stay usable regardless). Loaded once at startup, not
+  // re-fetched merely because a subject is opened, matching how
+  // subjects/activities/notes are already all resident in memory before
+  // any subject is ever opened.
+  useEffect(() => {
+    (async () => {
+      try {
+        const loaded = await loadSubjectMaterials();
+        setMaterials(loaded);
+      } catch (e) {
+        console.error("Takda: unable to load subject materials", e);
+        setMaterialsError("Couldn't load lesson materials.");
+      } finally {
+        setMaterialsLoading(false);
       }
     })();
   }, []);
@@ -367,6 +402,46 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     if (semesterId == null) return false;
     return !!semesters.find((s) => s.id === semesterId)?.archivedAt;
   }
+
+  // Hybrid Lesson Materials #3: deliberately derived from the ACTUAL
+  // opened subject's own semesterId — never from selectedSemesterId/
+  // canCreateInSelectedSemester/isSelectedSemesterArchived above, which
+  // describe whatever semester is merely being BROWSED. Those two can
+  // momentarily disagree with the opened subject's real semester during
+  // an archive-while-viewing transition (handleArchiveSemester reassigns
+  // selectedSemesterId to whatever semester, if any, is still active —
+  // not to the one that was just archived — while `view` can still be
+  // "subject-detail" showing a subject that belonged to the
+  // now-archived one). Lesson Materials' own CRUD permission must never
+  // depend on that transient mismatch, so it is computed fresh from the
+  // subject that is actually open.
+  const openedSubject = subjectMap[activeSubjectId] || null;
+  const openedSubjectSemesterId = openedSubject ? (openedSubject.semesterId ?? null) : null;
+  const isOpenedSubjectSemesterArchived = isSemesterArchived(openedSubjectSemesterId);
+
+  // Edit/Delete: blocked only when the opened subject's own semester is
+  // actually archived — independent of whether it's the currently active
+  // one. Matches the existing readOnly (not canCreate) semantics that
+  // already govern Activities/Notes edit/delete for this same subject.
+  const materialsReadOnly = isOpenedSubjectSemesterArchived;
+
+  // Add: deliberately MORE permissive than canCreateInSelectedSemester's
+  // own matrix for the null-semester case specifically — per explicit
+  // product requirement, a legacy/unassigned subject (semesterId ===
+  // null) always keeps full material CRUD, even while a different
+  // semester is active and even though the generic activities/notes
+  // creation matrix (rule 4 above) would block creation into Unassigned
+  // once any semester exists. A subject that DOES belong to a real,
+  // specific semester may only have NEW materials added while that is
+  // the currently active one — identical restriction to every other
+  // child-of-subject entity, preserving the existing Takda creation
+  // restriction for that case. (The explicit !isOpenedSubjectSemester
+  // Archived term is redundant with both qualifying branches below —
+  // activeSemesterId can never itself be archived, and a null semesterId
+  // can never be archived either — but is kept for clarity.)
+  const canAddMaterials =
+    !isOpenedSubjectSemesterArchived &&
+    (openedSubjectSemesterId === null || openedSubjectSemesterId === activeSemesterId);
 
   // Creation-time semester inheritance only — never used for edits. A
   // subject-linked record always inherits that subject's own semesterId,
@@ -950,6 +1025,64 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     setView("subjects");
   }
 
+  // Hybrid Lesson Materials #3: each function re-checks the archived
+  // state defensively (same reasoning as deleteSubject's own check
+  // above) rather than trusting only that the calling UI already
+  // disabled the triggering button — belt-and-suspenders against the
+  // same transient selectedSemesterId-vs-subject.semesterId mismatch
+  // documented at canAddMaterials/materialsReadOnly above. create/update
+  // throw so the modal's own try/catch (which awaits onSave) can
+  // display the message; delete returns early instead, matching
+  // deleteSubject's own synchronous-feeling early-return shape, since
+  // nothing is awaiting its result.
+  async function createMaterialLink(subjectId, payload) {
+    // Defense-in-depth: re-derives the SAME creation permission the UI
+    // itself computes as canAddMaterials, from the subjectId actually
+    // given here rather than trusting the caller's state — a null
+    // semesterId is always creatable, a real semester must be the
+    // currently active one. This single condition already rejects an
+    // archived semester too, with no separate isSemesterArchived check
+    // needed: an archived semester can never equal activeSemesterId
+    // (semesters_not_active_and_archived is DB-enforced), so "not the
+    // active semester" and "archived" are both covered by one check.
+    const subjectSemesterId = subjectMap[subjectId]?.semesterId ?? null;
+    const canCreate = subjectSemesterId === null || subjectSemesterId === activeSemesterId;
+    if (!canCreate) {
+      setSemesterNotice("Switch to your active semester to add a lesson material.");
+      throw new Error("Switch to your active semester to add a lesson material.");
+    }
+    const created = await createSubjectMaterialLink({ subjectId, ...payload });
+    setMaterials((prev) => [...prev, created]);
+    return created;
+  }
+
+  async function updateMaterialLink(id, payload) {
+    const material = materials.find((m) => m.id === id);
+    if (material && isSemesterArchived(subjectMap[material.subjectId]?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      throw new Error("This semester is archived, so its records are read-only.");
+    }
+    const updated = await updateSubjectMaterialLink(id, payload);
+    setMaterials((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    return updated;
+  }
+
+  async function deleteMaterialLink(id) {
+    const material = materials.find((m) => m.id === id);
+    if (material && isSemesterArchived(subjectMap[material.subjectId]?.semesterId)) {
+      setSemesterNotice("This semester is archived, so its records are read-only.");
+      return;
+    }
+    if (!window.confirm("Delete this lesson material?")) return;
+    try {
+      await deleteSubjectMaterialLink(id);
+      setMaterials((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      console.error("Takda: unable to delete material link", e);
+      setMaterialsError(e.message || "Unable to delete this lesson material.");
+    }
+  }
+
   // Strip derived/enriched fields (computedStatus, urgencyKey, subject) before
   // an activity is loaded into the edit form, so they never get written back
   // into storage as if they were real, persisted data.
@@ -1313,6 +1446,19 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
         .font-display { font-family: 'Fraunces', serif; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: #D8D8ED; border-radius: 4px; }
+        /* Single source of truth for how much bottom clearance the
+           authenticated scroll area must reserve on mobile so its last
+           content can clear MobileNav. Traced from MobileNav's own
+           markup, not guessed: pt-2(8px) + NavBtn content (py-1.5
+           12px + icon 32px + gap-0.5 2px + text-[10px] label line
+           ~12px = 58px) + baseline pb 8px = 74px row height, plus the
+           center FAB's own -mt-6 (24px) visual protrusion above the
+           row = 98px traced minimum, rounded up to 6.5rem (104px) for
+           a small safety margin. env(safe-area-inset-bottom) is added
+           on top of this at the point of use, matching MobileNav's own
+           safe-area handling, so a real device's home-indicator inset
+           is reserved for too. */
+        :root { --mobile-nav-clearance: 6.5rem; }
       `}</style>
 
       <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} canCreate={canCreateInSelectedSemester} />
@@ -1327,7 +1473,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           reminderBadgeCount={reminderBadgeCount}
           onOpenReminders={() => openReminders("all")}
         />
-        <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
+        <div className="flex-1 overflow-y-auto pb-[calc(var(--mobile-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6">
           {saveError && (
             <div className="mx-5 mt-4 md:mx-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-2">
               Your changes couldn't be saved just now — they may not be here after a refresh.
@@ -1392,6 +1538,14 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onDeleteNote={deleteNote}
               canCreate={canCreateInSelectedSemester}
               readOnly={isSelectedSemesterArchived}
+              materials={materials.filter((m) => m.subjectId === activeSubjectId)}
+              materialsLoading={materialsLoading}
+              materialsError={materialsError}
+              canAddMaterials={canAddMaterials}
+              materialsReadOnly={materialsReadOnly}
+              onAddMaterial={() => { setEditingMaterial(null); setShowMaterialModal(true); }}
+              onEditMaterial={(m) => { setEditingMaterial(m); setShowMaterialModal(true); }}
+              onDeleteMaterial={deleteMaterialLink}
             />
           )}
 
@@ -1473,6 +1627,18 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           schedules={editingSubject ? subjectSchedules.filter((s) => s.subjectId === editingSubject.id) : []}
           onClose={() => { setShowAddSubject(false); setEditingSubject(null); }}
           onSave={saveSubject}
+        />
+      )}
+
+      {showMaterialModal && (
+        <MaterialLinkModal
+          material={editingMaterial}
+          onClose={() => { setShowMaterialModal(false); setEditingMaterial(null); }}
+          onSave={(payload) =>
+            editingMaterial
+              ? updateMaterialLink(editingMaterial.id, payload)
+              : createMaterialLink(activeSubjectId, payload)
+          }
         />
       )}
 
@@ -2133,7 +2299,7 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
   const rightItems = [{ key: "calendar", label: "Calendar", icon: CalendarIcon }];
   const moreActive = ["notes", "activities", "grades"].includes(view);
   return (
-    <div className="md:hidden absolute bottom-0 left-0 right-0 bg-white border-t border-[#E4E4F0] shadow-[0_-2px_10px_rgba(15,23,42,0.05)] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
+    <div className="md:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto bg-white border-t border-[#E4E4F0] shadow-[0_-2px_10px_rgba(15,23,42,0.05)] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
@@ -2773,10 +2939,18 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
   );
 }
 
-function SubjectDetail({ subject, activities, notes, schedules = [], onBack, onEditSubject, onDeleteSubject, onToggle, onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote, canCreate = true, readOnly = false }) {
+function SubjectDetail({
+  subject, activities, notes, schedules = [], onBack, onEditSubject, onDeleteSubject, onToggle,
+  onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote,
+  canCreate = true, readOnly = false,
+  materials = [], materialsLoading = false, materialsError = "",
+  canAddMaterials = true, materialsReadOnly = false,
+  onAddMaterial, onEditMaterial, onDeleteMaterial,
+}) {
   const [noteText, setNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState("");
+  const [deletingMaterialId, setDeletingMaterialId] = useState(null);
   const pending = activities.filter((a) => a.computedStatus !== "completed");
   const completed = activities.filter((a) => a.computedStatus === "completed");
   return (
@@ -2880,7 +3054,137 @@ function SubjectDetail({ subject, activities, notes, schedules = [], onBack, onE
           </div>
         ))}
       </div>
+
+      <h2 className="text-sm font-semibold text-slate-700 mb-2.5 mt-7">Lesson Materials</h2>
+      {materialsError && <div className="text-sm text-red-500 mb-2">{materialsError}</div>}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-slate-400">{materialsLoading ? "Loading…" : `${materials.length} material${materials.length === 1 ? "" : "s"}`}</span>
+        <button
+          onClick={onAddMaterial}
+          disabled={!canAddMaterials}
+          title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
+          className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canAddMaterials ? "opacity-40" : ""}`}
+          style={{ color: "#3D2FE0" }}
+        ><Plus size={13} /> Add Link</button>
+      </div>
+      {!materialsLoading && materials.length === 0 ? (
+        <EmptyRow text="No lesson materials yet." />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {materials.map((m) => (
+            <MaterialLinkCard
+              key={m.id}
+              material={m}
+              readOnly={materialsReadOnly}
+              deleting={deletingMaterialId === m.id}
+              onEdit={() => onEditMaterial(m)}
+              onDelete={async () => {
+                setDeletingMaterialId(m.id);
+                try {
+                  await onDeleteMaterial(m.id);
+                } finally {
+                  setDeletingMaterialId(null);
+                }
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+// Hybrid Lesson Materials #3: hostname is derived purely client-side from
+// the already-validated/stored external_url via the same URL API
+// materialLinks.js already uses — no network request. Fails gracefully
+// (omits the hostname line) rather than crashing SubjectDetail if a
+// legacy/bad URL somehow can't be parsed.
+function materialHostname(externalUrl) {
+  try {
+    return new URL(externalUrl).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
+  const hostname = materialHostname(material.externalUrl);
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
+      <span className="shrink-0 mt-0.5 text-slate-400"><Link2 size={16} /></span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate">{material.title}</div>
+        {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
+        <a
+          href={material.externalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs mt-1 inline-block truncate max-w-full hover:underline"
+          style={{ color: "#3D2FE0" }}
+        >
+          {hostname || "Open link"}
+        </a>
+      </div>
+      <div className="flex shrink-0 gap-1">
+        <button onClick={onEdit} disabled={readOnly} aria-label="Edit lesson material" title="Edit" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+        <button onClick={onDelete} disabled={readOnly || deleting} aria-label="Delete lesson material" title="Delete" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+      </div>
+    </div>
+  );
+}
+
+function MaterialLinkModal({ material, onClose, onSave }) {
+  const [title, setTitle] = useState(material?.title || "");
+  const [description, setDescription] = useState(material?.description || "");
+  const [externalUrl, setExternalUrl] = useState(material?.externalUrl || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const trimmedTitle = title.trim();
+  const trimmedUrl = externalUrl.trim();
+  // Advisory only — a friendly early hint, never the authoritative check.
+  // The real validation (HTTPS-only, no credentials, well-formed, etc.)
+  // always runs inside createSubjectMaterialLink/updateSubjectMaterialLink
+  // via normalizeExternalUrl, regardless of what this shows.
+  const looksLikeHttps = trimmedUrl === "" || /^https:\/\//i.test(trimmedUrl);
+
+  async function handleSubmit() {
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({ title: trimmedTitle, description: description.trim(), externalUrl: trimmedUrl });
+      onClose();
+    } catch (e) {
+      setError(e.message || "Unable to save this lesson material.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell title={material ? "Edit Lesson Material" : "Add Link"} onClose={onClose}>
+      <Field label="Title *">
+        <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Lesson 1 — Skeletal System" />
+      </Field>
+      <Field label="Description">
+        <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes" />
+      </Field>
+      <Field label="Link *">
+        <input className={inputCls} value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://..." />
+      </Field>
+      {!looksLikeHttps && (
+        <p className="text-xs text-amber-600 -mt-2 mb-3">Links must start with https://</p>
+      )}
+      {error && <p className="text-xs text-red-500 -mt-2 mb-3">{error}</p>}
+      <button
+        disabled={!trimmedTitle || !trimmedUrl || saving}
+        onClick={handleSubmit}
+        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
+        style={{ background: "#3D2FE0" }}
+      >
+        {saving ? "Saving..." : "Save Material"}
+      </button>
+    </ModalShell>
   );
 }
 
