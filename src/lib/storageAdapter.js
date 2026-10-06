@@ -4,6 +4,9 @@ import { toSubjectMaterial } from "./subjectMaterials";
 import {
   validateMaterialUploadFile,
   getMaterialUploadExtension,
+  TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+  MaterialUploadQuotaError,
+  wouldExceedMaterialUploadQuota,
 } from "./materialUploads";
 
 let hydratedUserId = null;
@@ -707,6 +710,59 @@ export async function deleteSubjectMaterialLink(id) {
 // material_type = 'upload' rows: no UI, no signed URL/preview, no
 // quota, no subject-deletion Storage cleanup (all later stages).
 
+// Hybrid Lesson Materials temp quota safety rail: a single Postgres
+// aggregate query (SUM over file_size) rather than fetching every
+// upload row into JS and summing in application code — confirmed
+// supported by the installed @supabase/postgrest-js aggregate parser
+// (`field.sum()`), with an explicit alias (`upload_bytes:`) so the
+// returned property name is deterministic rather than relying on the
+// generic, unaliased "sum" key the library would otherwise produce.
+async function getAccountUploadUsageBytes(userId) {
+  const { data, error } = await supabase
+    .from("subject_materials")
+    .select("upload_bytes:file_size.sum()")
+    .eq("user_id", userId)
+    .eq("material_type", "upload")
+    .single();
+
+  if (error) {
+    console.error("Takda: unable to read account upload usage", error);
+    throw error;
+  }
+
+  const rawUsage = data ? data.upload_bytes : undefined;
+
+  // A SQL SUM() over zero matching rows legitimately returns NULL, not
+  // an absent row — that is the ONLY case treated as 0 bytes.
+  if (rawUsage === null) {
+    return 0;
+  }
+
+  // file_size is a bigint column, and SUM(bigint) is PostgreSQL
+  // `numeric` — this client's JSON parsing (a plain JSON.parse with no
+  // custom reviver) means whether that comes back as a JS number or a
+  // JSON string is ultimately decided server-side, not by anything in
+  // this client. Accept both shapes defensively rather than assume
+  // one: a safe non-negative integer number, or a strictly digit-only
+  // non-negative integer string (no sign, no decimal, no exponent, no
+  // whitespace, no separators, no hex) converted only after that exact
+  // pattern match. Anything else fails closed — quota protection must
+  // never silently disappear because of an unexpected response shape.
+  if (typeof rawUsage === "number" && Number.isSafeInteger(rawUsage) && rawUsage >= 0) {
+    return rawUsage;
+  }
+
+  if (typeof rawUsage === "string" && /^\d+$/.test(rawUsage)) {
+    const parsed = Number(rawUsage);
+
+    if (Number.isSafeInteger(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  throw new Error("Takda: received an unexpected account upload usage value.");
+}
+
 export async function createSubjectMaterialUpload({ subjectId, title, description, file } = {}) {
   const user = await requireUser();
 
@@ -730,6 +786,27 @@ export async function createSubjectMaterialUpload({ subjectId, title, descriptio
   // Storage migration) is an independent, defense-in-depth layer, not
   // a duplicate of this one.
   const { fileName, fileSize, mimeType } = validateMaterialUploadFile(file);
+
+  // TEMPORARY universal account-wide safety rail (not the final Free/
+  // Pro quota design) — must be checked, and must fail, strictly
+  // before any Storage upload is attempted. This is application-level
+  // cost protection, not a hostile-user security boundary: Storage RLS
+  // itself only checks path ownership, never a cumulative account
+  // total, so a technical user could still bypass this check by
+  // calling Supabase's APIs directly outside the app.
+  const currentUsageBytes = await getAccountUploadUsageBytes(user.id);
+
+  if (wouldExceedMaterialUploadQuota(currentUsageBytes, fileSize)) {
+    throw new MaterialUploadQuotaError(
+      "Takda: this upload would exceed your account's temporary storage limit.",
+      {
+        limitBytes: TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+        currentUsageBytes,
+        newFileSize: fileSize,
+      }
+    );
+  }
+
   const extension = getMaterialUploadExtension(mimeType);
 
   // Storage path deliberately never contains the original filename —
