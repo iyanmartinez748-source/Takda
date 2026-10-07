@@ -24,6 +24,7 @@ import {
   MaterialUploadValidationError,
   MaterialUploadQuotaError,
 } from "./lib/materialUploads";
+import { MaterialLinkValidationError } from "./lib/materialLinks";
 import {
   getNotificationPermission,
   getNotificationsEnabledPreference,
@@ -1050,6 +1051,12 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // deleteSubject's own synchronous-feeling early-return shape, since
   // nothing is awaiting its result.
   async function createMaterialLink(subjectId, payload) {
+    // Hybrid Lesson Materials #7: clear any stale materialsError left
+    // over from an earlier, unrelated action — this shared state must
+    // never keep showing an old failure message once a new action has
+    // begun, successful or not (a genuine new failure below sets its
+    // own fresh message).
+    setMaterialsError("");
     // Defense-in-depth: re-derives the SAME creation permission the UI
     // itself computes as canAddMaterials, from the subjectId actually
     // given here rather than trusting the caller's state — a null
@@ -1071,6 +1078,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   async function updateMaterialLink(id, payload) {
+    setMaterialsError("");
     const material = materials.find((m) => m.id === id);
     if (material && isSemesterArchived(subjectMap[material.subjectId]?.semesterId)) {
       setSemesterNotice("This semester is archived, so its records are read-only.");
@@ -1082,6 +1090,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   }
 
   async function deleteMaterialLink(id) {
+    setMaterialsError("");
     const material = materials.find((m) => m.id === id);
     if (material && isSemesterArchived(subjectMap[material.subjectId]?.semesterId)) {
       setSemesterNotice("This semester is archived, so its records are read-only.");
@@ -1105,6 +1114,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // semester-blocked upload attempt never performs a quota query or a
   // Storage call.
   async function createMaterialUpload(subjectId, payload) {
+    setMaterialsError("");
     const subjectSemesterId = subjectMap[subjectId]?.semesterId ?? null;
     const canCreate = subjectSemesterId === null || subjectSemesterId === activeSemesterId;
     if (!canCreate) {
@@ -1119,6 +1129,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // Mirrors deleteMaterialLink's shape exactly, but calls the upload
   // data layer (Storage-first delete, already built in #5B/#5B.5).
   async function deleteMaterialUpload(id) {
+    setMaterialsError("");
     const material = materials.find((m) => m.id === id);
     if (material && isSemesterArchived(subjectMap[material.subjectId]?.semesterId)) {
       setSemesterNotice("This semester is archived, so its records are read-only.");
@@ -1163,6 +1174,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   // unrelated popup and block it — this is the whole reason this
   // function's first line runs before any await.
   async function openMaterial(material) {
+    setMaterialsError("");
     const newTab = window.open("", "_blank");
 
     if (!newTab) {
@@ -3283,8 +3295,20 @@ function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
         </a>
       </div>
       <div className="flex shrink-0 gap-1">
-        <button onClick={onEdit} disabled={readOnly} aria-label="Edit lesson material" title="Edit" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
-        <button onClick={onDelete} disabled={readOnly || deleting} aria-label="Delete lesson material" title="Delete" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+        <button
+          onClick={onEdit}
+          disabled={readOnly}
+          aria-label="Edit lesson material"
+          title={readOnly ? "Switch to your active semester to edit lesson materials." : "Edit"}
+          className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"
+        ><Edit2 size={13} /></button>
+        <button
+          onClick={onDelete}
+          disabled={readOnly || deleting}
+          aria-label="Delete lesson material"
+          title={readOnly ? "Switch to your active semester to delete lesson materials." : "Delete"}
+          className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
+        ><Trash2 size={13} /></button>
       </div>
     </div>
   );
@@ -3312,7 +3336,16 @@ function MaterialLinkModal({ material, onClose, onSave }) {
       await onSave({ title: trimmedTitle, description: description.trim(), externalUrl: trimmedUrl });
       onClose();
     } catch (e) {
-      setError(e.message || "Unable to save this lesson material.");
+      // Hybrid Lesson Materials #7: only a known-safe validation error's
+      // own message is ever shown directly — anything else (e.g. a raw
+      // backend/network error) falls back to a fixed generic message,
+      // mirroring MaterialUploadModal's existing instanceof-based
+      // pattern rather than surfacing arbitrary e.message.
+      setError(
+        e instanceof MaterialLinkValidationError
+          ? e.message
+          : "Unable to save this link right now. Please try again."
+      );
     } finally {
       setSaving(false);
     }
@@ -3375,7 +3408,13 @@ function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, o
         </button>
       </div>
       <div className="flex shrink-0 gap-1">
-        <button onClick={onDelete} disabled={readOnly || deleting} aria-label="Delete lesson material" title="Delete" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+        <button
+          onClick={onDelete}
+          disabled={readOnly || deleting}
+          aria-label="Delete lesson material"
+          title={readOnly ? "Switch to your active semester to delete lesson materials." : "Delete"}
+          className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
+        ><Trash2 size={13} /></button>
       </div>
     </div>
   );
@@ -3488,6 +3527,7 @@ function MaterialUploadModal({ onClose, onSave }) {
           className={inputCls}
         />
       </Field>
+      <p className="text-xs text-slate-400 -mt-2 mb-3">PDF, JPG, or PNG — up to 10 MB</p>
       {fileError && <p className="text-xs text-red-500 -mt-2 mb-3">{fileError}</p>}
       <Field label="Title *">
         <input className={inputCls} value={title} onChange={handleTitleChange} placeholder="e.g. Lesson 1 — Skeletal System" />
