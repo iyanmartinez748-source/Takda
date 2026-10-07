@@ -710,57 +710,58 @@ export async function deleteSubjectMaterialLink(id) {
 // material_type = 'upload' rows: no UI, no signed URL/preview, no
 // quota, no subject-deletion Storage cleanup (all later stages).
 
-// Hybrid Lesson Materials temp quota safety rail: a single Postgres
-// aggregate query (SUM over file_size) rather than fetching every
-// upload row into JS and summing in application code — confirmed
-// supported by the installed @supabase/postgrest-js aggregate parser
-// (`field.sum()`), with an explicit alias (`upload_bytes:`) so the
-// returned property name is deterministic rather than relying on the
-// generic, unaliased "sum" key the library would otherwise produce.
+// Temporary account-wide upload quota. Fetches only file_size for the
+// current user's upload materials and sums it client-side — this must
+// complete, successfully, before any Storage upload is attempted.
+// Fails closed on anything other than a safe non-negative integer
+// value (per row, and for the running total) rather than ever
+// silently treating malformed data as zero.
 async function getAccountUploadUsageBytes(userId) {
   const { data, error } = await supabase
     .from("subject_materials")
-    .select("upload_bytes:file_size.sum()")
+    .select("file_size")
     .eq("user_id", userId)
-    .eq("material_type", "upload")
-    .single();
+    .eq("material_type", "upload");
 
   if (error) {
     console.error("Takda: unable to read account upload usage", error);
     throw error;
   }
 
-  const rawUsage = data ? data.upload_bytes : undefined;
-
-  // A SQL SUM() over zero matching rows legitimately returns NULL, not
-  // an absent row — that is the ONLY case treated as 0 bytes.
-  if (rawUsage === null) {
-    return 0;
+  if (!Array.isArray(data)) {
+    throw new Error("Takda: received an unexpected account upload usage value.");
   }
 
-  // file_size is a bigint column, and SUM(bigint) is PostgreSQL
-  // `numeric` — this client's JSON parsing (a plain JSON.parse with no
-  // custom reviver) means whether that comes back as a JS number or a
-  // JSON string is ultimately decided server-side, not by anything in
-  // this client. Accept both shapes defensively rather than assume
-  // one: a safe non-negative integer number, or a strictly digit-only
-  // non-negative integer string (no sign, no decimal, no exponent, no
-  // whitespace, no separators, no hex) converted only after that exact
-  // pattern match. Anything else fails closed — quota protection must
-  // never silently disappear because of an unexpected response shape.
-  if (typeof rawUsage === "number" && Number.isSafeInteger(rawUsage) && rawUsage >= 0) {
-    return rawUsage;
-  }
+  let total = 0;
 
-  if (typeof rawUsage === "string" && /^\d+$/.test(rawUsage)) {
-    const parsed = Number(rawUsage);
+  for (const row of data) {
+    const rawSize = row ? row.file_size : undefined;
+    let parsedSize;
 
-    if (Number.isSafeInteger(parsed) && parsed >= 0) {
-      return parsed;
+    if (typeof rawSize === "number" && Number.isSafeInteger(rawSize) && rawSize >= 0) {
+      parsedSize = rawSize;
+    } else if (typeof rawSize === "string" && /^\d+$/.test(rawSize)) {
+      const converted = Number(rawSize);
+
+      if (Number.isSafeInteger(converted) && converted >= 0) {
+        parsedSize = converted;
+      }
     }
+
+    if (parsedSize === undefined) {
+      throw new Error("Takda: received an unexpected account upload usage value.");
+    }
+
+    const nextTotal = total + parsedSize;
+
+    if (!Number.isSafeInteger(nextTotal) || nextTotal < 0) {
+      throw new Error("Takda: received an unexpected account upload usage value.");
+    }
+
+    total = nextTotal;
   }
 
-  throw new Error("Takda: received an unexpected account upload usage value.");
+  return total;
 }
 
 export async function createSubjectMaterialUpload({ subjectId, title, description, file } = {}) {
