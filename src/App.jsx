@@ -3,7 +3,7 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText
+  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText, ExternalLink
 } from "lucide-react";
 import {
   createSemester,
@@ -16,6 +16,7 @@ import {
   deleteSubjectMaterialLink,
   createSubjectMaterialUpload,
   deleteSubjectMaterialUpload,
+  createSubjectMaterialSignedUrl,
 } from "./lib/storageAdapter";
 import {
   validateMaterialUploadFile,
@@ -1153,6 +1154,37 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     }
   }
 
+  // Hybrid Lesson Materials #6: opening is a READ, so it is
+  // deliberately never gated by materialsReadOnly/canAddMaterials —
+  // a material stays openable in an archived or otherwise mutation-
+  // blocked semester, exactly like viewing the card itself already is.
+  // The blank tab MUST be opened synchronously, before the signed-URL
+  // request, or browsers can treat the later window.open as an
+  // unrelated popup and block it — this is the whole reason this
+  // function's first line runs before any await.
+  async function openMaterial(material) {
+    const newTab = window.open("", "_blank");
+
+    if (!newTab) {
+      setMaterialsError("Unable to open a new tab. Please allow pop-ups and try again.");
+      return;
+    }
+
+    try {
+      const signedUrl = await createSubjectMaterialSignedUrl(material.id);
+      newTab.location.href = signedUrl;
+    } catch (e) {
+      console.error("Takda: unable to open material", e);
+      try {
+        newTab.close();
+      } catch {
+        // Best effort only — some browsers restrict closing a tab
+        // depending on how it was opened; nothing further to do.
+      }
+      setMaterialsError("Unable to open this file right now. Please try again.");
+    }
+  }
+
   // Strip derived/enriched fields (computedStatus, urgencyKey, subject) before
   // an activity is loaded into the edit form, so they never get written back
   // into storage as if they were real, persisted data.
@@ -1617,6 +1649,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onAddUpload={() => setShowUploadModal(true)}
               onEditMaterial={(m) => { setEditingMaterial(m); setShowMaterialModal(true); }}
               onDeleteMaterial={deleteMaterial}
+              onOpenMaterial={openMaterial}
             />
           )}
 
@@ -3023,12 +3056,13 @@ function SubjectDetail({
   canCreate = true, readOnly = false,
   materials = [], materialsLoading = false, materialsError = "",
   canAddMaterials = true, materialsReadOnly = false,
-  onAddMaterial, onAddUpload, onEditMaterial, onDeleteMaterial,
+  onAddMaterial, onAddUpload, onEditMaterial, onDeleteMaterial, onOpenMaterial,
 }) {
   const [noteText, setNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState("");
   const [deletingMaterialId, setDeletingMaterialId] = useState(null);
+  const [openingMaterialId, setOpeningMaterialId] = useState(null);
   const pending = activities.filter((a) => a.computedStatus !== "completed");
   const completed = activities.filter((a) => a.computedStatus === "completed");
   return (
@@ -3168,6 +3202,15 @@ function SubjectDetail({
                 setDeletingMaterialId(null);
               }
             };
+            const opening = openingMaterialId === m.id;
+            const handleOpen = async () => {
+              setOpeningMaterialId(m.id);
+              try {
+                await onOpenMaterial(m);
+              } finally {
+                setOpeningMaterialId(null);
+              }
+            };
 
             // Explicit materialType dispatch — never inferred from the
             // presence/absence of externalUrl/storagePath. An unknown
@@ -3193,7 +3236,9 @@ function SubjectDetail({
                   material={m}
                   readOnly={materialsReadOnly}
                   deleting={deleting}
+                  opening={opening}
                   onDelete={handleDelete}
+                  onOpen={handleOpen}
                 />
               );
             }
@@ -3307,7 +3352,12 @@ function MaterialLinkModal({ material, onClose, onSave }) {
 // MaterialLinkCard rather than branching inside it, since the two
 // material types share almost nothing presentation-wise beyond the
 // outer card shell.
-function MaterialUploadCard({ material, readOnly, deleting, onDelete }) {
+// Hybrid Lesson Materials #6: Open is deliberately a <button>, never a
+// signed-URL anchor — the URL is short-lived and must be created fresh
+// on each click, not embedded as a static href. Open is never disabled
+// by `readOnly` (opening a file is a read, not a mutation) — only by
+// its own in-flight `opening` state, unlike Delete below.
+function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, onOpen }) {
   return (
     <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
       <span className="shrink-0 mt-0.5 text-slate-400"><FileText size={16} /></span>
@@ -3315,6 +3365,14 @@ function MaterialUploadCard({ material, readOnly, deleting, onDelete }) {
         <div className="text-sm font-medium truncate">{material.title}</div>
         {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
         {material.fileName && <div className="text-xs text-slate-400 mt-1 truncate">{material.fileName}</div>}
+        <button
+          onClick={onOpen}
+          disabled={opening}
+          className="text-xs mt-1 inline-flex items-center gap-1 hover:underline disabled:opacity-40"
+          style={{ color: "#3D2FE0" }}
+        >
+          <ExternalLink size={12} /> {opening ? "Opening..." : "Open"}
+        </button>
       </div>
       <div className="flex shrink-0 gap-1">
         <button onClick={onDelete} disabled={readOnly || deleting} aria-label="Delete lesson material" title="Delete" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>

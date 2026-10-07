@@ -946,6 +946,71 @@ export async function deleteSubjectMaterialUpload(id) {
   }
 }
 
+// Hybrid Lesson Materials #6: ID-based, same defense-in-depth reasoning
+// as deleteSubjectMaterialUpload above — the caller may never supply a
+// storage_path or material object directly; it is always read back
+// from the DB row itself, scoped to this user, immediately before use.
+// The bucket stays private; this only ever returns a short-lived
+// (60 second) signed URL, never a permanent/public one, and never
+// persists or logs it.
+export async function createSubjectMaterialSignedUrl(id) {
+  const user = await requireUser();
+
+  const trimmedId = typeof id === "string" ? id.trim() : "";
+
+  if (!trimmedId) {
+    throw new Error("Takda: a material id is required to open it.");
+  }
+
+  // .single() (not .maybeSingle()) to match the same fail-loudly
+  // convention already used by deleteSubjectMaterialUpload's scoped
+  // query above — a missing/foreign/non-upload id must surface as a
+  // clear error rather than silently proceeding with an undefined
+  // path.
+  const { data, error: selectError } = await supabase
+    .from("subject_materials")
+    .select("id, storage_path")
+    .eq("id", trimmedId)
+    .eq("user_id", user.id)
+    .eq("material_type", "upload")
+    .single();
+
+  if (selectError) {
+    console.error("Takda: unable to find material upload to open", selectError);
+    throw selectError;
+  }
+
+  const storagePath = data.storage_path;
+
+  if (typeof storagePath !== "string" || !storagePath) {
+    throw new Error("Takda: that material has no associated file to open.");
+  }
+
+  // Defense-in-depth: even though storage_path came from our own query
+  // scoped to this user's row, this guards against a corrupted/
+  // tampered DB value ever causing a signed URL to be created outside
+  // the current user's Storage namespace. The error stays generic on
+  // purpose.
+  if (!storagePath.startsWith(`${user.id}/`)) {
+    throw new Error("Takda: unable to open that material.");
+  }
+
+  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+    .from("subject-materials")
+    .createSignedUrl(storagePath, 60);
+
+  if (signedUrlError) {
+    console.error("Takda: unable to create a signed URL for material", signedUrlError);
+    throw signedUrlError;
+  }
+
+  if (!signedUrlData || typeof signedUrlData.signedUrl !== "string" || !signedUrlData.signedUrl) {
+    throw new Error("Takda: received an unexpected response while opening that material.");
+  }
+
+  return signedUrlData.signedUrl;
+}
+
 export function installSupabaseStorageAdapter() {
   window.storage = {
     async get(key) {
