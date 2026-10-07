@@ -4,7 +4,7 @@ import { toSubjectMaterial } from "./subjectMaterials";
 import {
   validateMaterialUploadFile,
   getMaterialUploadExtension,
-  TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+  getMaterialUploadLimitBytes,
   MaterialUploadQuotaError,
   wouldExceedMaterialUploadQuota,
 } from "./materialUploads";
@@ -710,8 +710,8 @@ export async function deleteSubjectMaterialLink(id) {
 // material_type = 'upload' rows: no UI, no signed URL/preview, no
 // quota, no subject-deletion Storage cleanup (all later stages).
 
-// Temporary account-wide upload quota. Fetches only file_size for the
-// current user's upload materials and sums it client-side — this must
+// Account-wide upload usage. Fetches only file_size for the current
+// user's upload materials and sums it client-side — this must
 // complete, successfully, before any Storage upload is attempted.
 // Fails closed on anything other than a safe non-negative integer
 // value (per row, and for the running total) rather than ever
@@ -788,20 +788,48 @@ export async function createSubjectMaterialUpload({ subjectId, title, descriptio
   // a duplicate of this one.
   const { fileName, fileSize, mimeType } = validateMaterialUploadFile(file);
 
-  // TEMPORARY universal account-wide safety rail (not the final Free/
-  // Pro quota design) — must be checked, and must fail, strictly
-  // before any Storage upload is attempted. This is application-level
-  // cost protection, not a hostile-user security boundary: Storage RLS
-  // itself only checks path ownership, never a cumulative account
-  // total, so a technical user could still bypass this check by
-  // calling Supabase's APIs directly outside the app.
+  // Hybrid Lesson Materials #8B: tier-aware client preflight — UX only,
+  // never the authoritative boundary. Storage RLS itself only checks
+  // path ownership, never a cumulative account total or plan tier, so a
+  // technical user could still bypass this check by calling Supabase's
+  // APIs directly outside the app; the #8A database trigger (merged in
+  // source but NOT yet applied to Production) is the intended future
+  // authoritative enforcement. Entitlement is always re-read fresh from
+  // profiles here — never trusted from a caller-supplied argument or
+  // from any cached/UI-layer notion of "isPro" — so this cannot be
+  // fooled by stale client state.
+  //
+  // .maybeSingle() (not .single()): a genuinely absent profiles row
+  // must resolve to { data: null, error: null } so it can be treated as
+  // Free (matching both getTakdaPlan's own optional-chaining-to-
+  // "free" behavior and the #8A trigger's own `coalesce(v_plan,
+  // 'free')` for a missing row) — distinct from an actual query
+  // failure, which must still fail closed below. .single() would
+  // instead turn "no row" into a thrown error indistinguishable from a
+  // real failure, which is not the desired behavior here.
+  const { data: profileRow, error: profileError } = await supabase
+    .from("profiles")
+    .select("plan, pro_until")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    console.error("Takda: unable to read account entitlement", profileError);
+    throw profileError;
+  }
+
+  const effectiveLimitBytes = getMaterialUploadLimitBytes(
+    profileRow?.plan,
+    profileRow?.pro_until
+  );
+
   const currentUsageBytes = await getAccountUploadUsageBytes(user.id);
 
-  if (wouldExceedMaterialUploadQuota(currentUsageBytes, fileSize)) {
+  if (wouldExceedMaterialUploadQuota(currentUsageBytes, fileSize, effectiveLimitBytes)) {
     throw new MaterialUploadQuotaError(
-      "Takda: this upload would exceed your account's temporary storage limit.",
+      "Takda: this upload would exceed your account's lesson-file storage limit.",
       {
-        limitBytes: TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+        limitBytes: effectiveLimitBytes,
         currentUsageBytes,
         newFileSize: fileSize,
       }
@@ -860,6 +888,20 @@ export async function createSubjectMaterialUpload({ subjectId, title, descriptio
       console.warn(
         "Takda: uploaded file could not be cleaned up after a failed material insert",
         cleanupError
+      );
+    }
+
+    // Hybrid Lesson Materials #8B: if the (not-yet-applied) #8A quota
+    // trigger ever rejects this insert in the future, surface it as the
+    // same MaterialUploadQuotaError the client preflight above already
+    // throws — never the raw DB error, which could otherwise leak
+    // trigger/SQLSTATE internals to the UI. No metadata is attached
+    // here (unlike the preflight throw above): this path has no
+    // trustworthy currentUsageBytes/limitBytes snapshot of its own, and
+    // fabricating one would risk showing the user incorrect numbers.
+    if (insertError?.code === "TKQT1") {
+      throw new MaterialUploadQuotaError(
+        "Takda: this upload would exceed your account's lesson-file storage limit."
       );
     }
 

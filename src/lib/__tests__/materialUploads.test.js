@@ -18,7 +18,10 @@ import {
   deriveMaterialUploadTitle,
   MaterialUploadValidationError,
   MAX_MATERIAL_UPLOAD_BYTES,
-  TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
+  FREE_MATERIAL_UPLOAD_LIMIT_BYTES,
+  PRO_MATERIAL_UPLOAD_LIMIT_BYTES,
+  isProfileEntitledToProUploadLimit,
+  getMaterialUploadLimitBytes,
   MaterialUploadQuotaError,
   wouldExceedMaterialUploadQuota,
 } from "../materialUploads.js";
@@ -222,36 +225,162 @@ test("getMaterialUploadExtension returns the canonical extension for the validat
 });
 
 // ---------------------------------------------------------
-// TEMP ACCOUNT-WIDE UPLOAD QUOTA
+// FREE/PRO ACCOUNT-WIDE UPLOAD LIMITS (#8B)
 // ---------------------------------------------------------
 
-test("TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES is exactly 25 MiB in binary bytes", () => {
-  assert.equal(TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES, 26214400);
-  assert.equal(TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES, 25 * MIB);
+test("FREE_MATERIAL_UPLOAD_LIMIT_BYTES is exactly 10 MiB in binary bytes", () => {
+  assert.equal(FREE_MATERIAL_UPLOAD_LIMIT_BYTES, 10485760);
+  assert.equal(FREE_MATERIAL_UPLOAD_LIMIT_BYTES, 10 * MIB);
 });
 
-test("wouldExceedMaterialUploadQuota allows 0 usage + 1 byte", () => {
-  assert.equal(wouldExceedMaterialUploadQuota(0, 1), false);
+test("PRO_MATERIAL_UPLOAD_LIMIT_BYTES is exactly 50 MiB in binary bytes", () => {
+  assert.equal(PRO_MATERIAL_UPLOAD_LIMIT_BYTES, 52428800);
+  assert.equal(PRO_MATERIAL_UPLOAD_LIMIT_BYTES, 50 * MIB);
 });
 
-test("wouldExceedMaterialUploadQuota allows 0 usage + 10 MiB", () => {
-  assert.equal(wouldExceedMaterialUploadQuota(0, 10 * MIB), false);
+// ---------------------------------------------------------
+// isProfileEntitledToProUploadLimit (mirrors main.jsx getTakdaPlan)
+// ---------------------------------------------------------
+
+test("isProfileEntitledToProUploadLimit is true for an active pro plan", () => {
+  const now = Date.now();
+  assert.equal(
+    isProfileEntitledToProUploadLimit("pro", new Date(now + 1000).toISOString(), now),
+    true
+  );
 });
 
-test("wouldExceedMaterialUploadQuota allows a total landing exactly on the 25 MiB limit", () => {
-  assert.equal(wouldExceedMaterialUploadQuota(15 * MIB, 10 * MIB), false);
+test("isProfileEntitledToProUploadLimit is case-insensitive on plan", () => {
+  const now = Date.now();
+  const future = new Date(now + 1000).toISOString();
+  assert.equal(isProfileEntitledToProUploadLimit("PRO", future, now), true);
+  assert.equal(isProfileEntitledToProUploadLimit("Pro", future, now), true);
 });
 
-test("wouldExceedMaterialUploadQuota rejects one byte over the 25 MiB limit", () => {
-  assert.equal(wouldExceedMaterialUploadQuota(15 * MIB, 10 * MIB + 1), true);
+test("isProfileEntitledToProUploadLimit is false for a missing plan (defaults to free)", () => {
+  const now = Date.now();
+  const future = new Date(now + 1000).toISOString();
+  assert.equal(isProfileEntitledToProUploadLimit(null, future, now), false);
+  assert.equal(isProfileEntitledToProUploadLimit(undefined, future, now), false);
+  assert.equal(isProfileEntitledToProUploadLimit("", future, now), false);
 });
 
-test("wouldExceedMaterialUploadQuota rejects a total well over the limit", () => {
-  assert.equal(wouldExceedMaterialUploadQuota(20 * MIB, 10 * MIB), true);
+test("isProfileEntitledToProUploadLimit is false for an explicit free plan", () => {
+  const now = Date.now();
+  const future = new Date(now + 1000).toISOString();
+  assert.equal(isProfileEntitledToProUploadLimit("free", future, now), false);
 });
 
-test("wouldExceedMaterialUploadQuota rejects usage already at the limit plus one more byte", () => {
-  assert.equal(wouldExceedMaterialUploadQuota(25 * MIB, 1), true);
+test("isProfileEntitledToProUploadLimit is false when pro_until is missing", () => {
+  assert.equal(isProfileEntitledToProUploadLimit("pro", null), false);
+  assert.equal(isProfileEntitledToProUploadLimit("pro", undefined), false);
+});
+
+test("isProfileEntitledToProUploadLimit is false when pro_until is exactly now (not strictly future)", () => {
+  const now = Date.now();
+  assert.equal(isProfileEntitledToProUploadLimit("pro", new Date(now).toISOString(), now), false);
+});
+
+test("isProfileEntitledToProUploadLimit is false when pro_until is in the past", () => {
+  const now = Date.now();
+  assert.equal(
+    isProfileEntitledToProUploadLimit("pro", new Date(now - 1000).toISOString(), now),
+    false
+  );
+});
+
+test("isProfileEntitledToProUploadLimit is false when pro_until does not parse to a valid date", () => {
+  const now = Date.now();
+  assert.equal(isProfileEntitledToProUploadLimit("pro", "not-a-date", now), false);
+});
+
+test("isProfileEntitledToProUploadLimit defaults `now` to Date.now() when omitted", () => {
+  const future = new Date(Date.now() + 60000).toISOString();
+  assert.equal(isProfileEntitledToProUploadLimit("pro", future), true);
+});
+
+// ---------------------------------------------------------
+// getMaterialUploadLimitBytes
+// ---------------------------------------------------------
+
+test("getMaterialUploadLimitBytes returns the Pro limit for an active pro profile", () => {
+  const now = Date.now();
+  const future = new Date(now + 1000).toISOString();
+  assert.equal(getMaterialUploadLimitBytes("pro", future, now), PRO_MATERIAL_UPLOAD_LIMIT_BYTES);
+});
+
+test("getMaterialUploadLimitBytes returns the Free limit for a free/expired/missing profile", () => {
+  const now = Date.now();
+  assert.equal(getMaterialUploadLimitBytes("free", null, now), FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(getMaterialUploadLimitBytes(null, null, now), FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(
+    getMaterialUploadLimitBytes("pro", new Date(now - 1000).toISOString(), now),
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES
+  );
+});
+
+// ---------------------------------------------------------
+// wouldExceedMaterialUploadQuota (generalized, tier-aware)
+// ---------------------------------------------------------
+
+test("wouldExceedMaterialUploadQuota allows 0 usage + 1 byte under the Free limit", () => {
+  assert.equal(wouldExceedMaterialUploadQuota(0, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES), false);
+});
+
+test("wouldExceedMaterialUploadQuota allows a total landing exactly on the Free limit", () => {
+  assert.equal(
+    wouldExceedMaterialUploadQuota(5 * MIB, 5 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES),
+    false
+  );
+});
+
+test("wouldExceedMaterialUploadQuota rejects one byte over the Free limit", () => {
+  assert.equal(
+    wouldExceedMaterialUploadQuota(5 * MIB, 5 * MIB + 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES),
+    true
+  );
+});
+
+test("wouldExceedMaterialUploadQuota rejects usage already at the Free limit plus one more byte", () => {
+  assert.equal(
+    wouldExceedMaterialUploadQuota(FREE_MATERIAL_UPLOAD_LIMIT_BYTES, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES),
+    true
+  );
+});
+
+test("wouldExceedMaterialUploadQuota allows a total landing exactly on the Pro limit", () => {
+  assert.equal(
+    wouldExceedMaterialUploadQuota(40 * MIB, 10 * MIB, PRO_MATERIAL_UPLOAD_LIMIT_BYTES),
+    false
+  );
+});
+
+test("wouldExceedMaterialUploadQuota rejects one byte over the Pro limit", () => {
+  assert.equal(
+    wouldExceedMaterialUploadQuota(40 * MIB, 10 * MIB + 1, PRO_MATERIAL_UPLOAD_LIMIT_BYTES),
+    true
+  );
+});
+
+test("wouldExceedMaterialUploadQuota rejects usage already at the Pro limit plus one more byte", () => {
+  assert.equal(
+    wouldExceedMaterialUploadQuota(PRO_MATERIAL_UPLOAD_LIMIT_BYTES, 1, PRO_MATERIAL_UPLOAD_LIMIT_BYTES),
+    true
+  );
+});
+
+test("wouldExceedMaterialUploadQuota rejects a Free-limit upload a Pro-sized file would have fit", () => {
+  // Confirms the limit is genuinely parameterized, not hardcoded: the
+  // same (usage, file size) pair must behave differently depending on
+  // which limit is passed in.
+  assert.equal(
+    wouldExceedMaterialUploadQuota(8 * MIB, 5 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES),
+    true
+  );
+  assert.equal(
+    wouldExceedMaterialUploadQuota(8 * MIB, 5 * MIB, PRO_MATERIAL_UPLOAD_LIMIT_BYTES),
+    false
+  );
 });
 
 // External link materials never call this upload quota helper; link
@@ -261,36 +390,45 @@ test("wouldExceedMaterialUploadQuota rejects usage already at the limit plus one
 // meaningful assertion to make about it here.
 
 test("wouldExceedMaterialUploadQuota rejects invalid current usage values", () => {
-  assert.throws(() => wouldExceedMaterialUploadQuota(NaN, 1));
-  assert.throws(() => wouldExceedMaterialUploadQuota(Infinity, 1));
-  assert.throws(() => wouldExceedMaterialUploadQuota(-1, 1));
-  assert.throws(() => wouldExceedMaterialUploadQuota("20", 1));
-  assert.throws(() => wouldExceedMaterialUploadQuota(null, 1));
-  assert.throws(() => wouldExceedMaterialUploadQuota(undefined, 1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(NaN, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(Infinity, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(-1, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota("20", 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(null, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(undefined, 1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
 });
 
 test("wouldExceedMaterialUploadQuota rejects invalid new file size values", () => {
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, NaN));
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, Infinity));
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, 0));
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, -1));
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, "10"));
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, null));
-  assert.throws(() => wouldExceedMaterialUploadQuota(0, undefined));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, NaN, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, Infinity, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 0, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, -1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, "10", FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, null, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, undefined, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+});
+
+test("wouldExceedMaterialUploadQuota rejects invalid limit values", () => {
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 1, NaN));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 1, Infinity));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 1, -1));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 1, "10"));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 1, null));
+  assert.throws(() => wouldExceedMaterialUploadQuota(0, 1, undefined));
 });
 
 test("MaterialUploadQuotaError carries name, code, and metadata", () => {
   const error = new MaterialUploadQuotaError("Takda: over quota.", {
-    limitBytes: TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES,
-    currentUsageBytes: 20 * MIB,
-    newFileSize: 10 * MIB,
+    limitBytes: FREE_MATERIAL_UPLOAD_LIMIT_BYTES,
+    currentUsageBytes: 8 * MIB,
+    newFileSize: 5 * MIB,
   });
 
   assert.equal(error.name, "MaterialUploadQuotaError");
   assert.equal(error.code, "quota_exceeded");
-  assert.equal(error.limitBytes, TEMP_ACCOUNT_UPLOAD_LIMIT_BYTES);
-  assert.equal(error.currentUsageBytes, 20 * MIB);
-  assert.equal(error.newFileSize, 10 * MIB);
+  assert.equal(error.limitBytes, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(error.currentUsageBytes, 8 * MIB);
+  assert.equal(error.newFileSize, 5 * MIB);
   assert.ok(error instanceof Error);
 });
 
