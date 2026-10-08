@@ -2160,7 +2160,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         <span className="text-xs text-slate-500">No semesters set up yet.</span>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} />
-          <button onClick={onManage} className="text-xs font-semibold text-[#3D2FE0] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
             + Set up semesters
           </button>
         </div>
@@ -2185,7 +2185,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
     <div className="relative flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors duration-150"
+        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors duration-150"
       >
         <CalendarIcon size={15} className="text-[#3D2FE0] shrink-0" />
         <span className="text-sm font-semibold truncate">{current.label}</span>
@@ -2195,7 +2195,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
       </button>
       <div className="flex items-center gap-3 shrink-0">
         <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} />
-        <button onClick={onManage} className="text-xs font-semibold text-[#3D2FE0] hover:underline">
+        <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
           Manage Semesters
         </button>
       </div>
@@ -2443,7 +2443,8 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
             <button
               key={it.key}
               onClick={() => setView(it.key)}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left"
+              aria-current={active ? "page" : undefined}
+              className="takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left"
               style={{
                 background: active ? "#EEECFC" : "transparent",
                 color: active ? "#3D2FE0" : "#475569",
@@ -2459,7 +2460,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
         onClick={onAddSubject}
         aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        className={`mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
+        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
         style={{ background: "#3D2FE0" }}
       >
         <Plus size={16} /> Add Subject
@@ -2959,7 +2960,7 @@ function NextClassCard({ nextClass, onOpenSubject }) {
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300 hover:shadow-sm"
+          className="takda-focus-visible w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300 hover:shadow-sm"
         >
           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nextClass.subject?.color || "#3D2FE0" }} />
           <div className="min-w-0 flex-1">
@@ -2992,7 +2993,7 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
               key={row.id}
               type="button"
               onClick={() => row.subject && onOpenSubject(row.subject.id)}
-              className="w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300"
+              className="takda-focus-visible w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300"
             >
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: row.subject?.color || "#3D2FE0" }} />
               <div className="min-w-0 flex-1">
@@ -3190,7 +3191,7 @@ function SubjectDetail({
 
       <h2 className="text-sm font-semibold text-slate-700 mb-2.5">Notes</h2>
       <div className="flex gap-2 mb-3">
-        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
+        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
         <button
           onClick={() => { if (noteText.trim() && onAddNote(noteText.trim())) setNoteText(""); }}
           aria-disabled={!canCreate}
@@ -3210,7 +3211,7 @@ function SubjectDetail({
                   onChange={(e) => setEditNoteText(e.target.value)}
                   rows={3}
                   autoFocus
-                  className="w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
+                  className="takda-focus-visible w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
                 />
                 <div className="flex flex-wrap justify-end gap-2">
                   <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50">Cancel</button>
@@ -3973,11 +3974,11 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
     <div className="p-5 md:p-8">
       <h1 className="font-display text-2xl font-semibold mb-5">Notes</h1>
       <div className="rounded-xl bg-white border border-[#E4E4F0] p-3 mb-6 flex flex-col gap-2">
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none">
+        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="takda-focus-visible rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none">
           <option value="">General note</option>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="takda-focus-visible rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
         <button
           onClick={() => { if (text.trim() && onAdd(subjectId || null, text.trim())) setText(""); }}
           aria-disabled={!canCreate}
@@ -3999,7 +4000,7 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
                     onChange={(e) => setEditText(e.target.value)}
                     rows={3}
                     autoFocus
-                    className="w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
+                    className="takda-focus-visible w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
                   />
                   <div className="flex flex-wrap justify-end gap-2">
                     <button onClick={() => { setEditingId(null); setEditText(""); }} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50">Cancel</button>
