@@ -3507,7 +3507,7 @@ function MaterialUploadModal({ onClose, onSave }) {
         // limitBytes/currentUsageBytes/newFileSize or any backend
         // detail to the user.
         setError(
-          "Your lesson-material uploads have reached the temporary storage limit. Delete an uploaded file to free space, or use Add Link instead."
+          "Lesson file storage limit reached. Free accounts can store up to 10 MiB, and Pro accounts up to 50 MiB of uploaded lesson files. Delete an uploaded file to free space, or use Add Link instead."
         );
       } else {
         setError("Unable to upload this file right now. Please try again.");
