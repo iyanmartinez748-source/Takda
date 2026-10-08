@@ -23,6 +23,11 @@ import {
   deriveMaterialUploadTitle,
   MaterialUploadValidationError,
   MaterialUploadQuotaError,
+  FREE_MATERIAL_UPLOAD_LIMIT_BYTES,
+  PRO_MATERIAL_UPLOAD_LIMIT_BYTES,
+  getMaterialUploadUsageDisplay,
+  computeAccountUploadUsageBytes,
+  getMaterialUploadUsageAccessibleValue,
 } from "./lib/materialUploads";
 import { MaterialLinkValidationError } from "./lib/materialLinks";
 import {
@@ -240,6 +245,45 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [materials, setMaterials] = useState([]);
   const [materialsLoading, setMaterialsLoading] = useState(true);
   const [materialsError, setMaterialsError] = useState("");
+
+  // Hybrid Lesson Materials #9B: account-wide Storage Usage Indicator —
+  // display-only, derived entirely from the SAME unfiltered `materials`
+  // array already loaded above (loadSubjectMaterials() has no subject/
+  // semester filter at all), so this requires zero additional network
+  // calls and automatically reflects every existing create/delete path
+  // that already updates `materials`. Deliberately NOT filtered by
+  // activeSubjectId/selectedSemesterId — this must stay the same number
+  // regardless of which subject is open, and archived/Unassigned
+  // uploads must count exactly like any other upload. Links contribute
+  // nothing (material_type !== "upload" is simply skipped inside
+  // computeAccountUploadUsageBytes). This value is never passed into
+  // any quota decision — wouldExceedMaterialUploadQuota and the #8A
+  // database trigger remain the only enforcement, each recomputing
+  // usage freshly from the database at the moment of an actual upload,
+  // independent of this memo.
+  //
+  // computeAccountUploadUsageBytes defensively parses each row's
+  // fileSize (which may be a JS number OR a numeric string, since
+  // file_size is a Postgres bigint column) rather than trusting it
+  // directly — a naive `sum + m.fileSize` would silently string-
+  // concatenate instead of add whenever Supabase returns a string,
+  // corrupting the total. `accountUploadUsageValid` is false the
+  // moment any upload row's size can't be parsed cleanly; the render
+  // below must never show a number when it is false.
+  const { usageBytes: accountUploadUsageBytes, isValid: accountUploadUsageValid } = useMemo(
+    () => computeAccountUploadUsageBytes(materials),
+    [materials]
+  );
+
+  // Mirrors getMaterialUploadLimitBytes's own Free/Pro selection, but
+  // reuses the `isPro` prop already derived (and already periodically
+  // refreshed) by main.jsx rather than re-querying profiles a second
+  // time purely for display — see the #9B planning audit for why this
+  // is safe for a cosmetic indicator even though the real preflight in
+  // storageAdapter.js deliberately never trusts this same prop.
+  const materialUploadLimitBytes = isPro
+    ? PRO_MATERIAL_UPLOAD_LIMIT_BYTES
+    : FREE_MATERIAL_UPLOAD_LIMIT_BYTES;
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState(null);
   // Hybrid Lesson Materials #5C: a separate modal/state from the link
@@ -1036,6 +1080,14 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     // Database cascade already removes subject_schedules for this subject —
     // this only prevents a ghost entry from lingering in frontend state.
     setSubjectSchedules((prev) => prev.filter((sch) => sch.subjectId !== id));
+    // Hybrid Lesson Materials #9B: same reasoning as subjectSchedules
+    // above — deleteRemovedSubjectsWithMaterialCleanup already removes
+    // both the Storage object(s) and the subject_materials rows for
+    // this subject server-side, but `materials` was never pruned
+    // client-side before this fix, leaving stale upload rows inflating
+    // the account-wide Storage Usage Indicator (and the materials list
+    // itself, were this subject ever reopened without a full reload).
+    setMaterials((prev) => prev.filter((m) => m.subjectId !== id));
     setActiveSubjectId(null);
     setView("subjects");
   }
@@ -1655,6 +1707,9 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               materials={materials.filter((m) => m.subjectId === activeSubjectId)}
               materialsLoading={materialsLoading}
               materialsError={materialsError}
+              accountUploadUsageBytes={accountUploadUsageBytes}
+              accountUploadUsageValid={accountUploadUsageValid}
+              materialUploadLimitBytes={materialUploadLimitBytes}
               canAddMaterials={canAddMaterials}
               materialsReadOnly={materialsReadOnly}
               onAddMaterial={() => { setEditingMaterial(null); setShowMaterialModal(true); }}
@@ -3067,6 +3122,7 @@ function SubjectDetail({
   onEditActivity, onDeleteActivity, onAddActivity, onAddNote, onEditNote, onDeleteNote,
   canCreate = true, readOnly = false,
   materials = [], materialsLoading = false, materialsError = "",
+  accountUploadUsageBytes = null, accountUploadUsageValid = false, materialUploadLimitBytes = null,
   canAddMaterials = true, materialsReadOnly = false,
   onAddMaterial, onAddUpload, onEditMaterial, onDeleteMaterial, onOpenMaterial,
 }) {
@@ -3181,6 +3237,20 @@ function SubjectDetail({
 
       <h2 className="text-sm font-semibold text-slate-700 mb-2.5 mt-7">Lesson Materials</h2>
       {materialsError && <div className="text-sm text-red-500 mb-2">{materialsError}</div>}
+      {!materialsLoading && !materialsError && typeof materialUploadLimitBytes === "number" && (
+        accountUploadUsageValid ? (
+          <MaterialStorageUsageIndicator
+            usageBytes={accountUploadUsageBytes}
+            limitBytes={materialUploadLimitBytes}
+          />
+        ) : (
+          // computeAccountUploadUsageBytes found at least one upload
+          // row whose fileSize could not be safely parsed — never show
+          // a fabricated/corrupted number, and never surface the raw
+          // value or any backend detail; a flat, neutral message only.
+          <p className="text-xs text-slate-400 mb-3">Storage usage is temporarily unavailable.</p>
+        )
+      )}
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <span className="text-xs text-slate-400">{materialsLoading ? "Loading…" : `${materials.length} material${materials.length === 1 ? "" : "s"}`}</span>
         <div className="flex items-center gap-3 flex-wrap justify-end">
@@ -3258,6 +3328,57 @@ function SubjectDetail({
             return <UnknownMaterialCard key={m.id} material={m} />;
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Hybrid Lesson Materials #9B: account-wide Storage Usage Indicator —
+// strictly cosmetic, never consulted for any quota decision (see the
+// accountUploadUsageBytes/materialUploadLimitBytes derivation above in
+// TakdaApp). Rendered only once its caller has confirmed materials
+// finished loading without error AND computeAccountUploadUsageBytes
+// reported a valid result — this component itself has no loading/
+// error/validity state of its own and never substitutes a fabricated
+// zero for either value.
+//
+// aria-valuenow is clamped to aria-valuemax (never exceeds it, even
+// when over the plan limit) to stay inside the WAI-ARIA progressbar
+// value contract; aria-valuetext carries the TRUE, unclamped usage and
+// an explicit "over your plan's limit" statement so a screen-reader
+// user is never told the over-limit state only through the bar's red
+// color — the same real text is also shown visually below the bar.
+function MaterialStorageUsageIndicator({ usageBytes, limitBytes }) {
+  const display = getMaterialUploadUsageDisplay(usageBytes, limitBytes);
+  const accessibleValue = getMaterialUploadUsageAccessibleValue(usageBytes, limitBytes);
+  const barColor = display.isOverLimit ? "#DC2626" : "#3D2FE0";
+
+  return (
+    <div className="mb-3">
+      <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-1">
+        <span>
+          {display.usedMiBLabel} / {display.limitMiBLabel} used (account-wide)
+        </span>
+        <span>{display.remainingMiBLabel} left</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Lesson file storage used, account-wide"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(limitBytes)}
+        aria-valuenow={accessibleValue.valueNow}
+        aria-valuetext={accessibleValue.valueText}
+        className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden"
+      >
+        <div
+          className="h-full rounded-full transition-[width] duration-150"
+          style={{ width: `${display.percentClamped}%`, background: barColor }}
+        />
+      </div>
+      {display.isOverLimit && (
+        <p className="text-xs text-red-500 mt-1">
+          You're over your plan's lesson-file storage limit. Delete an uploaded file to free space.
+        </p>
       )}
     </div>
   );
