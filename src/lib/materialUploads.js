@@ -251,3 +251,165 @@ export function wouldExceedMaterialUploadQuota(currentUsageBytes, newFileSize, l
 
   return newFileSize > limitBytes - currentUsageBytes;
 }
+
+const BYTES_PER_MIB = 1024 * 1024;
+
+// Rounds a byte count to a one-decimal MiB label, dropping the trailing
+// ".0" for a whole number (e.g. 10485760 -> "10 MiB", not "10.0 MiB").
+// Display-only formatting — never used by any quota decision.
+function formatMiBLabel(bytes) {
+  const rounded = Math.round((bytes / BYTES_PER_MIB) * 10) / 10;
+  const fixed = rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1);
+  return `${fixed} MiB`;
+}
+
+// Hybrid Lesson Materials #9B: pure display-value helper for the
+// account-wide Storage Usage Indicator. This is STRICTLY cosmetic —
+// nothing in this function is ever consulted by wouldExceedMaterial
+// UploadQuota, createSubjectMaterialUpload's preflight, or the #8A
+// database trigger; it only turns an already-known (usage, limit) pair
+// into numbers/labels safe to render. Deliberately requires limitBytes
+// to be strictly positive (unlike wouldExceedMaterialUploadQuota, which
+// tolerates a zero limit for its own reject-everything branch) because
+// a zero/negative limit would make a percentage meaningless here
+// (division by zero or a negative span) — there is no real product
+// scenario where this helper would ever be called with one.
+//
+// currentUsageBytes may legitimately exceed limitBytes (a Pro account
+// that downgraded to Free while already over 10 MiB) — this is NOT
+// rejected; isOverLimit/percentRaw are exactly how that case is
+// surfaced to the UI. percentClamped is the only value ever safe to
+// use for a visual bar's width (never exceeds 100); percentRaw and
+// isOverLimit exist specifically so the UI can still show the TRUE,
+// unclamped usage in text, per product requirement.
+export function getMaterialUploadUsageDisplay(currentUsageBytes, limitBytes) {
+  if (!Number.isFinite(currentUsageBytes) || currentUsageBytes < 0) {
+    throw new Error(
+      "Takda: current upload usage must be a finite, non-negative number."
+    );
+  }
+
+  if (!Number.isFinite(limitBytes) || limitBytes <= 0) {
+    throw new Error(
+      "Takda: upload limit must be a finite, positive number."
+    );
+  }
+
+  const remainingBytes = Math.max(0, limitBytes - currentUsageBytes);
+  const percentRaw = (currentUsageBytes / limitBytes) * 100;
+  const percentClamped = Math.min(100, Math.max(0, Math.round(percentRaw)));
+  const isOverLimit = currentUsageBytes > limitBytes;
+
+  return {
+    usedMiB: currentUsageBytes / BYTES_PER_MIB,
+    limitMiB: limitBytes / BYTES_PER_MIB,
+    remainingMiB: remainingBytes / BYTES_PER_MIB,
+    usedMiBLabel: formatMiBLabel(currentUsageBytes),
+    limitMiBLabel: formatMiBLabel(limitBytes),
+    remainingMiBLabel: formatMiBLabel(remainingBytes),
+    percentRaw,
+    percentClamped,
+    isOverLimit,
+  };
+}
+
+// Parses a single subject_materials.file_size value (a Postgres bigint
+// column) into a safe, non-negative, finite integer — or returns null
+// for anything else (missing, malformed, negative, non-integer, NaN,
+// Infinity, an unexpected type). Mirrors storageAdapter.js's own
+// getAccountUploadUsageBytes parsing of this identical column — a
+// bigint can come back from Supabase as either a JS number or a
+// numeric string depending on client/value, and this helper accepts
+// both — without duplicating or depending on that function (this
+// module never imports storageAdapter.js). Returns null rather than
+// silently substituting 0, so a caller can tell "zero bytes" apart
+// from "could not determine this row's size" and react accordingly —
+// callers must never treat a null result as 0.
+export function parseMaterialUploadFileSize(rawValue) {
+  if (typeof rawValue === "number") {
+    // Number.isSafeInteger (not isFinite + isInteger): the latter pair
+    // would accept a finite, fractionless-looking value like 2 ** 60,
+    // which is already beyond exact double-precision representation.
+    // Matches storageAdapter.js's own getAccountUploadUsageBytes number
+    // branch for this identical file_size column, and the string
+    // branch immediately below, which already used isSafeInteger.
+    return Number.isSafeInteger(rawValue) && rawValue >= 0 ? rawValue : null;
+  }
+
+  if (typeof rawValue === "string" && /^\d+$/.test(rawValue)) {
+    const converted = Number(rawValue);
+    return Number.isSafeInteger(converted) && converted >= 0 ? converted : null;
+  }
+
+  return null;
+}
+
+// Hybrid Lesson Materials #9B: pure, account-wide usage aggregation for
+// the Storage Usage Indicator — never consulted by any quota decision
+// (the #8A database trigger and storageAdapter.js's own preflight each
+// recompute usage independently, straight from the database). Takes
+// the app's already-loaded, already-unfiltered `materials` array
+// directly (zero network calls of its own) and skips every non-
+// "upload" entry (material_type is used as the sole discriminator,
+// exactly like storageAdapter.js's own usage query — external links
+// are never inspected for a file size at all).
+//
+// Returns { usageBytes, isValid } rather than throwing or silently
+// treating a malformed row as zero bytes: the moment ANY upload row's
+// fileSize fails to parse cleanly via parseMaterialUploadFileSize,
+// isValid becomes false and usageBytes is reset to 0 — a caller must
+// treat usageBytes as meaningless unless isValid is true, and must
+// never render it (or any derived percentage) in that case. This is
+// what lets the UI fall back to a neutral "temporarily unavailable"
+// message instead of ever displaying a corrupted or fabricated number.
+export function computeAccountUploadUsageBytes(materials) {
+  if (!Array.isArray(materials)) {
+    return { usageBytes: 0, isValid: false };
+  }
+
+  let usageBytes = 0;
+
+  for (const material of materials) {
+    if (!material || material.materialType !== "upload") continue;
+
+    const parsedSize = parseMaterialUploadFileSize(material.fileSize);
+
+    if (parsedSize === null) {
+      return { usageBytes: 0, isValid: false };
+    }
+
+    usageBytes += parsedSize;
+
+    // Re-validated after every addition (not only once at the end):
+    // each individual parsedSize is already a safe integer, but the
+    // RUNNING TOTAL can still drift past Number.MAX_SAFE_INTEGER given
+    // enough rows, at which point it would silently lose precision
+    // rather than becoming NaN/Infinity — never throw or silently
+    // accept that; fail closed exactly like a malformed per-row value.
+    if (!Number.isSafeInteger(usageBytes)) {
+      return { usageBytes: 0, isValid: false };
+    }
+  }
+
+  return { usageBytes, isValid: true };
+}
+
+// Pure derivation of the two WAI-ARIA progressbar fields that must stay
+// standards-compliant even once usage exceeds the limit (the explicit
+// post-downgrade-overage product requirement): aria-valuenow must
+// never exceed aria-valuemax, while aria-valuetext still carries the
+// TRUE, unclamped usage plus an explicit "over your plan's limit"
+// statement — so a screen-reader user is never told the over-limit
+// state only through the visual bar's color. Reuses
+// getMaterialUploadUsageDisplay rather than duplicating its validation
+// or its isOverLimit/label logic.
+export function getMaterialUploadUsageAccessibleValue(currentUsageBytes, limitBytes) {
+  const display = getMaterialUploadUsageDisplay(currentUsageBytes, limitBytes);
+
+  return {
+    valueNow: Math.min(Math.round(currentUsageBytes), Math.round(limitBytes)),
+    valueText: `${display.usedMiBLabel} of ${display.limitMiBLabel} used${
+      display.isOverLimit ? ", over your plan's limit" : ""
+    }`,
+  };
+}

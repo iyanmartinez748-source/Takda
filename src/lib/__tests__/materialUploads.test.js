@@ -24,6 +24,10 @@ import {
   getMaterialUploadLimitBytes,
   MaterialUploadQuotaError,
   wouldExceedMaterialUploadQuota,
+  getMaterialUploadUsageDisplay,
+  parseMaterialUploadFileSize,
+  computeAccountUploadUsageBytes,
+  getMaterialUploadUsageAccessibleValue,
 } from "../materialUploads.js";
 
 const MIB = 1024 * 1024;
@@ -437,4 +441,279 @@ test("MaterialUploadQuotaError works with no metadata supplied", () => {
   assert.equal(error.name, "MaterialUploadQuotaError");
   assert.equal(error.code, "quota_exceeded");
   assert.equal(error.limitBytes, undefined);
+});
+
+// ---------------------------------------------------------
+// getMaterialUploadUsageDisplay (#9B — display-only, never enforcement)
+// ---------------------------------------------------------
+
+test("getMaterialUploadUsageDisplay: zero usage", () => {
+  const result = getMaterialUploadUsageDisplay(0, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(result.usedMiB, 0);
+  assert.equal(result.usedMiBLabel, "0 MiB");
+  assert.equal(result.limitMiBLabel, "10 MiB");
+  assert.equal(result.remainingMiBLabel, "10 MiB");
+  assert.equal(result.percentRaw, 0);
+  assert.equal(result.percentClamped, 0);
+  assert.equal(result.isOverLimit, false);
+});
+
+test("getMaterialUploadUsageDisplay: partial usage", () => {
+  const result = getMaterialUploadUsageDisplay(5 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(result.usedMiB, 5);
+  assert.equal(result.remainingMiB, 5);
+  assert.equal(result.percentRaw, 50);
+  assert.equal(result.percentClamped, 50);
+  assert.equal(result.isOverLimit, false);
+});
+
+test("getMaterialUploadUsageDisplay: exactly 100%", () => {
+  const result = getMaterialUploadUsageDisplay(
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES,
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES
+  );
+  assert.equal(result.percentRaw, 100);
+  assert.equal(result.percentClamped, 100);
+  assert.equal(result.remainingMiB, 0);
+  assert.equal(result.remainingMiBLabel, "0 MiB");
+  // Exactly at the limit is NOT over it — matches wouldExceedMaterial
+  // UploadQuota's own strictly-greater-than semantics elsewhere in this
+  // module (a total landing exactly on the limit is allowed).
+  assert.equal(result.isOverLimit, false);
+});
+
+test("getMaterialUploadUsageDisplay: one byte over quota", () => {
+  const result = getMaterialUploadUsageDisplay(
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES + 1,
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES
+  );
+  assert.equal(result.isOverLimit, true);
+  assert.ok(result.percentRaw > 100);
+  // Bar width must still clamp to 100, never past it.
+  assert.equal(result.percentClamped, 100);
+  // Remaining capacity is clamped at 0, never negative.
+  assert.equal(result.remainingMiB, 0);
+});
+
+test("getMaterialUploadUsageDisplay: post-downgrade overage shows true usage, clamps only the bar", () => {
+  // A Pro account (50 MiB limit) that downgraded to Free (10 MiB limit)
+  // while already holding 52 MiB of uploads — a realistic, explicitly
+  // allowed product scenario (no automatic deletion on downgrade).
+  const result = getMaterialUploadUsageDisplay(52 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(result.usedMiB, 52);
+  assert.equal(result.usedMiBLabel, "52 MiB");
+  assert.equal(result.isOverLimit, true);
+  assert.equal(result.percentRaw, 520);
+  assert.equal(result.percentClamped, 100);
+  assert.equal(result.remainingMiB, 0);
+});
+
+test("getMaterialUploadUsageDisplay: fractional MiB display rounds to one decimal and drops trailing .0", () => {
+  const result = getMaterialUploadUsageDisplay(3.4 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(result.usedMiBLabel, "3.4 MiB");
+  // A limit that is a whole number of MiB must never display a
+  // trailing ".0".
+  assert.equal(result.limitMiBLabel, "10 MiB");
+});
+
+test("getMaterialUploadUsageDisplay: rejects invalid current usage values", () => {
+  assert.throws(() => getMaterialUploadUsageDisplay(NaN, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => getMaterialUploadUsageDisplay(Infinity, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => getMaterialUploadUsageDisplay(-1, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => getMaterialUploadUsageDisplay(null, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => getMaterialUploadUsageDisplay(undefined, FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+  assert.throws(() => getMaterialUploadUsageDisplay("5", FREE_MATERIAL_UPLOAD_LIMIT_BYTES));
+});
+
+test("getMaterialUploadUsageDisplay: rejects invalid or non-positive limit values", () => {
+  assert.throws(() => getMaterialUploadUsageDisplay(0, NaN));
+  assert.throws(() => getMaterialUploadUsageDisplay(0, Infinity));
+  assert.throws(() => getMaterialUploadUsageDisplay(0, 0));
+  assert.throws(() => getMaterialUploadUsageDisplay(0, -1));
+  assert.throws(() => getMaterialUploadUsageDisplay(0, null));
+  assert.throws(() => getMaterialUploadUsageDisplay(0, undefined));
+});
+
+// ---------------------------------------------------------
+// parseMaterialUploadFileSize (#9B fix — bigint number/string safety)
+// ---------------------------------------------------------
+
+test("parseMaterialUploadFileSize: accepts a plain numeric fileSize", () => {
+  assert.equal(parseMaterialUploadFileSize(204800), 204800);
+  assert.equal(parseMaterialUploadFileSize(0), 0);
+});
+
+test("parseMaterialUploadFileSize: accepts a numeric-string fileSize (Postgres bigint)", () => {
+  assert.equal(parseMaterialUploadFileSize("204800"), 204800);
+  assert.equal(parseMaterialUploadFileSize("0"), 0);
+});
+
+test("parseMaterialUploadFileSize: rejects a malformed string", () => {
+  assert.equal(parseMaterialUploadFileSize("abc"), null);
+  assert.equal(parseMaterialUploadFileSize("12.5"), null);
+  assert.equal(parseMaterialUploadFileSize(""), null);
+  assert.equal(parseMaterialUploadFileSize("1e10"), null);
+});
+
+test("parseMaterialUploadFileSize: rejects a negative value of either type", () => {
+  assert.equal(parseMaterialUploadFileSize(-1), null);
+  assert.equal(parseMaterialUploadFileSize("-1"), null);
+});
+
+test("parseMaterialUploadFileSize: rejects NaN, Infinity, and non-integer numbers", () => {
+  assert.equal(parseMaterialUploadFileSize(NaN), null);
+  assert.equal(parseMaterialUploadFileSize(Infinity), null);
+  assert.equal(parseMaterialUploadFileSize(-Infinity), null);
+  assert.equal(parseMaterialUploadFileSize(1.5), null);
+});
+
+test("parseMaterialUploadFileSize: rejects null, undefined, and other unexpected types", () => {
+  assert.equal(parseMaterialUploadFileSize(null), null);
+  assert.equal(parseMaterialUploadFileSize(undefined), null);
+  assert.equal(parseMaterialUploadFileSize({}), null);
+  assert.equal(parseMaterialUploadFileSize([204800]), null);
+  assert.equal(parseMaterialUploadFileSize(true), null);
+});
+
+test("parseMaterialUploadFileSize: rejects a number above Number.MAX_SAFE_INTEGER", () => {
+  // 2 ** 60 is finite and has no fractional part, but is already
+  // beyond exact double-precision representation — Number.isInteger
+  // alone would wrongly accept it; Number.isSafeInteger correctly
+  // rejects it.
+  assert.equal(parseMaterialUploadFileSize(2 ** 60), null);
+});
+
+test("parseMaterialUploadFileSize: accepts Number.MAX_SAFE_INTEGER itself", () => {
+  assert.equal(parseMaterialUploadFileSize(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+});
+
+// ---------------------------------------------------------
+// computeAccountUploadUsageBytes (#9B fix — account-wide aggregation)
+// ---------------------------------------------------------
+
+function uploadRow(fileSize) {
+  return { materialType: "upload", fileSize };
+}
+
+function linkRow() {
+  return { materialType: "link", fileSize: null };
+}
+
+test("computeAccountUploadUsageBytes: sums plain numeric upload rows", () => {
+  const result = computeAccountUploadUsageBytes([uploadRow(5 * MIB), uploadRow(3 * MIB)]);
+  assert.equal(result.isValid, true);
+  assert.equal(result.usageBytes, 8 * MIB);
+});
+
+test("computeAccountUploadUsageBytes: sums mixed numeric and numeric-string upload rows", () => {
+  const result = computeAccountUploadUsageBytes([
+    uploadRow(5 * MIB),
+    uploadRow(String(3 * MIB)),
+  ]);
+  assert.equal(result.isValid, true);
+  assert.equal(result.usageBytes, 8 * MIB);
+});
+
+test("computeAccountUploadUsageBytes: never string-concatenates a numeric-string fileSize", () => {
+  // The exact regression this fix targets: naive `sum + fileSize` with
+  // a string fileSize would produce "01048576" instead of 1048576.
+  const result = computeAccountUploadUsageBytes([uploadRow(String(MIB))]);
+  assert.equal(result.usageBytes, MIB);
+  assert.equal(typeof result.usageBytes, "number");
+});
+
+test("computeAccountUploadUsageBytes: excludes link rows entirely", () => {
+  const result = computeAccountUploadUsageBytes([
+    linkRow(),
+    uploadRow(5 * MIB),
+    linkRow(),
+  ]);
+  assert.equal(result.isValid, true);
+  assert.equal(result.usageBytes, 5 * MIB);
+});
+
+test("computeAccountUploadUsageBytes: an account with only link materials has zero, valid usage", () => {
+  const result = computeAccountUploadUsageBytes([linkRow(), linkRow()]);
+  assert.equal(result.isValid, true);
+  assert.equal(result.usageBytes, 0);
+});
+
+test("computeAccountUploadUsageBytes: an empty account has zero, valid usage", () => {
+  const result = computeAccountUploadUsageBytes([]);
+  assert.equal(result.isValid, true);
+  assert.equal(result.usageBytes, 0);
+});
+
+test("computeAccountUploadUsageBytes: becomes invalid (never a silent zero) on a malformed upload row", () => {
+  const result = computeAccountUploadUsageBytes([uploadRow(5 * MIB), uploadRow("not-a-number")]);
+  assert.equal(result.isValid, false);
+  assert.equal(result.usageBytes, 0);
+});
+
+test("computeAccountUploadUsageBytes: becomes invalid on a negative upload fileSize", () => {
+  const result = computeAccountUploadUsageBytes([uploadRow(-1)]);
+  assert.equal(result.isValid, false);
+});
+
+test("computeAccountUploadUsageBytes: becomes invalid on a null/missing fileSize for an upload row", () => {
+  // Structurally shouldn't happen given the DB's own upload_or_link
+  // CHECK constraint, but this helper must never crash or silently
+  // treat it as 0 regardless.
+  assert.equal(computeAccountUploadUsageBytes([uploadRow(null)]).isValid, false);
+  assert.equal(computeAccountUploadUsageBytes([uploadRow(undefined)]).isValid, false);
+});
+
+test("computeAccountUploadUsageBytes: rejects a non-array input defensively", () => {
+  assert.equal(computeAccountUploadUsageBytes(null).isValid, false);
+  assert.equal(computeAccountUploadUsageBytes(undefined).isValid, false);
+  assert.equal(computeAccountUploadUsageBytes("not-an-array").isValid, false);
+});
+
+test("computeAccountUploadUsageBytes: rejects a total exceeding Number.MAX_SAFE_INTEGER even when every individual row is valid", () => {
+  // Both rows individually pass parseMaterialUploadFileSize (each is
+  // itself a safe integer), but their SUM is not — the running total
+  // must be re-validated after accumulation, not just each addend.
+  const result = computeAccountUploadUsageBytes([
+    uploadRow(Number.MAX_SAFE_INTEGER),
+    uploadRow(1),
+  ]);
+  assert.equal(result.isValid, false);
+  assert.equal(result.usageBytes, 0);
+});
+
+test("computeAccountUploadUsageBytes: accepts a total that lands exactly on the Number.MAX_SAFE_INTEGER boundary", () => {
+  const result = computeAccountUploadUsageBytes([
+    uploadRow(Number.MAX_SAFE_INTEGER - 1),
+    uploadRow(1),
+  ]);
+  assert.equal(result.isValid, true);
+  assert.equal(result.usageBytes, Number.MAX_SAFE_INTEGER);
+});
+
+// ---------------------------------------------------------
+// getMaterialUploadUsageAccessibleValue (#9B fix — ARIA compliance)
+// ---------------------------------------------------------
+
+test("getMaterialUploadUsageAccessibleValue: at exact limit, valueNow equals valueMax-equivalent usage", () => {
+  const result = getMaterialUploadUsageAccessibleValue(
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES,
+    FREE_MATERIAL_UPLOAD_LIMIT_BYTES
+  );
+  assert.equal(result.valueNow, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(result.valueText, "10 MiB of 10 MiB used");
+});
+
+test("getMaterialUploadUsageAccessibleValue: under the limit, valueNow is the real usage", () => {
+  const result = getMaterialUploadUsageAccessibleValue(5 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  assert.equal(result.valueNow, 5 * MIB);
+  assert.equal(result.valueText, "5 MiB of 10 MiB used");
+});
+
+test("getMaterialUploadUsageAccessibleValue: over the limit, valueNow is clamped but valueText states the real usage and over-limit status", () => {
+  const result = getMaterialUploadUsageAccessibleValue(52 * MIB, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  // Clamped: must never exceed the limit passed in (would-be aria-valuemax).
+  assert.equal(result.valueNow, FREE_MATERIAL_UPLOAD_LIMIT_BYTES);
+  // Unclamped in the accessible text, plus an explicit over-limit statement —
+  // never conveyed by color alone.
+  assert.equal(result.valueText, "52 MiB of 10 MiB used, over your plan's limit");
 });
