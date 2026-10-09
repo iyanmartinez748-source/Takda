@@ -293,6 +293,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [limitNotice, setLimitNotice] = useState(null);
+  const limitModalReturnFocusRef = useRef(null);
   // Stage 4D: which semester is currently being VIEWED. Deliberately a
   // separate piece of state from activeSemesterId (which governs where new
   // records get created and Free-plan quota) — the two are never conflated.
@@ -917,12 +918,17 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return "Good Evening";
   }, []);
 
+  function captureLimitModalReturnFocus(element = document.activeElement) {
+    limitModalReturnFocusRef.current = element instanceof HTMLElement ? element : null;
+  }
+
   function requestAddSubject() {
     if (!canCreateInSelectedSemester) {
       setSemesterNotice(semesterCreationBlockedReason);
       return;
     }
     if (!isPro && activeSemesterSubjectCount >= FREE_SUBJECT_LIMIT) {
+      captureLimitModalReturnFocus();
       setLimitNotice("subjects");
       return;
     }
@@ -1268,6 +1274,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
       return;
     }
     if (!isPro && activeSemesterActivityCount >= FREE_ACTIVITY_LIMIT) {
+      captureLimitModalReturnFocus();
       setLimitNotice("activities");
       return;
     }
@@ -1798,6 +1805,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           schedules={editingSubject ? subjectSchedules.filter((s) => s.subjectId === editingSubject.id) : []}
           onClose={() => { setShowAddSubject(false); setEditingSubject(null); }}
           onSave={saveSubject}
+          onOpenerCapture={(element) => { limitModalReturnFocusRef.current = element; }}
         />
       )}
 
@@ -1829,6 +1837,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           defaultDeadline={defaultDeadlineForActivity}
           onClose={() => { setShowAddActivity(false); setEditingActivity(null); setDefaultSubjectForActivity(null); setDefaultDeadlineForActivity(null); }}
           onSave={saveActivity}
+          onOpenerCapture={(element) => { limitModalReturnFocusRef.current = element; }}
         />
       )}
 
@@ -1837,6 +1846,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
           kind={limitNotice}
           onClose={() => setLimitNotice(null)}
           onUpgrade={onUpgrade}
+          returnFocusRef={limitModalReturnFocusRef}
         />
       )}
 
@@ -1876,35 +1886,190 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
 }
 
 /* ---------------- Free plan limit notice ---------------- */
-function LimitReachedModal({ kind, onClose, onUpgrade }) {
+function LimitReachedModal({ kind, onClose, onUpgrade, returnFocusRef }) {
+  const dialogRef = useRef(null);
+  const panelRef = useRef(null);
+  const notNowRef = useRef(null);
+  const focusLifecycleGenerationRef = useRef(0);
+  const restoreFocusOnCleanupRef = useRef(true);
   const message =
     kind === "subjects"
       ? `You’ve reached the Free plan limit of ${FREE_SUBJECT_LIMIT} subjects. Upgrade to Takda Pro for unlimited subjects.`
       : `You’ve reached the Free plan limit of ${FREE_ACTIVITY_LIMIT} tasks. Upgrade to Takda Pro for unlimited tasks.`;
 
+  useLayoutEffect(() => {
+    function isAvailableElement(element) {
+      if (!(element instanceof HTMLElement) || !element.isConnected || element.matches(":disabled")) return false;
+      if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+      const style = window.getComputedStyle(element);
+      return (
+        !["none", "hidden", "collapse"].includes(style.visibility) &&
+        style.display !== "none" &&
+        element.getClientRects().length > 0
+      );
+    }
+
+    function getTabbableElements(panel) {
+      return Array.from(
+        panel.querySelectorAll(
+          "button, input:not([type='hidden']), select, textarea, a[href], area[href], [contenteditable='true'], audio[controls], video[controls], [tabindex]"
+        )
+      ).filter((element) => isAvailableElement(element) && element.tabIndex >= 0);
+    }
+
+    function getTopmostDialog() {
+      const dialogs = Array.from(
+        document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      ).filter(isAvailableElement);
+      return dialogs[dialogs.length - 1] || null;
+    }
+
+    function isTopmostDialog(dialog) {
+      return getTopmostDialog() === dialog;
+    }
+
+    function isFocusableOpener(element) {
+      if (!isAvailableElement(element)) return false;
+      return (
+        element.tabIndex >= 0 ||
+        element.hasAttribute("tabindex") ||
+        element.matches("button, input:not([type='hidden']), select, textarea, a[href], area[href], [contenteditable='true'], audio[controls], video[controls]")
+      );
+    }
+
+    function handleKeyDown(event) {
+      const dialog = dialogRef.current;
+      const panel = panelRef.current;
+      if (!dialog || !panel || !isTopmostDialog(dialog)) return;
+
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (
+        event.key !== "Tab" ||
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      ) return;
+
+      const tabbableElements = getTabbableElements(panel);
+      const first = tabbableElements[0];
+      const last = tabbableElements[tabbableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (!first) {
+        event.preventDefault();
+        panel.focus({ preventScroll: true });
+        return;
+      }
+
+      if (!panel.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+        return;
+      }
+
+      if (activeElement === panel) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+        return;
+      }
+
+      const activeIndex = tabbableElements.indexOf(activeElement);
+      if (activeIndex < 0) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+      } else if (event.shiftKey && activeIndex === 0) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && activeIndex === tabbableElements.length - 1) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    }
+
+    function handleFocusIn(event) {
+      const dialog = dialogRef.current;
+      const panel = panelRef.current;
+      if (!dialog || !panel || !isTopmostDialog(dialog) || panel.contains(event.target)) return;
+
+      const firstTabbable = getTabbableElements(panel)[0];
+      (firstTabbable || panel).focus({ preventScroll: true });
+    }
+
+    const dialog = dialogRef.current;
+    ++focusLifecycleGenerationRef.current;
+    if (isTopmostDialog(dialog)) {
+      notNowRef.current?.focus({ preventScroll: true });
+    }
+    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("focusin", handleFocusIn);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("focusin", handleFocusIn);
+      const cleanupGeneration = ++focusLifecycleGenerationRef.current;
+      queueMicrotask(() => {
+        if (focusLifecycleGenerationRef.current !== cleanupGeneration) return;
+
+        const savedOpener = returnFocusRef.current;
+        const topmostDialog = getTopmostDialog();
+        const openerBelongsToTopmost = topmostDialog?.contains(savedOpener);
+        if (
+          restoreFocusOnCleanupRef.current &&
+          (!topmostDialog || openerBelongsToTopmost) &&
+          isFocusableOpener(savedOpener)
+        ) {
+          savedOpener.focus({ preventScroll: true });
+        }
+      });
+    };
+  }, []);
+
+  function handleUpgrade() {
+    restoreFocusOnCleanupRef.current = false;
+    onClose();
+    onUpgrade?.();
+  }
+
   return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="limit-reached-title"
+      aria-describedby="limit-reached-description"
+    >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="takda-pro-badge inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide">
           <span aria-hidden="true">✦</span> PRO
         </span>
-        <h3 className="font-display mt-3 text-lg font-semibold text-[#1B1B2F]">Free plan limit reached</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-500">{message}</p>
+        <h3 id="limit-reached-title" className="font-display mt-3 text-lg font-semibold text-[#1B1B2F]">Free plan limit reached</h3>
+        <p id="limit-reached-description" className="mt-2 text-sm leading-6 text-slate-500">{message}</p>
         <div className="mt-5 flex gap-2">
           <button
+            ref={notNowRef}
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-xl border border-[#E4E4F0] py-2.5 text-sm font-semibold text-slate-500"
+            className="takda-focus-visible flex-1 rounded-xl border border-[#E4E4F0] py-2.5 text-sm font-semibold text-slate-500"
           >
             Not now
           </button>
           <button
             type="button"
-            onClick={() => { onClose(); onUpgrade?.(); }}
-            className="flex-1 rounded-xl bg-[#3D2FE0] py-2.5 text-sm font-bold text-white"
+            onClick={handleUpgrade}
+            className="takda-focus-visible takda-focus-visible-on-brand flex-1 rounded-xl bg-[#3D2FE0] py-2.5 text-sm font-bold text-white"
           >
             Upgrade to Pro
           </button>
@@ -4636,7 +4801,7 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
 }
 
 /* ---------------- Modals ---------------- */
-function ModalShell({ title, onClose, children }) {
+function ModalShell({ title, onClose, onOpenerCapture, children }) {
   const dialogRef = useRef(null);
   const panelRef = useRef(null);
   const openerRef = useRef(null);
@@ -4750,6 +4915,7 @@ function ModalShell({ title, onClose, children }) {
       const opener = document.activeElement;
       openerRef.current = opener instanceof HTMLElement ? opener : null;
       openerCapturedRef.current = true;
+      onOpenerCapture?.(openerRef.current);
     }
     const panel = panelRef.current;
     if (isTopmostDialog(dialog)) {
@@ -4783,7 +4949,19 @@ function ModalShell({ title, onClose, children }) {
 
   useEffect(() => {
     function handleKeyDown(e) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
+        .filter((element) => {
+          if (!(element instanceof HTMLElement) || !element.isConnected) return false;
+          if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+          const style = window.getComputedStyle(element);
+          return style.display !== "none" &&
+            !["none", "hidden", "collapse"].includes(style.visibility) &&
+            element.getClientRects().length > 0;
+        });
+      if (dialogs[dialogs.length - 1] !== dialogRef.current) return;
+      e.preventDefault();
+      onClose();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -5148,7 +5326,7 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
   );
 }
 
-function SubjectModal({ subject, schedules = [], onClose, onSave }) {
+function SubjectModal({ subject, schedules = [], onClose, onSave, onOpenerCapture }) {
   const [form, setForm] = useState(subject || { name: "", teacher: "", schedule: "", room: "", color: COLORS[0] });
   const [groups, setGroups] = useState(() => groupSchedulesForForm(schedules));
 
@@ -5171,7 +5349,7 @@ function SubjectModal({ subject, schedules = [], onClose, onSave }) {
   const hasInvalidGroup = groups.some((g) => !isScheduleGroupValid(g));
 
   return (
-    <ModalShell title={subject ? "Edit Subject" : "Add Subject"} onClose={onClose}>
+    <ModalShell title={subject ? "Edit Subject" : "Add Subject"} onClose={onClose} onOpenerCapture={onOpenerCapture}>
       <Field label="Subject Name *">
         <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Mathematics" />
       </Field>
@@ -5256,7 +5434,7 @@ function SubjectModal({ subject, schedules = [], onClose, onSave }) {
   );
 }
 
-function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId, defaultDeadline, onClose, onSave }) {
+function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId, defaultDeadline, onClose, onSave, onOpenerCapture }) {
   // Semester hotfix: editing always shows the activity's own existing
   // subject relationship (even a legacy/cross-semester one — the dropdown
   // is disabled for edits regardless, per "Subject is fixed after
@@ -5290,7 +5468,7 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
   const repeatUntilInvalid =
     isRecurring && (!form.repeatUntil || parseLocalDate(form.repeatUntil) < parseLocalDate(form.deadline));
   return (
-    <ModalShell title={activity ? "Edit Activity" : "Add Activity"} onClose={onClose}>
+    <ModalShell title={activity ? "Edit Activity" : "Add Activity"} onClose={onClose} onOpenerCapture={onOpenerCapture}>
       <Field label="Title *">
         <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Problem Set #3" />
       </Field>
