@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
@@ -4637,6 +4637,150 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
 
 /* ---------------- Modals ---------------- */
 function ModalShell({ title, onClose, children }) {
+  const dialogRef = useRef(null);
+  const panelRef = useRef(null);
+  const openerRef = useRef(null);
+  const openerCapturedRef = useRef(false);
+  const focusLifecycleGenerationRef = useRef(0);
+
+  useLayoutEffect(() => {
+    function isAvailableElement(element) {
+      if (!(element instanceof HTMLElement) || !element.isConnected || element.matches(":disabled")) return false;
+      if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+      const style = window.getComputedStyle(element);
+      return (
+        !["none", "hidden", "collapse"].includes(style.visibility) &&
+        style.display !== "none" &&
+        element.getClientRects().length > 0
+      );
+    }
+
+    function getTabbableElements(panel) {
+      return Array.from(
+        panel.querySelectorAll(
+          "button, input:not([type='hidden']), select, textarea, a[href], area[href], [contenteditable='true'], audio[controls], video[controls], [tabindex]"
+        )
+      ).filter((element) => isAvailableElement(element) && element.tabIndex >= 0);
+    }
+
+    function isTopmostDialog(dialog) {
+      const dialogs = Array.from(
+        document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      ).filter(isAvailableElement);
+      return dialogs[dialogs.length - 1] === dialog;
+    }
+
+    function getTopmostDialog() {
+      const dialogs = Array.from(
+        document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      ).filter(isAvailableElement);
+      return dialogs[dialogs.length - 1] || null;
+    }
+
+    function isFocusableOpener(element) {
+      if (!isAvailableElement(element)) return false;
+      return (
+        element.tabIndex >= 0 ||
+        element.hasAttribute("tabindex") ||
+        element.matches("button, input:not([type='hidden']), select, textarea, a[href], area[href], [contenteditable='true'], audio[controls], video[controls]")
+      );
+    }
+
+    function handleDialogKeyDown(event) {
+      if (
+        event.key !== "Tab" ||
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      ) return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+
+      const tabbableElements = getTabbableElements(panel);
+      const first = tabbableElements[0];
+      const last = tabbableElements[tabbableElements.length - 1];
+      const activeElement = document.activeElement;
+      if (!isTopmostDialog(dialogRef.current)) return;
+
+      if (!first) {
+        event.preventDefault();
+        panel.focus({ preventScroll: true });
+        return;
+      }
+
+      if (!panel.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+        return;
+      }
+
+      if (activeElement === panel) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+        return;
+      }
+
+      const activeIndex = tabbableElements.indexOf(activeElement);
+      if (activeIndex < 0) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+      } else if (event.shiftKey && activeIndex === 0) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && activeIndex === tabbableElements.length - 1) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    }
+
+    function handleFocusIn(event) {
+      const dialog = dialogRef.current;
+      const panel = panelRef.current;
+      if (!dialog || !panel || !isTopmostDialog(dialog) || panel.contains(event.target)) return;
+
+      const firstTabbable = getTabbableElements(panel)[0];
+      (firstTabbable || panel).focus({ preventScroll: true });
+    }
+
+    const dialog = dialogRef.current;
+    ++focusLifecycleGenerationRef.current;
+    if (!openerCapturedRef.current) {
+      const opener = document.activeElement;
+      openerRef.current = opener instanceof HTMLElement ? opener : null;
+      openerCapturedRef.current = true;
+    }
+    const panel = panelRef.current;
+    if (isTopmostDialog(dialog)) {
+      const firstTabbable = panel ? getTabbableElements(panel)[0] : null;
+      (firstTabbable || panel)?.focus({ preventScroll: true });
+    }
+    document.addEventListener("keydown", handleDialogKeyDown);
+    document.addEventListener("focusin", handleFocusIn);
+
+    return () => {
+      document.removeEventListener("keydown", handleDialogKeyDown);
+      document.removeEventListener("focusin", handleFocusIn);
+      const cleanupGeneration = ++focusLifecycleGenerationRef.current;
+      queueMicrotask(() => {
+        if (focusLifecycleGenerationRef.current !== cleanupGeneration) return;
+
+        const savedOpener = openerRef.current;
+        const topmostDialog = getTopmostDialog();
+        const openerBelongsToTopmost = topmostDialog?.contains(savedOpener);
+        if ((!topmostDialog || openerBelongsToTopmost) && isFocusableOpener(savedOpener)) {
+          savedOpener.focus({ preventScroll: true });
+        }
+
+        if (focusLifecycleGenerationRef.current === cleanupGeneration) {
+          openerRef.current = null;
+          openerCapturedRef.current = false;
+        }
+      });
+    };
+  }, []);
+
   useEffect(() => {
     function handleKeyDown(e) {
       if (e.key === "Escape") onClose();
@@ -4649,11 +4793,12 @@ function ModalShell({ title, onClose, children }) {
     <div
       className="absolute inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
       onClick={onClose}
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
-      <div className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} tabIndex={-1} className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E4F0] sticky top-0 bg-white">
           <h3 className="font-display text-lg font-semibold">{title}</h3>
           <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
@@ -5040,9 +5185,28 @@ function SubjectModal({ subject, schedules = [], onClose, onSave }) {
           onSave below, so existing legacy values are preserved, not erased. */}
       <Field label="Color">
         <div className="flex gap-2 flex-wrap">
-          {COLORS.map((c) => (
-            <button key={c} onClick={() => setForm({ ...form, color: c })} className="w-7 h-7 rounded-full" style={{ background: c, outline: form.color === c ? "2px solid #1B1B2F" : "none", outlineOffset: 2 }} />
-          ))}
+          {COLORS.map((c) => {
+            const colorName = {
+              "#3D2FE0": "Purple",
+              "#FF5A5F": "Coral",
+              "#16A34A": "Green",
+              "#F59E0B": "Amber",
+              "#0EA5A4": "Teal",
+              "#DB2777": "Pink",
+              "#7C3AED": "Violet",
+              "#2563EB": "Blue",
+            }[c];
+            return (
+              <button
+                key={c}
+                onClick={() => setForm({ ...form, color: c })}
+                aria-label={`Select ${colorName} subject color`}
+                aria-pressed={form.color === c}
+                className="w-7 h-7 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-2"
+                style={{ background: c, outline: form.color === c ? "2px solid #1B1B2F" : "none", outlineOffset: 2 }}
+              />
+            );
+          })}
         </div>
       </Field>
 
