@@ -32,14 +32,15 @@ installSupabaseStorageAdapter();
 const OTP_AUTH_ENABLED =
   import.meta.env.VITE_ENABLE_OTP_AUTH === "true";
 
-// Future CAPTCHA-activation note (Step 51D.3, requirement 9): once a
-// project-wide CAPTCHA activation plan is separately approved, the
-// three existing password-flow calls below are the ones that will
-// need a captchaToken added to their `options` — none of them are
-// touched by this change, since CAPTCHA remains disabled today:
-//   - supabase.auth.signUp(...)                (AuthScreen, submit())
-//   - supabase.auth.signInWithPassword(...)    (AuthScreen, submit())
-//   - supabase.auth.resetPasswordForEmail(...) (AuthScreen, forgotPassword())
+// Password-flow CAPTCHA (Step 51G.25B) — a SEPARATE flag from
+// OTP_AUTH_ENABLED above, by design: production password users must
+// never depend on the Preview-only OTP flag. Defaults OFF, so until
+// this is explicitly set AND redeployed, signUp, signInWithPassword,
+// and resetPasswordForEmail behave exactly as before this change —
+// no Turnstile widget is mounted for the password screen and no
+// captchaToken is sent.
+const PASSWORD_CAPTCHA_ENABLED =
+  import.meta.env.VITE_ENABLE_PASSWORD_CAPTCHA === "true";
 
 /* =========================
    HELPERS
@@ -470,6 +471,18 @@ function AuthScreen({ initialMode = "login", onBack }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Re-entrancy lock (Step 51G.25C) — a single ref, synchronous (no
+  // render/commit delay unlike `loading` state), shared across
+  // submit() [login + signup] and forgotPassword(), since all three
+  // read the same passwordCaptchaToken below. Closes the gap where
+  // two overlapping calls — e.g. a double click, or "Log in" and
+  // "Forgot password?" triggered close together — could both read
+  // and send the identical single-use token before either reached
+  // its finally block. A ref (not state) is used deliberately: it is
+  // readable/writable synchronously within the same event-handler
+  // call, with no dependency on a React re-render having committed.
+  const authRequestLockRef = useRef(false);
+
   // OTP auth state (Step 51D.3) — inert unless OTP_AUTH_ENABLED and
   // the user explicitly switches authMethod to "otp"; the existing
   // password state/handlers above are completely untouched.
@@ -479,6 +492,16 @@ function AuthScreen({ initialMode = "login", onBack }) {
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Password-flow CAPTCHA state (Step 51G.25B) — deliberately separate
+  // from the OTP captchaToken/captchaResetSignal above, even though
+  // both use the same TurnstileWidget component. Shared across login,
+  // signup, and forgotPassword, since all three live on this same
+  // password screen and use the same email field; inert whenever
+  // PASSWORD_CAPTCHA_ENABLED is false.
+  const [passwordCaptchaToken, setPasswordCaptchaToken] = useState("");
+  const [passwordCaptchaResetSignal, setPasswordCaptchaResetSignal] =
+    useState(0);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -638,6 +661,22 @@ function AuthScreen({ initialMode = "login", onBack }) {
   async function submit(e) {
     e.preventDefault();
 
+    // Requirement 5 (Step 51G.25B): defensive, in addition to the
+    // disabled-button guard in the JSX below — never attempt a
+    // protected request without a token when the flag is on.
+    if (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken) {
+      setMessage("Please complete the CAPTCHA challenge first.");
+      return;
+    }
+
+    // Step 51G.25C: reject an overlapping attempt outright — before
+    // the token is read for a request, before setLoading/setMessage
+    // touch anything, and without consuming the single-use token.
+    // Checked and set synchronously, so a second call arriving before
+    // any re-render commits still sees the lock held.
+    if (authRequestLockRef.current) return;
+    authRequestLockRef.current = true;
+
     setLoading(true);
     setMessage("");
 
@@ -648,10 +687,21 @@ function AuthScreen({ initialMode = "login", onBack }) {
           password,
           options: {
             emailRedirectTo: window.location.origin,
+            captchaToken: passwordCaptchaToken || undefined,
           },
         });
 
-        if (error) throw error;
+        if (error) {
+          const text = (error.message || "").toLowerCase();
+
+          if (text.includes("captcha")) {
+            throw new Error(
+              "CAPTCHA verification failed. Please try again."
+            );
+          }
+
+          throw error;
+        }
 
         setMessage(
           "Account created. Please check your email and confirm your account."
@@ -660,6 +710,9 @@ function AuthScreen({ initialMode = "login", onBack }) {
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
+          options: {
+            captchaToken: passwordCaptchaToken || undefined,
+          },
         });
 
         if (error) {
@@ -675,13 +728,28 @@ function AuthScreen({ initialMode = "login", onBack }) {
             );
           }
 
+          if (text.includes("captcha")) {
+            throw new Error(
+              "CAPTCHA verification failed. Please try again."
+            );
+          }
+
           throw error;
         }
       }
     } catch (err) {
       setMessage(err.message || "Something went wrong.");
     } finally {
+      // Requirement 6 (Step 51G.25B): Turnstile tokens are single-use
+      // — always clear and request a fresh one after any attempt,
+      // success or failure, exactly like the OTP flow's sendOtpCode()
+      // already does. A no-op (both sides already empty/0-driven)
+      // whenever PASSWORD_CAPTCHA_ENABLED is false, since nothing
+      // mounts the widget to produce a token in that case.
+      setPasswordCaptchaToken("");
+      setPasswordCaptchaResetSignal((n) => n + 1);
       setLoading(false);
+      authRequestLockRef.current = false;
     }
   }
 
@@ -691,6 +759,24 @@ function AuthScreen({ initialMode = "login", onBack }) {
       return;
     }
 
+    // Requirement 5 (Step 51G.25B), same guard as submit() above.
+    // Requirement 7: this shares passwordCaptchaToken/widget with
+    // submit() above rather than needing a form of its own — the
+    // single password-screen-level widget (mounted below in the JSX,
+    // not nested inside <form onSubmit={submit}>) already covers
+    // login, signup, AND this reset action.
+    if (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken) {
+      setMessage("Please complete the CAPTCHA challenge first.");
+      return;
+    }
+
+    // Step 51G.25C: same shared lock as submit() above — covers the
+    // cross-function race too (e.g. "Log in" and "Forgot password?"
+    // triggered close together would otherwise both read the same
+    // passwordCaptchaToken before either's finally cleared it).
+    if (authRequestLockRef.current) return;
+    authRequestLockRef.current = true;
+
     setLoading(true);
     setMessage("");
 
@@ -699,6 +785,7 @@ function AuthScreen({ initialMode = "login", onBack }) {
         email.trim(),
         {
           redirectTo: window.location.origin,
+          captchaToken: passwordCaptchaToken || undefined,
         }
       );
 
@@ -706,6 +793,14 @@ function AuthScreen({ initialMode = "login", onBack }) {
         if (error.status === 429) {
           throw new Error(
             "Too many password reset requests. Please wait before trying again."
+          );
+        }
+
+        const text = (error.message || "").toLowerCase();
+
+        if (text.includes("captcha")) {
+          throw new Error(
+            "CAPTCHA verification failed. Please try again."
           );
         }
 
@@ -720,7 +815,11 @@ function AuthScreen({ initialMode = "login", onBack }) {
         err.message || "Unable to send password reset email."
       );
     } finally {
+      // Requirement 6, same single-use-token refresh as submit().
+      setPasswordCaptchaToken("");
+      setPasswordCaptchaResetSignal((n) => n + 1);
       setLoading(false);
+      authRequestLockRef.current = false;
     }
   }
 
@@ -796,7 +895,10 @@ function AuthScreen({ initialMode = "login", onBack }) {
               <button
                 type="button"
                 onClick={forgotPassword}
-                disabled={loading}
+                disabled={
+                  loading ||
+                  (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
+                }
                 className="w-full text-right text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
               >
                 Forgot password?
@@ -805,7 +907,10 @@ function AuthScreen({ initialMode = "login", onBack }) {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={
+                loading ||
+                (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
+              }
               className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {loading
@@ -814,6 +919,23 @@ function AuthScreen({ initialMode = "login", onBack }) {
                 ? "Log in"
                 : "Create account"}
             </button>
+
+            {/* Password-flow CAPTCHA (Step 51G.25B) — independent
+                widget instance from the OTP one below, gated by its
+                own PASSWORD_CAPTCHA_ENABLED flag (default OFF).
+                Mounted inside this form so it unmounts/remounts with
+                it, but shared by login, signup, AND the
+                forgotPassword button above via passwordCaptchaToken
+                — none of these three actions needs its own widget. */}
+            {PASSWORD_CAPTCHA_ENABLED && (
+              <TurnstileWidget
+                siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+                resetSignal={passwordCaptchaResetSignal}
+                onVerify={(token) => setPasswordCaptchaToken(token)}
+                onExpire={() => setPasswordCaptchaToken("")}
+                onError={() => setPasswordCaptchaToken("")}
+              />
+            )}
           </form>
         )}
 
