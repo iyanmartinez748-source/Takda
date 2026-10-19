@@ -463,7 +463,7 @@ function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) 
    LOGIN / SIGN UP
 ========================= */
 
-function AuthScreen({ initialMode = "login", onBack }) {
+function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
   const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -493,6 +493,19 @@ function AuthScreen({ initialMode = "login", onBack }) {
   const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  // OTP signup profile fields (Step 51G.26B) — collected on the OTP
+  // email-entry screen itself, only shown/used when mode === "signup".
+  // Plain component state: this screen never unmounts/remounts across
+  // a resend, a wrong code, or any recoverable error (only otpStage
+  // toggles between "email" and "code" within the same mounted
+  // AuthScreen instance), so these values survive all of that for
+  // free, the same way `email` already does. Not used, and not
+  // cleared, while in login mode or password mode — simply inert.
+  const [otpFullName, setOtpFullName] = useState("");
+  const [otpSchool, setOtpSchool] = useState("");
+  const [otpCourse, setOtpCourse] = useState("");
+  const [otpYearLevel, setOtpYearLevel] = useState("");
+
   // Password-flow CAPTCHA state (Step 51G.25B) — deliberately separate
   // from the OTP captchaToken/captchaResetSignal above, even though
   // both use the same TurnstileWidget component. Shared across login,
@@ -520,6 +533,20 @@ function AuthScreen({ initialMode = "login", onBack }) {
     setOtpCode("");
     setCaptchaToken("");
     setMessage("");
+
+    // Step 51G.26E: explicit cancellation of the OTP flow — clear the
+    // collected profile fields AND the hand-off ref together, so
+    // abandoned signup data can never later be picked up by an
+    // unrelated sign-in for the same email via a different auth
+    // method (Item 2 fix).
+    setOtpFullName("");
+    setOtpSchool("");
+    setOtpCourse("");
+    setOtpYearLevel("");
+
+    if (pendingOtpProfileRef) {
+      pendingOtpProfileRef.current = null;
+    }
   }
 
   // Change Email (Step 51D.5 fix): returns to the OTP email-entry
@@ -536,6 +563,29 @@ function AuthScreen({ initialMode = "login", onBack }) {
   }
 
   async function sendOtpCode() {
+    // Requirement 2 (Step 51G.26B): validate the signup profile
+    // fields before ever sending a code — mirrors ProfileSetup's own
+    // validation messages/order exactly, so the experience is
+    // consistent whichever path a user ends up completing a profile
+    // through. Login mode never collects these fields, so this block
+    // is a no-op for login — unchanged from before this step.
+    if (mode === "signup") {
+      if (!otpFullName.trim()) {
+        setMessage("Please enter your full name.");
+        return;
+      }
+
+      if (!otpCourse.trim()) {
+        setMessage("Please enter your program or course.");
+        return;
+      }
+
+      if (!otpYearLevel.trim()) {
+        setMessage("Please enter your year or grade level.");
+        return;
+      }
+    }
+
     setLoading(true);
     setMessage("");
 
@@ -620,6 +670,29 @@ function AuthScreen({ initialMode = "login", onBack }) {
   async function verifyOtpCode(e) {
     e.preventDefault();
 
+    // Step 51G.26C: hand off the collected signup fields to Root
+    // BEFORE calling verifyOtp below — Root's onAuthStateChange
+    // listener (a separate subscriber to the SIGNED_IN event this
+    // call is about to produce) is the only thing that reads, saves,
+    // and clears this; AuthScreen never saves it directly any more,
+    // which is what removes the two-subscriber race from Step
+    // 51G.26B's version. Written synchronously, so it is guaranteed
+    // to be in place before the async verifyOtp() call below can
+    // possibly trigger that listener. Login mode, or a signup with no
+    // fullName entered (defensive — sendOtpCode's own validation
+    // should already prevent this), intentionally leaves the ref
+    // untouched: Root's existing checkProfile -> ProfileSetup
+    // fallback handles those cases exactly as before this step.
+    if (pendingOtpProfileRef && mode === "signup" && otpFullName.trim()) {
+      pendingOtpProfileRef.current = {
+        email: email.trim(),
+        fullName: otpFullName,
+        school: otpSchool,
+        course: otpCourse,
+        yearLevel: otpYearLevel,
+      };
+    }
+
     setLoading(true);
     setMessage("");
 
@@ -649,8 +722,15 @@ function AuthScreen({ initialMode = "login", onBack }) {
       // Success: verifyOtp establishes a session exactly like any
       // other Supabase Auth call, which the existing
       // onAuthStateChange listener already picks up via its
-      // SIGNED_IN branch (already calling checkProfile ->
-      // ProfileSetup when needed) — nothing else to do here.
+      // SIGNED_IN branch — now via applySignedInUser(), which
+      // consumes the hand-off above (if any) before ever deciding
+      // needsProfile. Note on timing: Supabase Auth may already have
+      // created an unconfirmed user record for this email back when
+      // sendOtpCode() called signInWithOtp with
+      // shouldCreateUser:true — that is a separate fact from, and
+      // earlier than, this point. Nothing in this file ever reads
+      // that as evidence of verification; the save Root performs
+      // only runs after THIS verifyOtp() call has already succeeded.
     } catch (err) {
       setMessage(err.message || "Unable to verify the code.");
     } finally {
@@ -994,10 +1074,64 @@ function AuthScreen({ initialMode = "login", onBack }) {
               className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
             />
 
+            {/* Step 51G.26B: collected here, in the initial OTP
+                signup form, instead of a separate post-signup
+                ProfileSetup screen — same four fields, same
+                required/optional split, reusing upsertProfile() in
+                verifyOtpCode() above on success. Login mode never
+                shows or needs these. */}
+            {mode === "signup" && (
+              <>
+                <input
+                  type="text"
+                  required
+                  value={otpFullName}
+                  onChange={(e) => setOtpFullName(e.target.value)}
+                  placeholder="Full name"
+                  autoComplete="name"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  value={otpSchool}
+                  onChange={(e) => setOtpSchool(e.target.value)}
+                  placeholder="School (optional)"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  required
+                  value={otpCourse}
+                  onChange={(e) => setOtpCourse(e.target.value)}
+                  placeholder="Program / Track"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  required
+                  value={otpYearLevel}
+                  onChange={(e) => setOtpYearLevel(e.target.value)}
+                  placeholder="Year / Grade level"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+              </>
+            )}
+
             <button
               type="button"
               onClick={sendOtpCode}
-              disabled={loading || !email.trim() || !captchaToken}
+              disabled={
+                loading ||
+                !email.trim() ||
+                !captchaToken ||
+                (mode === "signup" &&
+                  (!otpFullName.trim() ||
+                    !otpCourse.trim() ||
+                    !otpYearLevel.trim()))
+              }
               className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {loading ? "Sending code..." : "Send code"}
@@ -1087,6 +1221,19 @@ function AuthScreen({ initialMode = "login", onBack }) {
             setOtpStage("email");
             setOtpCode("");
             setCaptchaToken("");
+            setOtpFullName("");
+            setOtpSchool("");
+            setOtpCourse("");
+            setOtpYearLevel("");
+
+            // Step 51G.26E (Item 2 fix): switching login/signup mode
+            // also abandons any not-yet-consumed OTP signup hand-off
+            // — otherwise stale data for this email could later be
+            // picked up by an unrelated sign-in via a different auth
+            // method.
+            if (pendingOtpProfileRef) {
+              pendingOtpProfileRef.current = null;
+            }
           }}
           className="mt-5 w-full text-center text-sm font-medium text-[#3D2FE0]"
         >
@@ -1246,6 +1393,56 @@ function ResetPasswordScreen({ onDone }) {
    FIRST PROFILE SETUP
 ========================= */
 
+// Shared save logic (Step 51G.26B) — the ONE place that writes to
+// `profiles`, used by both ProfileSetup below and the new in-flow OTP
+// signup save in AuthScreen. `upsert(..., { onConflict: "id" })` is
+// keyed on the auth user's own id, so calling this more than once
+// with the same data is always safe (overwrites the same row, never
+// creates a duplicate) — the real duplicate-save risk this plan cares
+// about is a confusing UI flash, not an actual extra row, and that is
+// handled by the caller checking for an existing completed profile
+// first (see hasCompletedProfile below), not by this function itself.
+async function upsertProfile(
+  userId,
+  { fullName, school, course, yearLevel }
+) {
+  return supabase
+    .from("profiles")
+    .upsert(
+      {
+        id: userId,
+        full_name: fullName.trim(),
+        school: school.trim() || null,
+        course: course.trim() || null,
+        year_level: yearLevel.trim() || null,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "id",
+      }
+    )
+    .select()
+    .single();
+}
+
+// Requirement 6 (Step 51G.26B): read-only check for an existing,
+// already-completed profile — mirrors checkProfile's own definition
+// of "complete" (`data && data.full_name`) exactly, so this never
+// disagrees with the check that decides whether ProfileSetup itself
+// would be shown. Used to guarantee the new in-flow OTP save never
+// overwrites real information a returning/existing user already has.
+async function hasCompletedProfile(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return !!(data && data.full_name);
+}
+
 function ProfileSetup({ user, onComplete }) {
   const [fullName, setFullName] = useState("");
   const [school, setSchool] = useState("");
@@ -1283,23 +1480,12 @@ function ProfileSetup({ user, onComplete }) {
     setMessage("");
 
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .upsert(
-          {
-            id: user.id,
-            full_name: fullName.trim(),
-            school: school.trim() || null,
-            course: course.trim() || null,
-            year_level: yearLevel.trim() || null,
-            updated_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "id",
-          }
-        )
-        .select()
-        .single();
+      const { data, error } = await upsertProfile(user.id, {
+        fullName,
+        school,
+        course,
+        yearLevel,
+      });
 
       if (error) throw error;
 
@@ -2409,6 +2595,40 @@ function Root() {
   // listener on every session/profile change).
   const authedUserIdWithProfileRef = useRef(null);
 
+  // Step 51G.26C: incremented at the very top of EVERY auth event
+  // (not just SIGNED_IN) — lets an in-flight async chain started by an
+  // earlier event detect that a newer event has already superseded
+  // it, and bail out before touching state or the database. Same
+  // "cancelled" idiom already used by TurnstileWidget elsewher in this
+  // file, adapted to a counter since multiple events (not just
+  // mount/unmount) need distinguishing here.
+  const authEventTokenRef = useRef(0);
+
+  // Step 51G.26C: the ONE hand-off point between AuthScreen and Root
+  // for an OTP signup's collected profile fields. AuthScreen only
+  // ever WRITES here (right before calling verifyOtp, see
+  // AuthScreen's verifyOtpCode); Root is the only reader, and the only
+  // place that ever saves this data or decides needsProfile as a
+  // result — closing the two-subscriber race from Step 51G.26B by
+  // giving the save and the SIGNED_IN profile check a single owner.
+  // A ref, not state: no re-render is needed or wanted for this
+  // hand-off, and it must survive AuthScreen unmounting the instant
+  // `session` becomes truthy.
+  const pendingOtpSignupProfileRef = useRef(null);
+
+  // Step 51G.26E (Item 1 fix): one shared in-flight reconciliation per
+  // user id — `{ userId, promise }` while a save is running, else
+  // null. When a second, overlapping SIGNED_IN callback arrives for
+  // the SAME user while an earlier one is still saving, it joins
+  // (awaits) this SAME promise instead of starting a second save or
+  // racing ahead to checkProfile() before the first save has landed.
+  // Only the caller that actually started the entry clears it
+  // (checked by identity below), so a third overlapping callback that
+  // joins after cleanup simply finds nothing and falls through to a
+  // plain checkProfile() call, exactly as if there had been no
+  // pending data at all.
+  const pendingProfileReconcileRef = useRef(null);
+
   // silent=true: a background revalidation for a user we already trust
   // (see authedUserIdWithProfileRef above) — refreshes profile data
   // (name/timezone/plan fields) without ever toggling profileLoading, so
@@ -2422,7 +2642,18 @@ function Root() {
   // hiccup during a silent background check can never visibly disrupt
   // an already-working session. silent=false (the default) is byte-for-
   // byte the original, unconditionally blocking behavior.
-  async function checkProfile(user, { silent = false } = {}) {
+  // Step 51G.26E (Item 3 fix): `isStale`, when passed, is checked
+  // immediately after the awaited read below, BEFORE any
+  // profile/needsProfile state is touched — closing the "after the
+  // await" half of the guard (applySignedInUser already covers the
+  // "before calling checkProfile" half via the same mechanism). Left
+  // undefined by the one other, pre-existing call site (the initial
+  // getSession() load, which has no newer-event concept to compare
+  // against) — behavior there is completely unchanged.
+  async function checkProfile(
+    user,
+    { silent = false, isStale } = {}
+  ) {
     if (!user) {
       setProfile(null);
       setNeedsProfile(false);
@@ -2438,6 +2669,8 @@ function Root() {
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
+
+      if (isStale && isStale()) return;
 
       if (error) throw error;
 
@@ -2457,6 +2690,12 @@ function Root() {
       // effect of a background revalidation. The next non-silent check
       // (e.g. a genuine re-login) will resolve it normally.
     } catch (err) {
+      // Step 51G.26E: a rejected await (e.g. a network failure) jumps
+      // straight here, skipping the isStale() check placed after the
+      // try block's own await — so it must be re-checked here too,
+      // before this catch's own state writes.
+      if (isStale && isStale()) return;
+
       console.error(
         "Profile loading error:",
         err
@@ -2470,8 +2709,141 @@ function Root() {
       // transient hiccup during a background revalidation must never
       // disrupt an already-working app.
     } finally {
-      if (!silent) setProfileLoading(false);
+      // Step 51G.26G (Item 1 fix): same isStale guard the try/catch
+      // bodies above already use for setProfile/setNeedsProfile — a
+      // stale caller must not clear profileLoading either, since a
+      // newer, still-current callback's own checkProfile() may still
+      // genuinely be in flight relying on it staying true. The one
+      // caller that is never superseded always eventually reaches
+      // this finally with isStale() false, so this cannot leave
+      // profileLoading stuck.
+      if (!silent && !(isStale && isStale())) {
+        setProfileLoading(false);
+      }
     }
+  }
+
+  // Step 51G.26E: the actual save, factored out so it can be shared
+  // (awaited by multiple overlapping callbacks via
+  // pendingProfileReconcileRef) instead of each callback racing to
+  // run it independently. Never throws — a failure is logged and
+  // simply leaves the row as-is, so the checkProfile() call that
+  // every awaiter performs afterward falls through to the normal
+  // ProfileSetup fallback exactly as if there had been no pending
+  // data at all (Item 3 of the 51G.26B requirements).
+  async function reconcileOtpSignupProfile(user, pending) {
+    try {
+      // Requirement 4 (existing-user protection): never overwrite a
+      // real, already-completed profile — read fresh here rather
+      // than assumed. This is a sequential check-then-upsert, not an
+      // atomic database-level guarantee — a concurrent writer could
+      // in principle still land a completed profile in the gap
+      // between this read and the upsert below; closing that fully
+      // would require a database-level constraint this application
+      // code does not add and cannot claim.
+      const alreadyComplete = await hasCompletedProfile(user.id);
+
+      if (!alreadyComplete) {
+        const { error: saveError } = await upsertProfile(user.id, {
+          fullName: pending.fullName,
+          school: pending.school,
+          course: pending.course,
+          yearLevel: pending.yearLevel,
+        });
+
+        if (saveError) throw saveError;
+      }
+    } catch (saveErr) {
+      console.error("OTP signup profile save error:", saveErr);
+    }
+  }
+
+  // Step 51G.26C/51G.26E: the single place a SIGNED_IN event is
+  // turned into profile state. A pending OTP-signup profile (if any)
+  // is always fully resolved — saved or given up on — BEFORE
+  // needsProfile is ever set, never after, which is what prevents the
+  // premature ProfileSetup flash. Step 51G.26E additionally makes
+  // this safe for OVERLAPPING SIGNED_IN callbacks for the same user:
+  // instead of each one independently racing to save and then
+  // independently deciding whether it's "still current" before
+  // calling checkProfile (which let a newer callback's checkProfile
+  // run before an older callback's still-in-flight save had landed),
+  // every callback for the same user now joins and awaits the SAME
+  // save via pendingProfileReconcileRef, so by the time ANY of them
+  // reaches checkProfile() below, the save (if any) has already
+  // fully settled.
+  async function applySignedInUser(user, { silent, myToken }) {
+    const stillCurrent = () =>
+      authEventTokenRef.current === myToken;
+
+    // Synchronous, same tick as the SIGNED_IN event itself — covers
+    // the whole combined operation below (any pending save + the
+    // checkProfile call), so there is no gap where profileLoading is
+    // false while real work is still in flight.
+    if (!silent) setProfileLoading(true);
+
+    let reconcile = pendingProfileReconcileRef.current;
+
+    // A reconciliation for a DIFFERENT user is in flight (e.g. a
+    // very fast sign-out/sign-in as someone else) — never let this
+    // callback piggyback on the wrong one.
+    if (reconcile && reconcile.userId !== user.id) {
+      reconcile = null;
+    }
+
+    if (!reconcile) {
+      const pending = pendingOtpSignupProfileRef.current;
+      const pendingMatches =
+        pending &&
+        pending.email.trim().toLowerCase() ===
+          (user.email || "").toLowerCase();
+
+      if (pendingMatches) {
+        // Consume exactly once, synchronously, before anything async
+        // starts — a second overlapping callback arriving after this
+        // line sees null here and joins the shared promise below
+        // instead of ever re-reading the hand-off itself (Item 1 and
+        // Item 2's "consume exactly once" requirements).
+        pendingOtpSignupProfileRef.current = null;
+
+        reconcile = {
+          userId: user.id,
+          promise: reconcileOtpSignupProfile(user, pending),
+        };
+        pendingProfileReconcileRef.current = reconcile;
+      }
+    }
+
+    if (reconcile) {
+      try {
+        await reconcile.promise;
+      } finally {
+        // Only the entry's own identity match clears it — if a
+        // completely unrelated newer reconciliation has already
+        // replaced this ref's contents, leave that one alone.
+        if (pendingProfileReconcileRef.current === reconcile) {
+          pendingProfileReconcileRef.current = null;
+        }
+      }
+    }
+
+    if (!stillCurrent()) {
+      // Superseded by a newer auth event. This caller must not apply
+      // checkProfile's state (a newer callback's own call below will
+      // do that with fresh, post-save data) — but it must still
+      // release the loading gate it engaged above, so a superseded
+      // operation never leaves profileLoading stuck.
+      if (!silent) setProfileLoading(false);
+      return;
+    }
+
+    // Only now, after any pending save has fully settled one way or
+    // the other, does checkProfile() ever get to decide
+    // needsProfile — so a successful save is always reflected before
+    // the user could see a "complete your profile" screen. isStale
+    // closes the remaining gap INSIDE checkProfile's own awaited
+    // read (Item 3).
+    await checkProfile(user, { silent, isStale: () => !stillCurrent() });
   }
 
   // Stage 9E-2 shared-device fix: must call unsubscribeFromPush() BEFORE
@@ -2493,18 +2865,42 @@ function Root() {
   }
 
   useEffect(() => {
+    // Step 51G.26G (Item 2 fix): captured BEFORE the request starts —
+    // this is the generation this initial load is allowed to apply.
+    // onAuthStateChange is registered right after this same effect
+    // and can fire a real SIGNED_IN/SIGNED_OUT before this resolves;
+    // without this, that more current event's own setSession()/
+    // checkProfile() result could be overwritten by this stale
+    // snapshot landing afterward.
+    const initialSessionToken = authEventTokenRef.current;
+
     supabase.auth
       .getSession()
       .then(async ({ data }) => {
         const currentSession = data.session;
 
+        // Verify no newer auth event has superseded this BEFORE ever
+        // calling setSession() — if one has, that event's own handler
+        // already set session/profile/needsProfile/loading state
+        // correctly; this stale snapshot must not touch any of it.
+        if (authEventTokenRef.current !== initialSessionToken) return;
+
         setSession(currentSession);
 
         if (currentSession?.user) {
-          await checkProfile(
-            currentSession.user
-          );
+          await checkProfile(currentSession.user, {
+            isStale: () =>
+              authEventTokenRef.current !== initialSessionToken,
+          });
         }
+
+        // Check staleness again after the awaited checkProfile call,
+        // before the final setLoading(false) below — a newer event
+        // may have superseded this one while checkProfile's own read
+        // was in flight; that event's own handler already cleared
+        // `loading` itself, so there is nothing stuck left behind by
+        // returning here without touching it again.
+        if (authEventTokenRef.current !== initialSessionToken) return;
 
         setLoading(false);
       });
@@ -2513,6 +2909,13 @@ function Root() {
       supabase.auth.onAuthStateChange(
         (event, newSession) => {
           setSession(newSession);
+
+          // Step 51G.26C: every event — not just SIGNED_IN — advances
+          // this token, so any in-flight applySignedInUser() chain
+          // from an earlier event (still awaiting its own save/read)
+          // can detect it has been superseded and stop before
+          // touching state or the database (Requirement 4).
+          authEventTokenRef.current += 1;
 
           if (event === "PASSWORD_RECOVERY") {
             setIsRecovery(true);
@@ -2531,6 +2934,11 @@ function Root() {
             // same-user re-login) always gets a full, blocking check
             // rather than silently trusting state from before sign-out.
             authedUserIdWithProfileRef.current = null;
+            // Step 51G.26E (Item 2 fix): abandon any not-yet-consumed
+            // OTP signup hand-off on sign-out — otherwise it could
+            // later be picked up by an unrelated sign-in for the same
+            // email via a different auth method.
+            pendingOtpSignupProfileRef.current = null;
             return;
           }
 
@@ -2547,7 +2955,10 @@ function Root() {
             // otherwise see as permanently stale).
             const isSameKnownUser =
               authedUserIdWithProfileRef.current === newSession.user.id;
-            checkProfile(newSession.user, { silent: isSameKnownUser });
+            applySignedInUser(newSession.user, {
+              silent: isSameKnownUser,
+              myToken: authEventTokenRef.current,
+            });
           }
 
           setLoading(false);
@@ -2707,6 +3118,7 @@ function Root() {
         <AuthScreen
           initialMode="login"
           onBack={() => setPublicScreen("landing")}
+          pendingOtpProfileRef={pendingOtpSignupProfileRef}
         />
       );
     }
@@ -2716,6 +3128,7 @@ function Root() {
         <AuthScreen
           initialMode="signup"
           onBack={() => setPublicScreen("landing")}
+          pendingOtpProfileRef={pendingOtpSignupProfileRef}
         />
       );
     }
