@@ -16,6 +16,32 @@ import "./index.css";
 installSupabaseStorageAdapter();
 
 /* =========================
+   OTP + TURNSTILE FEATURE FLAG
+
+   Build-time only (import.meta.env is replaced at build time by
+   Vite, not readable/writable at runtime) — defaults OFF whenever
+   VITE_ENABLE_OTP_AUTH is unset, so turning this on requires an
+   explicit env var AND a new deployment, never a runtime toggle.
+   While OFF, nothing below this point is reachable: the toggle link
+   that would switch AuthScreen into OTP mode is not rendered at all
+   when this is false (see AuthScreen), so the Turnstile script is
+   never loaded and the existing password flows are completely
+   unaffected.
+========================= */
+
+const OTP_AUTH_ENABLED =
+  import.meta.env.VITE_ENABLE_OTP_AUTH === "true";
+
+// Future CAPTCHA-activation note (Step 51D.3, requirement 9): once a
+// project-wide CAPTCHA activation plan is separately approved, the
+// three existing password-flow calls below are the ones that will
+// need a captchaToken added to their `options` — none of them are
+// touched by this change, since CAPTCHA remains disabled today:
+//   - supabase.auth.signUp(...)                (AuthScreen, submit())
+//   - supabase.auth.signInWithPassword(...)    (AuthScreen, submit())
+//   - supabase.auth.resetPasswordForEmail(...) (AuthScreen, forgotPassword())
+
+/* =========================
    HELPERS
 ========================= */
 
@@ -206,6 +232,233 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
 }
 
 /* =========================
+   CLOUDFLARE TURNSTILE (OTP auth only)
+
+   Minimal, dependency-free integration: loads Cloudflare's own script
+   tag on demand (no npm package added, per Step 51D.3's instruction
+   to prefer existing browser APIs) and renders/resets the widget via
+   window.turnstile. Only ever mounted from inside the OTP email-entry
+   screen below, which itself only renders when OTP_AUTH_ENABLED is
+   true — so this script is never requested at all for the existing
+   password flows, today or with the flag off.
+========================= */
+
+let turnstileScriptPromise = null;
+
+function loadTurnstileScript() {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (window.turnstile) return Promise.resolve();
+  if (turnstileScriptPromise) return turnstileScriptPromise;
+
+  turnstileScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => resolve();
+
+    script.onerror = () => {
+      // Step 51D.9 fix: clear the module-level cache AND remove the
+      // failed element — without this, the rejected promise above
+      // would be returned forever by every future call (the
+      // `if (turnstileScriptPromise) return turnstileScriptPromise;`
+      // guard above), permanently preventing any real retry and
+      // leaving a dead <script> tag behind. A future call now
+      // genuinely attempts a fresh load. The success path (onload)
+      // is unchanged — a successful load is still cached forever, as
+      // intended.
+      turnstileScriptPromise = null;
+      script.remove();
+      reject(new Error("Unable to load Turnstile."));
+    };
+
+    document.head.appendChild(script);
+  });
+
+  return turnstileScriptPromise;
+}
+
+// siteKey is a PUBLIC Turnstile site key (analogous to a reCAPTCHA
+// site key) — never a secret — read from an env var that is not yet
+// set anywhere in this repo, so this gracefully reports "not
+// configured" instead of silently proceeding insecurely until that
+// var is deliberately added in a separate, approved step.
+//
+// Step 51D.7 stability fix: auto-retry on a genuine CAPTCHA error is
+// now internally bounded (max 2 consecutive errors) and tracked
+// separately from normal token expiration, which is never an error
+// and is never rate-limited — distinguishing the two is the point of
+// this whole redesign. After the limit is hit, this component stops
+// re-rendering itself automatically and instead shows its own
+// accessible error message with a manual "Retry CAPTCHA" button; only
+// that explicit user action clears the error count and tries again,
+// so a persistent failure can never auto-loop, while a user-initiated
+// retry is never artificially blocked.
+function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) {
+  const containerRef = useRef(null);
+  const widgetIdRef = useRef(null);
+  const errorCountRef = useRef(0);
+  const [loadError, setLoadError] = useState("");
+  // Step 51D.9: distinct from loadError's text — tracks specifically
+  // whether the *script itself* failed to load (recoverable by
+  // retrying) versus the siteKey being absent (a build-time
+  // configuration fact a retry cannot change). Only the former shows
+  // a retry button, per requirement 9.
+  const [scriptLoadFailed, setScriptLoadFailed] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [renderGeneration, setRenderGeneration] = useState(0);
+
+  // Shared manual-retry path for BOTH recoverable failure modes this
+  // component can show a button for: a blocked widget-challenge
+  // error state, and a failed script load. Always gets a clean
+  // slate — nothing here is merely paused — so a retry can never
+  // itself count toward a future auto-block or replay a stale error.
+  function retryManually() {
+    errorCountRef.current = 0;
+    setBlocked(false);
+    setLoadError("");
+    setScriptLoadFailed(false);
+    setRenderGeneration((n) => n + 1);
+  }
+
+  useEffect(() => {
+    if (!siteKey) {
+      setLoadError("CAPTCHA is not configured for this environment.");
+      setScriptLoadFailed(false);
+      return;
+    }
+
+    if (blocked) {
+      // Do not auto-render while blocked, regardless of which
+      // dependency changed (resetSignal from a send attempt, or this
+      // effect's own renderGeneration) — only retryManually(), which
+      // clears `blocked` first, may request a new challenge now.
+      return;
+    }
+
+    let cancelled = false;
+
+    loadTurnstileScript()
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.turnstile) {
+          return;
+        }
+
+        widgetIdRef.current = window.turnstile.render(
+          containerRef.current,
+          {
+            sitekey: siteKey,
+            callback: (token) => {
+              // Requirement 8: a callback firing after this effect
+              // run was cleaned up (widget already removed/replaced)
+              // must never update state for the widget that's no
+              // longer current.
+              if (cancelled) return;
+
+              errorCountRef.current = 0; // requirement 7
+              onVerify(token);
+            },
+            "expired-callback": () => {
+              if (cancelled) return;
+
+              // Requirement 3: ordinary expiry is not an error and
+              // never counts toward the retry limit — always safe to
+              // auto-request a fresh challenge.
+              onExpire();
+              setRenderGeneration((n) => n + 1);
+            },
+            "error-callback": () => {
+              if (cancelled) return;
+
+              onError();
+              errorCountRef.current += 1;
+
+              if (errorCountRef.current > 2) {
+                // Requirements 2/4/5: stop auto-retrying after 2
+                // consecutive genuine errors — surface the manual
+                // recovery path instead of looping a 3rd time.
+                setBlocked(true);
+              } else {
+                setRenderGeneration((n) => n + 1);
+              }
+            },
+          }
+        );
+      })
+      .catch(() => {
+        // Requirement 6: a rejection arriving after this effect run
+        // was cleaned up must never update state for a widget that's
+        // no longer current.
+        if (!cancelled) {
+          setLoadError(
+            "Unable to load CAPTCHA. Check your connection and try again."
+          );
+          setScriptLoadFailed(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteKey, resetSignal, renderGeneration, blocked]);
+
+  if (blocked) {
+    return (
+      <div className="space-y-2 text-center">
+        <p className="text-xs text-red-600" role="alert">
+          CAPTCHA verification failed repeatedly. Please try again.
+        </p>
+
+        <button
+          type="button"
+          onClick={retryManually}
+          className="text-xs font-semibold text-[#3D2FE0] underline"
+        >
+          Retry CAPTCHA
+        </button>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-2 text-center">
+        <p className="text-xs text-red-600" role="alert">
+          {loadError}
+        </p>
+
+        {/* Requirement 9: no retry button when siteKey is simply
+            absent — that's a configuration fact, not something a
+            retry can fix, and offering one here would be misleading. */}
+        {scriptLoadFailed && (
+          <button
+            type="button"
+            onClick={retryManually}
+            className="text-xs font-semibold text-[#3D2FE0] underline"
+          >
+            Retry CAPTCHA
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex justify-center"
+    />
+  );
+}
+
+/* =========================
    LOGIN / SIGN UP
 ========================= */
 
@@ -216,6 +469,171 @@ function AuthScreen({ initialMode = "login", onBack }) {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // OTP auth state (Step 51D.3) — inert unless OTP_AUTH_ENABLED and
+  // the user explicitly switches authMethod to "otp"; the existing
+  // password state/handlers above are completely untouched.
+  const [authMethod, setAuthMethod] = useState("password");
+  const [otpStage, setOtpStage] = useState("email");
+  const [otpCode, setOtpCode] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+
+    const timer = setTimeout(
+      () => setResendCooldown((s) => s - 1),
+      1000
+    );
+
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  function resetOtpFlow() {
+    setAuthMethod("password");
+    setOtpStage("email");
+    setOtpCode("");
+    setCaptchaToken("");
+    setMessage("");
+  }
+
+  // Change Email (Step 51D.5 fix): returns to the OTP email-entry
+  // step WITHOUT leaving OTP mode — distinct from resetOtpFlow above,
+  // which exits back to the password form. Also forces a fresh
+  // Turnstile render (bumping the reset signal) so a new token is
+  // ready for whatever email is entered next.
+  function goBackToOtpEmailStage() {
+    setOtpStage("email");
+    setOtpCode("");
+    setCaptchaToken("");
+    setCaptchaResetSignal((n) => n + 1);
+    setMessage("");
+  }
+
+  async function sendOtpCode() {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          // Requirement: shouldCreateUser:true only for signup, false
+          // for login — a login attempt for an unregistered email is
+          // rejected rather than silently creating an account.
+          shouldCreateUser: mode === "signup",
+          captchaToken: captchaToken || undefined,
+        },
+      });
+
+      if (error) {
+        const text = (error.message || "").toLowerCase();
+
+        if (error.status === 429) {
+          throw new Error(
+            "Too many requests. Please wait before trying again."
+          );
+        }
+
+        if (text.includes("captcha")) {
+          throw new Error(
+            "CAPTCHA verification failed. Please try again."
+          );
+        }
+
+        if (
+          text.includes("network") ||
+          text.includes("fetch") ||
+          text.includes("connection")
+        ) {
+          throw new Error(
+            "Network error. Please check your connection and try again."
+          );
+        }
+
+        // Account-enumeration safety (login/shouldCreateUser:false
+        // only): deliberately never surface Supabase's raw error text
+        // here, since it may distinguish "no account for this email"
+        // from other failures. Phrased conditionally — never asserts
+        // delivery as fact, so this does NOT falsely claim a code was
+        // sent. KNOWN, DOCUMENTED LIMITATION (not claimed away): the
+        // user still sees this error state rather than the "code
+        // sent" screen shown on real success, so the state transition
+        // itself remains a lesser signal this client-side change
+        // cannot fully eliminate without the server returning a
+        // uniform response for both cases — see Step 51D.5 report.
+        if (mode === "login") {
+          throw new Error(
+            "If an account exists for this email, a code has been sent. Double-check the email address, or sign up if you don't have an account yet."
+          );
+        }
+
+        throw error;
+      }
+
+      setOtpStage("code");
+      setResendCooldown(60);
+      setMessage(
+        "We sent a 6-digit code to your email. Enter it below to continue."
+      );
+    } catch (err) {
+      setMessage(
+        err.message || "Unable to send the code. Please try again."
+      );
+    } finally {
+      // Turnstile tokens are single-use — always reset for the next
+      // attempt (a resend, or a retry after an error) regardless of
+      // outcome. The widget now stays mounted across both the email
+      // and code stages (see JSX below), so a fresh token can always
+      // be produced here without needing to unmount/remount it.
+      setCaptchaToken("");
+      setCaptchaResetSignal((n) => n + 1);
+      setLoading(false);
+    }
+  }
+
+  async function verifyOtpCode(e) {
+    e.preventDefault();
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otpCode.trim(),
+        type: "email",
+      });
+
+      if (error) {
+        const text = error.message.toLowerCase();
+
+        if (
+          text.includes("expired") ||
+          text.includes("invalid") ||
+          text.includes("token")
+        ) {
+          throw new Error(
+            "That code is incorrect or has expired. Request a new one."
+          );
+        }
+
+        throw error;
+      }
+
+      // Success: verifyOtp establishes a session exactly like any
+      // other Supabase Auth call, which the existing
+      // onAuthStateChange listener already picks up via its
+      // SIGNED_IN branch (already calling checkProfile ->
+      // ProfileSetup when needed) — nothing else to do here.
+    } catch (err) {
+      setMessage(err.message || "Unable to verify the code.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -336,66 +754,196 @@ function AuthScreen({ initialMode = "login", onBack }) {
           </p>
         </div>
 
-        <form onSubmit={submit} className="space-y-3">
+        {authMethod === "password" && (
+          <form onSubmit={submit} className="space-y-3">
 
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email address"
-            autoComplete="email"
-            className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
-          />
-
-          <div className="relative">
             <input
-              type={showPassword ? "text" : "password"}
+              type="email"
               required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              autoComplete={
-                mode === "login"
-                  ? "current-password"
-                  : "new-password"
-              }
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email address"
+              autoComplete="email"
+              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+            />
+
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                autoComplete={
+                  mode === "login"
+                    ? "current-password"
+                    : "new-password"
+                }
+                className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword((current) => !current)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+
+            {mode === "login" && (
+              <button
+                type="button"
+                onClick={forgotPassword}
+                disabled={loading}
+                className="w-full text-right text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+              >
+                Forgot password?
+              </button>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {loading
+                ? "Please wait..."
+                : mode === "login"
+                ? "Log in"
+                : "Create account"}
+            </button>
+          </form>
+        )}
+
+        {/* OTP_AUTH_ENABLED gate: this toggle, and everything inside
+            authMethod === "otp" below, is entirely absent from the
+            rendered tree — not merely hidden — whenever the flag is
+            off. The Turnstile script is therefore never requested and
+            the password form above is completely unaffected either
+            way. */}
+        {OTP_AUTH_ENABLED && authMethod === "password" && (
+          <button
+            type="button"
+            onClick={() => {
+              setAuthMethod("otp");
+              setOtpStage("email");
+              setMessage("");
+            }}
+            className="mt-3 w-full text-center text-xs font-medium text-[#3D2FE0]"
+          >
+            Use a one-time email code instead
+          </button>
+        )}
+
+        {/* Fix (Step 51D.5): the Turnstile widget now stays mounted
+            for the whole OTP flow (both stages), not just the email
+            step — otherwise no fresh token could ever be produced for
+            a resend, since Turnstile tokens are single-use and the
+            widget would have been unmounted along with the email
+            stage. Kept as one shared block so it survives the
+            email<->code stage transition without unmounting. */}
+        {OTP_AUTH_ENABLED && authMethod === "otp" && (
+          <TurnstileWidget
+            siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+            resetSignal={captchaResetSignal}
+            onVerify={(token) => setCaptchaToken(token)}
+            // Step 51D.7: the widget now manages its own retry/backoff
+            // internally (bounded auto-retry, then a manual Retry
+            // button) — this parent callback only needs to clear the
+            // token so Send/Resend correctly stay disabled; it no
+            // longer also drives re-rendering, avoiding a second,
+            // redundant re-render trigger alongside the widget's own.
+            onExpire={() => setCaptchaToken("")}
+            onError={() => setCaptchaToken("")}
+          />
+        )}
+
+        {OTP_AUTH_ENABLED && authMethod === "otp" && otpStage === "email" && (
+          <div className="space-y-3">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email address"
+              autoComplete="email"
+              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
             />
 
             <button
               type="button"
-              onClick={() => setShowPassword((current) => !current)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+              onClick={sendOtpCode}
+              disabled={loading || !email.trim() || !captchaToken}
+              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {showPassword ? "Hide" : "Show"}
+              {loading ? "Sending code..." : "Send code"}
             </button>
-          </div>
 
-          {mode === "login" && (
             <button
               type="button"
-              onClick={forgotPassword}
+              onClick={resetOtpFlow}
               disabled={loading}
-              className="w-full text-right text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
             >
-              Forgot password?
+              Use password instead
             </button>
-          )}
+          </div>
+        )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {loading
-              ? "Please wait..."
-              : mode === "login"
-              ? "Log in"
-              : "Create account"}
-          </button>
-        </form>
+        {OTP_AUTH_ENABLED && authMethod === "otp" && otpStage === "code" && (
+          <form onSubmit={verifyOtpCode} className="space-y-3">
+            <label className="block text-center text-xs text-slate-500">
+              Enter the 6-digit code sent to {email}
+            </label>
+
+            <input
+              type="text"
+              required
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) =>
+                setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              placeholder="000000"
+              autoComplete="one-time-code"
+              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-center text-lg tracking-widest outline-none focus:border-[#3D2FE0]"
+            />
+
+            <button
+              type="submit"
+              disabled={loading || otpCode.length !== 6}
+              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {loading ? "Verifying..." : "Verify"}
+            </button>
+
+            <button
+              type="button"
+              onClick={sendOtpCode}
+              disabled={loading || resendCooldown > 0 || !captchaToken}
+              className="w-full text-center text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+            >
+              {resendCooldown > 0
+                ? `Resend code in ${resendCooldown}s`
+                : !captchaToken
+                ? "Waiting for CAPTCHA..."
+                : "Resend code"}
+            </button>
+
+            <button
+              type="button"
+              onClick={goBackToOtpEmailStage}
+              disabled={loading}
+              className="w-full text-center text-xs font-medium text-slate-400"
+            >
+              Change email
+            </button>
+          </form>
+        )}
 
         {message && (
           <p className="mt-3 text-center text-xs text-slate-600">
@@ -413,6 +961,10 @@ function AuthScreen({ initialMode = "login", onBack }) {
             setMessage("");
             setPassword("");
             setShowPassword(false);
+            setAuthMethod("password");
+            setOtpStage("email");
+            setOtpCode("");
+            setCaptchaToken("");
           }}
           className="mt-5 w-full text-center text-sm font-medium text-[#3D2FE0]"
         >
@@ -589,6 +1141,22 @@ function ProfileSetup({ user, onComplete }) {
       return;
     }
 
+    // Required for NEW onboarding only (Step 51D.3): this component
+    // only ever renders when checkProfile finds full_name missing
+    // (src/main.jsx checkProfile, "data && data.full_name"), so an
+    // already-onboarded existing user — even one who left course/
+    // yearLevel blank before this change — never reaches this form
+    // again and is never retroactively blocked by this validation.
+    if (!course.trim()) {
+      setMessage("Please enter your program or course.");
+      return;
+    }
+
+    if (!yearLevel.trim()) {
+      setMessage("Please enter your year or grade level.");
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
@@ -682,11 +1250,12 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
-              Program / Track
+              Program / Track <span className="text-red-500">*</span>
             </label>
 
             <input
               type="text"
+              required
               value={course}
               onChange={(e) => setCourse(e.target.value)}
               placeholder="e.g. BS Information Technology"
@@ -696,11 +1265,12 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
-              Year / Grade Level
+              Year / Grade Level <span className="text-red-500">*</span>
             </label>
 
             <input
               type="text"
+              required
               value={yearLevel}
               onChange={(e) => setYearLevel(e.target.value)}
               placeholder="e.g. 2nd Year or Grade 12"
