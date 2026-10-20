@@ -2943,16 +2943,48 @@ function Root() {
           }
 
           if (
-            event === "SIGNED_IN" &&
+            (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
             newSession?.user
           ) {
-            // Tab-return loading-flash fix: Supabase's own internal
-            // visibility-triggered session recovery re-emits SIGNED_IN
-            // for the SAME already-authenticated user on ordinary tab
-            // return (see authedUserIdWithProfileRef's own comment
-            // above) — comparing against a ref, never against
-            // session/profile React state (which this closure would
-            // otherwise see as permanently stale).
+            // Step 51G.27B regression fix: INITIAL_SESSION is included
+            // here now, not just SIGNED_IN. supabase-js emits
+            // INITIAL_SESSION as soon as onAuthStateChange is
+            // subscribed below — this increments authEventTokenRef
+            // (line above) exactly like every other event, which
+            // means it can win the race against the separate
+            // getSession().then() initial loader and mark THAT
+            // loader's own checkProfile call stale before it ever
+            // runs (see that effect's own isStale comments). Before
+            // this fix, INITIAL_SESSION fell through to the generic
+            // branch below (setSession + setLoading(false) only, no
+            // reconciliation at all) — so an existing user's profile/
+            // plan was simply never loaded, silently rendering them
+            // as a signed-in user with a null profile (e.g. a Pro
+            // plan read back as Free) until an unrelated later
+            // SIGNED_IN happened to fire. Routing INITIAL_SESSION
+            // through the exact same applySignedInUser() path SIGNED_IN
+            // already uses gives it a real, valid replacement
+            // reconciliation — including setting profileLoading(true)
+            // synchronously below, before this listener's own
+            // unconditional setLoading(false) at the bottom runs, so
+            // the combined loading gate (loading || profileLoading)
+            // is never left showing "done" while a check is still
+            // genuinely in flight. The now-redundant getSession()-based
+            // initial loader is intentionally left in place unchanged
+            // as a fallback — its own isStale guard correctly makes it
+            // a no-op once INITIAL_SESSION has already won this race,
+            // via the same token mechanism, with no duplicate work
+            // (the shared pendingProfileReconcileRef/stillCurrent
+            // machinery in applySignedInUser already coordinates two
+            // reconciliations for the same user if both somehow ran).
+            //
+            // Tab-return loading-flash fix (pre-existing): Supabase's
+            // own internal visibility-triggered session recovery
+            // re-emits SIGNED_IN for the SAME already-authenticated
+            // user on ordinary tab return (see authedUserIdWithProfileRef's
+            // own comment above) — comparing against a ref, never
+            // against session/profile React state (which this closure
+            // would otherwise see as permanently stale).
             const isSameKnownUser =
               authedUserIdWithProfileRef.current === newSession.user.id;
             applySignedInUser(newSession.user, {
