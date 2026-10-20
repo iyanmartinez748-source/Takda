@@ -16,6 +16,33 @@ import "./index.css";
 installSupabaseStorageAdapter();
 
 /* =========================
+   OTP + TURNSTILE FEATURE FLAG
+
+   Build-time only (import.meta.env is replaced at build time by
+   Vite, not readable/writable at runtime) — defaults OFF whenever
+   VITE_ENABLE_OTP_AUTH is unset, so turning this on requires an
+   explicit env var AND a new deployment, never a runtime toggle.
+   While OFF, nothing below this point is reachable: the toggle link
+   that would switch AuthScreen into OTP mode is not rendered at all
+   when this is false (see AuthScreen), so the Turnstile script is
+   never loaded and the existing password flows are completely
+   unaffected.
+========================= */
+
+const OTP_AUTH_ENABLED =
+  import.meta.env.VITE_ENABLE_OTP_AUTH === "true";
+
+// Password-flow CAPTCHA (Step 51G.25B) — a SEPARATE flag from
+// OTP_AUTH_ENABLED above, by design: production password users must
+// never depend on the Preview-only OTP flag. Defaults OFF, so until
+// this is explicitly set AND redeployed, signUp, signInWithPassword,
+// and resetPasswordForEmail behave exactly as before this change —
+// no Turnstile widget is mounted for the password screen and no
+// captchaToken is sent.
+const PASSWORD_CAPTCHA_ENABLED =
+  import.meta.env.VITE_ENABLE_PASSWORD_CAPTCHA === "true";
+
+/* =========================
    HELPERS
 ========================= */
 
@@ -206,10 +233,237 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
 }
 
 /* =========================
+   CLOUDFLARE TURNSTILE (OTP auth only)
+
+   Minimal, dependency-free integration: loads Cloudflare's own script
+   tag on demand (no npm package added, per Step 51D.3's instruction
+   to prefer existing browser APIs) and renders/resets the widget via
+   window.turnstile. Only ever mounted from inside the OTP email-entry
+   screen below, which itself only renders when OTP_AUTH_ENABLED is
+   true — so this script is never requested at all for the existing
+   password flows, today or with the flag off.
+========================= */
+
+let turnstileScriptPromise = null;
+
+function loadTurnstileScript() {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (window.turnstile) return Promise.resolve();
+  if (turnstileScriptPromise) return turnstileScriptPromise;
+
+  turnstileScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => resolve();
+
+    script.onerror = () => {
+      // Step 51D.9 fix: clear the module-level cache AND remove the
+      // failed element — without this, the rejected promise above
+      // would be returned forever by every future call (the
+      // `if (turnstileScriptPromise) return turnstileScriptPromise;`
+      // guard above), permanently preventing any real retry and
+      // leaving a dead <script> tag behind. A future call now
+      // genuinely attempts a fresh load. The success path (onload)
+      // is unchanged — a successful load is still cached forever, as
+      // intended.
+      turnstileScriptPromise = null;
+      script.remove();
+      reject(new Error("Unable to load Turnstile."));
+    };
+
+    document.head.appendChild(script);
+  });
+
+  return turnstileScriptPromise;
+}
+
+// siteKey is a PUBLIC Turnstile site key (analogous to a reCAPTCHA
+// site key) — never a secret — read from an env var that is not yet
+// set anywhere in this repo, so this gracefully reports "not
+// configured" instead of silently proceeding insecurely until that
+// var is deliberately added in a separate, approved step.
+//
+// Step 51D.7 stability fix: auto-retry on a genuine CAPTCHA error is
+// now internally bounded (max 2 consecutive errors) and tracked
+// separately from normal token expiration, which is never an error
+// and is never rate-limited — distinguishing the two is the point of
+// this whole redesign. After the limit is hit, this component stops
+// re-rendering itself automatically and instead shows its own
+// accessible error message with a manual "Retry CAPTCHA" button; only
+// that explicit user action clears the error count and tries again,
+// so a persistent failure can never auto-loop, while a user-initiated
+// retry is never artificially blocked.
+function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) {
+  const containerRef = useRef(null);
+  const widgetIdRef = useRef(null);
+  const errorCountRef = useRef(0);
+  const [loadError, setLoadError] = useState("");
+  // Step 51D.9: distinct from loadError's text — tracks specifically
+  // whether the *script itself* failed to load (recoverable by
+  // retrying) versus the siteKey being absent (a build-time
+  // configuration fact a retry cannot change). Only the former shows
+  // a retry button, per requirement 9.
+  const [scriptLoadFailed, setScriptLoadFailed] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [renderGeneration, setRenderGeneration] = useState(0);
+
+  // Shared manual-retry path for BOTH recoverable failure modes this
+  // component can show a button for: a blocked widget-challenge
+  // error state, and a failed script load. Always gets a clean
+  // slate — nothing here is merely paused — so a retry can never
+  // itself count toward a future auto-block or replay a stale error.
+  function retryManually() {
+    errorCountRef.current = 0;
+    setBlocked(false);
+    setLoadError("");
+    setScriptLoadFailed(false);
+    setRenderGeneration((n) => n + 1);
+  }
+
+  useEffect(() => {
+    if (!siteKey) {
+      setLoadError("CAPTCHA is not configured for this environment.");
+      setScriptLoadFailed(false);
+      return;
+    }
+
+    if (blocked) {
+      // Do not auto-render while blocked, regardless of which
+      // dependency changed (resetSignal from a send attempt, or this
+      // effect's own renderGeneration) — only retryManually(), which
+      // clears `blocked` first, may request a new challenge now.
+      return;
+    }
+
+    let cancelled = false;
+
+    loadTurnstileScript()
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.turnstile) {
+          return;
+        }
+
+        widgetIdRef.current = window.turnstile.render(
+          containerRef.current,
+          {
+            sitekey: siteKey,
+            callback: (token) => {
+              // Requirement 8: a callback firing after this effect
+              // run was cleaned up (widget already removed/replaced)
+              // must never update state for the widget that's no
+              // longer current.
+              if (cancelled) return;
+
+              errorCountRef.current = 0; // requirement 7
+              onVerify(token);
+            },
+            "expired-callback": () => {
+              if (cancelled) return;
+
+              // Requirement 3: ordinary expiry is not an error and
+              // never counts toward the retry limit — always safe to
+              // auto-request a fresh challenge.
+              onExpire();
+              setRenderGeneration((n) => n + 1);
+            },
+            "error-callback": () => {
+              if (cancelled) return;
+
+              onError();
+              errorCountRef.current += 1;
+
+              if (errorCountRef.current > 2) {
+                // Requirements 2/4/5: stop auto-retrying after 2
+                // consecutive genuine errors — surface the manual
+                // recovery path instead of looping a 3rd time.
+                setBlocked(true);
+              } else {
+                setRenderGeneration((n) => n + 1);
+              }
+            },
+          }
+        );
+      })
+      .catch(() => {
+        // Requirement 6: a rejection arriving after this effect run
+        // was cleaned up must never update state for a widget that's
+        // no longer current.
+        if (!cancelled) {
+          setLoadError(
+            "Unable to load CAPTCHA. Check your connection and try again."
+          );
+          setScriptLoadFailed(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteKey, resetSignal, renderGeneration, blocked]);
+
+  if (blocked) {
+    return (
+      <div className="space-y-2 text-center">
+        <p className="text-xs text-red-600" role="alert">
+          CAPTCHA verification failed repeatedly. Please try again.
+        </p>
+
+        <button
+          type="button"
+          onClick={retryManually}
+          className="text-xs font-semibold text-[#3D2FE0] underline"
+        >
+          Retry CAPTCHA
+        </button>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-2 text-center">
+        <p className="text-xs text-red-600" role="alert">
+          {loadError}
+        </p>
+
+        {/* Requirement 9: no retry button when siteKey is simply
+            absent — that's a configuration fact, not something a
+            retry can fix, and offering one here would be misleading. */}
+        {scriptLoadFailed && (
+          <button
+            type="button"
+            onClick={retryManually}
+            className="text-xs font-semibold text-[#3D2FE0] underline"
+          >
+            Retry CAPTCHA
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex justify-center"
+    />
+  );
+}
+
+/* =========================
    LOGIN / SIGN UP
 ========================= */
 
-function AuthScreen({ initialMode = "login", onBack }) {
+function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
   const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -217,8 +471,291 @@ function AuthScreen({ initialMode = "login", onBack }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Re-entrancy lock (Step 51G.25C) — a single ref, synchronous (no
+  // render/commit delay unlike `loading` state), shared across
+  // submit() [login + signup] and forgotPassword(), since all three
+  // read the same passwordCaptchaToken below. Closes the gap where
+  // two overlapping calls — e.g. a double click, or "Log in" and
+  // "Forgot password?" triggered close together — could both read
+  // and send the identical single-use token before either reached
+  // its finally block. A ref (not state) is used deliberately: it is
+  // readable/writable synchronously within the same event-handler
+  // call, with no dependency on a React re-render having committed.
+  const authRequestLockRef = useRef(false);
+
+  // OTP auth state (Step 51D.3) — inert unless OTP_AUTH_ENABLED and
+  // the user explicitly switches authMethod to "otp"; the existing
+  // password state/handlers above are completely untouched.
+  const [authMethod, setAuthMethod] = useState("password");
+  const [otpStage, setOtpStage] = useState("email");
+  const [otpCode, setOtpCode] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // OTP signup profile fields (Step 51G.26B) — collected on the OTP
+  // email-entry screen itself, only shown/used when mode === "signup".
+  // Plain component state: this screen never unmounts/remounts across
+  // a resend, a wrong code, or any recoverable error (only otpStage
+  // toggles between "email" and "code" within the same mounted
+  // AuthScreen instance), so these values survive all of that for
+  // free, the same way `email` already does. Not used, and not
+  // cleared, while in login mode or password mode — simply inert.
+  const [otpFullName, setOtpFullName] = useState("");
+  const [otpSchool, setOtpSchool] = useState("");
+  const [otpCourse, setOtpCourse] = useState("");
+  const [otpYearLevel, setOtpYearLevel] = useState("");
+
+  // Password-flow CAPTCHA state (Step 51G.25B) — deliberately separate
+  // from the OTP captchaToken/captchaResetSignal above, even though
+  // both use the same TurnstileWidget component. Shared across login,
+  // signup, and forgotPassword, since all three live on this same
+  // password screen and use the same email field; inert whenever
+  // PASSWORD_CAPTCHA_ENABLED is false.
+  const [passwordCaptchaToken, setPasswordCaptchaToken] = useState("");
+  const [passwordCaptchaResetSignal, setPasswordCaptchaResetSignal] =
+    useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+
+    const timer = setTimeout(
+      () => setResendCooldown((s) => s - 1),
+      1000
+    );
+
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  function resetOtpFlow() {
+    setAuthMethod("password");
+    setOtpStage("email");
+    setOtpCode("");
+    setCaptchaToken("");
+    setMessage("");
+
+    // Step 51G.26E: explicit cancellation of the OTP flow — clear the
+    // collected profile fields AND the hand-off ref together, so
+    // abandoned signup data can never later be picked up by an
+    // unrelated sign-in for the same email via a different auth
+    // method (Item 2 fix).
+    setOtpFullName("");
+    setOtpSchool("");
+    setOtpCourse("");
+    setOtpYearLevel("");
+
+    if (pendingOtpProfileRef) {
+      pendingOtpProfileRef.current = null;
+    }
+  }
+
+  // Change Email (Step 51D.5 fix): returns to the OTP email-entry
+  // step WITHOUT leaving OTP mode — distinct from resetOtpFlow above,
+  // which exits back to the password form. Also forces a fresh
+  // Turnstile render (bumping the reset signal) so a new token is
+  // ready for whatever email is entered next.
+  function goBackToOtpEmailStage() {
+    setOtpStage("email");
+    setOtpCode("");
+    setCaptchaToken("");
+    setCaptchaResetSignal((n) => n + 1);
+    setMessage("");
+  }
+
+  async function sendOtpCode() {
+    // Requirement 2 (Step 51G.26B): validate the signup profile
+    // fields before ever sending a code — mirrors ProfileSetup's own
+    // validation messages/order exactly, so the experience is
+    // consistent whichever path a user ends up completing a profile
+    // through. Login mode never collects these fields, so this block
+    // is a no-op for login — unchanged from before this step.
+    if (mode === "signup") {
+      if (!otpFullName.trim()) {
+        setMessage("Please enter your full name.");
+        return;
+      }
+
+      if (!otpCourse.trim()) {
+        setMessage("Please enter your program or course.");
+        return;
+      }
+
+      if (!otpYearLevel.trim()) {
+        setMessage("Please enter your year or grade level.");
+        return;
+      }
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          // Requirement: shouldCreateUser:true only for signup, false
+          // for login — a login attempt for an unregistered email is
+          // rejected rather than silently creating an account.
+          shouldCreateUser: mode === "signup",
+          captchaToken: captchaToken || undefined,
+        },
+      });
+
+      if (error) {
+        const text = (error.message || "").toLowerCase();
+
+        if (error.status === 429) {
+          throw new Error(
+            "Too many requests. Please wait before trying again."
+          );
+        }
+
+        if (text.includes("captcha")) {
+          throw new Error(
+            "CAPTCHA verification failed. Please try again."
+          );
+        }
+
+        if (
+          text.includes("network") ||
+          text.includes("fetch") ||
+          text.includes("connection")
+        ) {
+          throw new Error(
+            "Network error. Please check your connection and try again."
+          );
+        }
+
+        // Account-enumeration safety (login/shouldCreateUser:false
+        // only): deliberately never surface Supabase's raw error text
+        // here, since it may distinguish "no account for this email"
+        // from other failures. Phrased conditionally — never asserts
+        // delivery as fact, so this does NOT falsely claim a code was
+        // sent. KNOWN, DOCUMENTED LIMITATION (not claimed away): the
+        // user still sees this error state rather than the "code
+        // sent" screen shown on real success, so the state transition
+        // itself remains a lesser signal this client-side change
+        // cannot fully eliminate without the server returning a
+        // uniform response for both cases — see Step 51D.5 report.
+        if (mode === "login") {
+          throw new Error(
+            "If an account exists for this email, a code has been sent. Double-check the email address, or sign up if you don't have an account yet."
+          );
+        }
+
+        throw error;
+      }
+
+      setOtpStage("code");
+      setResendCooldown(60);
+      setMessage(
+        "We sent a 6-digit code to your email. Enter it below to continue."
+      );
+    } catch (err) {
+      setMessage(
+        err.message || "Unable to send the code. Please try again."
+      );
+    } finally {
+      // Turnstile tokens are single-use — always reset for the next
+      // attempt (a resend, or a retry after an error) regardless of
+      // outcome. The widget now stays mounted across both the email
+      // and code stages (see JSX below), so a fresh token can always
+      // be produced here without needing to unmount/remount it.
+      setCaptchaToken("");
+      setCaptchaResetSignal((n) => n + 1);
+      setLoading(false);
+    }
+  }
+
+  async function verifyOtpCode(e) {
+    e.preventDefault();
+
+    // Step 51G.26C: hand off the collected signup fields to Root
+    // BEFORE calling verifyOtp below — Root's onAuthStateChange
+    // listener (a separate subscriber to the SIGNED_IN event this
+    // call is about to produce) is the only thing that reads, saves,
+    // and clears this; AuthScreen never saves it directly any more,
+    // which is what removes the two-subscriber race from Step
+    // 51G.26B's version. Written synchronously, so it is guaranteed
+    // to be in place before the async verifyOtp() call below can
+    // possibly trigger that listener. Login mode, or a signup with no
+    // fullName entered (defensive — sendOtpCode's own validation
+    // should already prevent this), intentionally leaves the ref
+    // untouched: Root's existing checkProfile -> ProfileSetup
+    // fallback handles those cases exactly as before this step.
+    if (pendingOtpProfileRef && mode === "signup" && otpFullName.trim()) {
+      pendingOtpProfileRef.current = {
+        email: email.trim(),
+        fullName: otpFullName,
+        school: otpSchool,
+        course: otpCourse,
+        yearLevel: otpYearLevel,
+      };
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otpCode.trim(),
+        type: "email",
+      });
+
+      if (error) {
+        const text = error.message.toLowerCase();
+
+        if (
+          text.includes("expired") ||
+          text.includes("invalid") ||
+          text.includes("token")
+        ) {
+          throw new Error(
+            "That code is incorrect or has expired. Request a new one."
+          );
+        }
+
+        throw error;
+      }
+
+      // Success: verifyOtp establishes a session exactly like any
+      // other Supabase Auth call, which the existing
+      // onAuthStateChange listener already picks up via its
+      // SIGNED_IN branch — now via applySignedInUser(), which
+      // consumes the hand-off above (if any) before ever deciding
+      // needsProfile. Note on timing: Supabase Auth may already have
+      // created an unconfirmed user record for this email back when
+      // sendOtpCode() called signInWithOtp with
+      // shouldCreateUser:true — that is a separate fact from, and
+      // earlier than, this point. Nothing in this file ever reads
+      // that as evidence of verification; the save Root performs
+      // only runs after THIS verifyOtp() call has already succeeded.
+    } catch (err) {
+      setMessage(err.message || "Unable to verify the code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
+
+    // Requirement 5 (Step 51G.25B): defensive, in addition to the
+    // disabled-button guard in the JSX below — never attempt a
+    // protected request without a token when the flag is on.
+    if (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken) {
+      setMessage("Please complete the CAPTCHA challenge first.");
+      return;
+    }
+
+    // Step 51G.25C: reject an overlapping attempt outright — before
+    // the token is read for a request, before setLoading/setMessage
+    // touch anything, and without consuming the single-use token.
+    // Checked and set synchronously, so a second call arriving before
+    // any re-render commits still sees the lock held.
+    if (authRequestLockRef.current) return;
+    authRequestLockRef.current = true;
 
     setLoading(true);
     setMessage("");
@@ -230,10 +767,21 @@ function AuthScreen({ initialMode = "login", onBack }) {
           password,
           options: {
             emailRedirectTo: window.location.origin,
+            captchaToken: passwordCaptchaToken || undefined,
           },
         });
 
-        if (error) throw error;
+        if (error) {
+          const text = (error.message || "").toLowerCase();
+
+          if (text.includes("captcha")) {
+            throw new Error(
+              "CAPTCHA verification failed. Please try again."
+            );
+          }
+
+          throw error;
+        }
 
         setMessage(
           "Account created. Please check your email and confirm your account."
@@ -242,6 +790,9 @@ function AuthScreen({ initialMode = "login", onBack }) {
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
+          options: {
+            captchaToken: passwordCaptchaToken || undefined,
+          },
         });
 
         if (error) {
@@ -257,13 +808,28 @@ function AuthScreen({ initialMode = "login", onBack }) {
             );
           }
 
+          if (text.includes("captcha")) {
+            throw new Error(
+              "CAPTCHA verification failed. Please try again."
+            );
+          }
+
           throw error;
         }
       }
     } catch (err) {
       setMessage(err.message || "Something went wrong.");
     } finally {
+      // Requirement 6 (Step 51G.25B): Turnstile tokens are single-use
+      // — always clear and request a fresh one after any attempt,
+      // success or failure, exactly like the OTP flow's sendOtpCode()
+      // already does. A no-op (both sides already empty/0-driven)
+      // whenever PASSWORD_CAPTCHA_ENABLED is false, since nothing
+      // mounts the widget to produce a token in that case.
+      setPasswordCaptchaToken("");
+      setPasswordCaptchaResetSignal((n) => n + 1);
       setLoading(false);
+      authRequestLockRef.current = false;
     }
   }
 
@@ -273,6 +839,24 @@ function AuthScreen({ initialMode = "login", onBack }) {
       return;
     }
 
+    // Requirement 5 (Step 51G.25B), same guard as submit() above.
+    // Requirement 7: this shares passwordCaptchaToken/widget with
+    // submit() above rather than needing a form of its own — the
+    // single password-screen-level widget (mounted below in the JSX,
+    // not nested inside <form onSubmit={submit}>) already covers
+    // login, signup, AND this reset action.
+    if (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken) {
+      setMessage("Please complete the CAPTCHA challenge first.");
+      return;
+    }
+
+    // Step 51G.25C: same shared lock as submit() above — covers the
+    // cross-function race too (e.g. "Log in" and "Forgot password?"
+    // triggered close together would otherwise both read the same
+    // passwordCaptchaToken before either's finally cleared it).
+    if (authRequestLockRef.current) return;
+    authRequestLockRef.current = true;
+
     setLoading(true);
     setMessage("");
 
@@ -281,6 +865,7 @@ function AuthScreen({ initialMode = "login", onBack }) {
         email.trim(),
         {
           redirectTo: window.location.origin,
+          captchaToken: passwordCaptchaToken || undefined,
         }
       );
 
@@ -288,6 +873,14 @@ function AuthScreen({ initialMode = "login", onBack }) {
         if (error.status === 429) {
           throw new Error(
             "Too many password reset requests. Please wait before trying again."
+          );
+        }
+
+        const text = (error.message || "").toLowerCase();
+
+        if (text.includes("captcha")) {
+          throw new Error(
+            "CAPTCHA verification failed. Please try again."
           );
         }
 
@@ -302,7 +895,11 @@ function AuthScreen({ initialMode = "login", onBack }) {
         err.message || "Unable to send password reset email."
       );
     } finally {
+      // Requirement 6, same single-use-token refresh as submit().
+      setPasswordCaptchaToken("");
+      setPasswordCaptchaResetSignal((n) => n + 1);
       setLoading(false);
+      authRequestLockRef.current = false;
     }
   }
 
@@ -336,66 +933,273 @@ function AuthScreen({ initialMode = "login", onBack }) {
           </p>
         </div>
 
-        <form onSubmit={submit} className="space-y-3">
+        {authMethod === "password" && (
+          <form onSubmit={submit} className="space-y-3">
 
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email address"
-            autoComplete="email"
-            className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
-          />
-
-          <div className="relative">
             <input
-              type={showPassword ? "text" : "password"}
+              type="email"
               required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              autoComplete={
-                mode === "login"
-                  ? "current-password"
-                  : "new-password"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email address"
+              autoComplete="email"
+              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+            />
+
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                autoComplete={
+                  mode === "login"
+                    ? "current-password"
+                    : "new-password"
+                }
+                className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword((current) => !current)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+
+            {mode === "login" && (
+              <button
+                type="button"
+                onClick={forgotPassword}
+                disabled={
+                  loading ||
+                  (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
+                }
+                className="w-full text-right text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+              >
+                Forgot password?
+              </button>
+            )}
+
+            <button
+              type="submit"
+              disabled={
+                loading ||
+                (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
               }
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {loading
+                ? "Please wait..."
+                : mode === "login"
+                ? "Log in"
+                : "Create account"}
+            </button>
+
+            {/* Password-flow CAPTCHA (Step 51G.25B) — independent
+                widget instance from the OTP one below, gated by its
+                own PASSWORD_CAPTCHA_ENABLED flag (default OFF).
+                Mounted inside this form so it unmounts/remounts with
+                it, but shared by login, signup, AND the
+                forgotPassword button above via passwordCaptchaToken
+                — none of these three actions needs its own widget. */}
+            {PASSWORD_CAPTCHA_ENABLED && (
+              <TurnstileWidget
+                siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+                resetSignal={passwordCaptchaResetSignal}
+                onVerify={(token) => setPasswordCaptchaToken(token)}
+                onExpire={() => setPasswordCaptchaToken("")}
+                onError={() => setPasswordCaptchaToken("")}
+              />
+            )}
+          </form>
+        )}
+
+        {/* OTP_AUTH_ENABLED gate: this toggle, and everything inside
+            authMethod === "otp" below, is entirely absent from the
+            rendered tree — not merely hidden — whenever the flag is
+            off. The Turnstile script is therefore never requested and
+            the password form above is completely unaffected either
+            way. */}
+        {OTP_AUTH_ENABLED && authMethod === "password" && (
+          <button
+            type="button"
+            onClick={() => {
+              setAuthMethod("otp");
+              setOtpStage("email");
+              setMessage("");
+            }}
+            className="mt-3 w-full text-center text-xs font-medium text-[#3D2FE0]"
+          >
+            Use a one-time email code instead
+          </button>
+        )}
+
+        {/* Fix (Step 51D.5): the Turnstile widget now stays mounted
+            for the whole OTP flow (both stages), not just the email
+            step — otherwise no fresh token could ever be produced for
+            a resend, since Turnstile tokens are single-use and the
+            widget would have been unmounted along with the email
+            stage. Kept as one shared block so it survives the
+            email<->code stage transition without unmounting. */}
+        {OTP_AUTH_ENABLED && authMethod === "otp" && (
+          <TurnstileWidget
+            siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+            resetSignal={captchaResetSignal}
+            onVerify={(token) => setCaptchaToken(token)}
+            // Step 51D.7: the widget now manages its own retry/backoff
+            // internally (bounded auto-retry, then a manual Retry
+            // button) — this parent callback only needs to clear the
+            // token so Send/Resend correctly stay disabled; it no
+            // longer also drives re-rendering, avoiding a second,
+            // redundant re-render trigger alongside the widget's own.
+            onExpire={() => setCaptchaToken("")}
+            onError={() => setCaptchaToken("")}
+          />
+        )}
+
+        {OTP_AUTH_ENABLED && authMethod === "otp" && otpStage === "email" && (
+          <div className="space-y-3">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email address"
+              autoComplete="email"
+              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+            />
+
+            {/* Step 51G.26B: collected here, in the initial OTP
+                signup form, instead of a separate post-signup
+                ProfileSetup screen — same four fields, same
+                required/optional split, reusing upsertProfile() in
+                verifyOtpCode() above on success. Login mode never
+                shows or needs these. */}
+            {mode === "signup" && (
+              <>
+                <input
+                  type="text"
+                  required
+                  value={otpFullName}
+                  onChange={(e) => setOtpFullName(e.target.value)}
+                  placeholder="Full name"
+                  autoComplete="name"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  value={otpSchool}
+                  onChange={(e) => setOtpSchool(e.target.value)}
+                  placeholder="School (optional)"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  required
+                  value={otpCourse}
+                  onChange={(e) => setOtpCourse(e.target.value)}
+                  placeholder="Program / Track"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  required
+                  value={otpYearLevel}
+                  onChange={(e) => setOtpYearLevel(e.target.value)}
+                  placeholder="Year / Grade level"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={sendOtpCode}
+              disabled={
+                loading ||
+                !email.trim() ||
+                !captchaToken ||
+                (mode === "signup" &&
+                  (!otpFullName.trim() ||
+                    !otpCourse.trim() ||
+                    !otpYearLevel.trim()))
+              }
+              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {loading ? "Sending code..." : "Send code"}
+            </button>
+
+            <button
+              type="button"
+              onClick={resetOtpFlow}
+              disabled={loading}
+              className="w-full text-center text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+            >
+              Use password instead
+            </button>
+          </div>
+        )}
+
+        {OTP_AUTH_ENABLED && authMethod === "otp" && otpStage === "code" && (
+          <form onSubmit={verifyOtpCode} className="space-y-3">
+            <label className="block text-center text-xs text-slate-500">
+              Enter the 6-digit code sent to {email}
+            </label>
+
+            <input
+              type="text"
+              required
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) =>
+                setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              placeholder="000000"
+              autoComplete="one-time-code"
+              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-center text-lg tracking-widest outline-none focus:border-[#3D2FE0]"
             />
 
             <button
-              type="button"
-              onClick={() => setShowPassword((current) => !current)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+              type="submit"
+              disabled={loading || otpCode.length !== 6}
+              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {showPassword ? "Hide" : "Show"}
+              {loading ? "Verifying..." : "Verify"}
             </button>
-          </div>
 
-          {mode === "login" && (
             <button
               type="button"
-              onClick={forgotPassword}
-              disabled={loading}
-              className="w-full text-right text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+              onClick={sendOtpCode}
+              disabled={loading || resendCooldown > 0 || !captchaToken}
+              className="w-full text-center text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
             >
-              Forgot password?
+              {resendCooldown > 0
+                ? `Resend code in ${resendCooldown}s`
+                : !captchaToken
+                ? "Waiting for CAPTCHA..."
+                : "Resend code"}
             </button>
-          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {loading
-              ? "Please wait..."
-              : mode === "login"
-              ? "Log in"
-              : "Create account"}
-          </button>
-        </form>
+            <button
+              type="button"
+              onClick={goBackToOtpEmailStage}
+              disabled={loading}
+              className="w-full text-center text-xs font-medium text-slate-400"
+            >
+              Change email
+            </button>
+          </form>
+        )}
 
         {message && (
           <p className="mt-3 text-center text-xs text-slate-600">
@@ -413,6 +1217,23 @@ function AuthScreen({ initialMode = "login", onBack }) {
             setMessage("");
             setPassword("");
             setShowPassword(false);
+            setAuthMethod("password");
+            setOtpStage("email");
+            setOtpCode("");
+            setCaptchaToken("");
+            setOtpFullName("");
+            setOtpSchool("");
+            setOtpCourse("");
+            setOtpYearLevel("");
+
+            // Step 51G.26E (Item 2 fix): switching login/signup mode
+            // also abandons any not-yet-consumed OTP signup hand-off
+            // — otherwise stale data for this email could later be
+            // picked up by an unrelated sign-in via a different auth
+            // method.
+            if (pendingOtpProfileRef) {
+              pendingOtpProfileRef.current = null;
+            }
           }}
           className="mt-5 w-full text-center text-sm font-medium text-[#3D2FE0]"
         >
@@ -572,6 +1393,56 @@ function ResetPasswordScreen({ onDone }) {
    FIRST PROFILE SETUP
 ========================= */
 
+// Shared save logic (Step 51G.26B) — the ONE place that writes to
+// `profiles`, used by both ProfileSetup below and the new in-flow OTP
+// signup save in AuthScreen. `upsert(..., { onConflict: "id" })` is
+// keyed on the auth user's own id, so calling this more than once
+// with the same data is always safe (overwrites the same row, never
+// creates a duplicate) — the real duplicate-save risk this plan cares
+// about is a confusing UI flash, not an actual extra row, and that is
+// handled by the caller checking for an existing completed profile
+// first (see hasCompletedProfile below), not by this function itself.
+async function upsertProfile(
+  userId,
+  { fullName, school, course, yearLevel }
+) {
+  return supabase
+    .from("profiles")
+    .upsert(
+      {
+        id: userId,
+        full_name: fullName.trim(),
+        school: school.trim() || null,
+        course: course.trim() || null,
+        year_level: yearLevel.trim() || null,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "id",
+      }
+    )
+    .select()
+    .single();
+}
+
+// Requirement 6 (Step 51G.26B): read-only check for an existing,
+// already-completed profile — mirrors checkProfile's own definition
+// of "complete" (`data && data.full_name`) exactly, so this never
+// disagrees with the check that decides whether ProfileSetup itself
+// would be shown. Used to guarantee the new in-flow OTP save never
+// overwrites real information a returning/existing user already has.
+async function hasCompletedProfile(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return !!(data && data.full_name);
+}
+
 function ProfileSetup({ user, onComplete }) {
   const [fullName, setFullName] = useState("");
   const [school, setSchool] = useState("");
@@ -589,27 +1460,32 @@ function ProfileSetup({ user, onComplete }) {
       return;
     }
 
+    // Required for NEW onboarding only (Step 51D.3): this component
+    // only ever renders when checkProfile finds full_name missing
+    // (src/main.jsx checkProfile, "data && data.full_name"), so an
+    // already-onboarded existing user — even one who left course/
+    // yearLevel blank before this change — never reaches this form
+    // again and is never retroactively blocked by this validation.
+    if (!course.trim()) {
+      setMessage("Please enter your program or course.");
+      return;
+    }
+
+    if (!yearLevel.trim()) {
+      setMessage("Please enter your year or grade level.");
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .upsert(
-          {
-            id: user.id,
-            full_name: fullName.trim(),
-            school: school.trim() || null,
-            course: course.trim() || null,
-            year_level: yearLevel.trim() || null,
-            updated_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "id",
-          }
-        )
-        .select()
-        .single();
+      const { data, error } = await upsertProfile(user.id, {
+        fullName,
+        school,
+        course,
+        yearLevel,
+      });
 
       if (error) throw error;
 
@@ -682,11 +1558,12 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
-              Program / Track
+              Program / Track <span className="text-red-500">*</span>
             </label>
 
             <input
               type="text"
+              required
               value={course}
               onChange={(e) => setCourse(e.target.value)}
               placeholder="e.g. BS Information Technology"
@@ -696,11 +1573,12 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
-              Year / Grade Level
+              Year / Grade Level <span className="text-red-500">*</span>
             </label>
 
             <input
               type="text"
+              required
               value={yearLevel}
               onChange={(e) => setYearLevel(e.target.value)}
               placeholder="e.g. 2nd Year or Grade 12"
@@ -1717,6 +2595,40 @@ function Root() {
   // listener on every session/profile change).
   const authedUserIdWithProfileRef = useRef(null);
 
+  // Step 51G.26C: incremented at the very top of EVERY auth event
+  // (not just SIGNED_IN) — lets an in-flight async chain started by an
+  // earlier event detect that a newer event has already superseded
+  // it, and bail out before touching state or the database. Same
+  // "cancelled" idiom already used by TurnstileWidget elsewher in this
+  // file, adapted to a counter since multiple events (not just
+  // mount/unmount) need distinguishing here.
+  const authEventTokenRef = useRef(0);
+
+  // Step 51G.26C: the ONE hand-off point between AuthScreen and Root
+  // for an OTP signup's collected profile fields. AuthScreen only
+  // ever WRITES here (right before calling verifyOtp, see
+  // AuthScreen's verifyOtpCode); Root is the only reader, and the only
+  // place that ever saves this data or decides needsProfile as a
+  // result — closing the two-subscriber race from Step 51G.26B by
+  // giving the save and the SIGNED_IN profile check a single owner.
+  // A ref, not state: no re-render is needed or wanted for this
+  // hand-off, and it must survive AuthScreen unmounting the instant
+  // `session` becomes truthy.
+  const pendingOtpSignupProfileRef = useRef(null);
+
+  // Step 51G.26E (Item 1 fix): one shared in-flight reconciliation per
+  // user id — `{ userId, promise }` while a save is running, else
+  // null. When a second, overlapping SIGNED_IN callback arrives for
+  // the SAME user while an earlier one is still saving, it joins
+  // (awaits) this SAME promise instead of starting a second save or
+  // racing ahead to checkProfile() before the first save has landed.
+  // Only the caller that actually started the entry clears it
+  // (checked by identity below), so a third overlapping callback that
+  // joins after cleanup simply finds nothing and falls through to a
+  // plain checkProfile() call, exactly as if there had been no
+  // pending data at all.
+  const pendingProfileReconcileRef = useRef(null);
+
   // silent=true: a background revalidation for a user we already trust
   // (see authedUserIdWithProfileRef above) — refreshes profile data
   // (name/timezone/plan fields) without ever toggling profileLoading, so
@@ -1730,7 +2642,18 @@ function Root() {
   // hiccup during a silent background check can never visibly disrupt
   // an already-working session. silent=false (the default) is byte-for-
   // byte the original, unconditionally blocking behavior.
-  async function checkProfile(user, { silent = false } = {}) {
+  // Step 51G.26E (Item 3 fix): `isStale`, when passed, is checked
+  // immediately after the awaited read below, BEFORE any
+  // profile/needsProfile state is touched — closing the "after the
+  // await" half of the guard (applySignedInUser already covers the
+  // "before calling checkProfile" half via the same mechanism). Left
+  // undefined by the one other, pre-existing call site (the initial
+  // getSession() load, which has no newer-event concept to compare
+  // against) — behavior there is completely unchanged.
+  async function checkProfile(
+    user,
+    { silent = false, isStale } = {}
+  ) {
     if (!user) {
       setProfile(null);
       setNeedsProfile(false);
@@ -1746,6 +2669,8 @@ function Root() {
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
+
+      if (isStale && isStale()) return;
 
       if (error) throw error;
 
@@ -1765,6 +2690,12 @@ function Root() {
       // effect of a background revalidation. The next non-silent check
       // (e.g. a genuine re-login) will resolve it normally.
     } catch (err) {
+      // Step 51G.26E: a rejected await (e.g. a network failure) jumps
+      // straight here, skipping the isStale() check placed after the
+      // try block's own await — so it must be re-checked here too,
+      // before this catch's own state writes.
+      if (isStale && isStale()) return;
+
       console.error(
         "Profile loading error:",
         err
@@ -1778,8 +2709,141 @@ function Root() {
       // transient hiccup during a background revalidation must never
       // disrupt an already-working app.
     } finally {
-      if (!silent) setProfileLoading(false);
+      // Step 51G.26G (Item 1 fix): same isStale guard the try/catch
+      // bodies above already use for setProfile/setNeedsProfile — a
+      // stale caller must not clear profileLoading either, since a
+      // newer, still-current callback's own checkProfile() may still
+      // genuinely be in flight relying on it staying true. The one
+      // caller that is never superseded always eventually reaches
+      // this finally with isStale() false, so this cannot leave
+      // profileLoading stuck.
+      if (!silent && !(isStale && isStale())) {
+        setProfileLoading(false);
+      }
     }
+  }
+
+  // Step 51G.26E: the actual save, factored out so it can be shared
+  // (awaited by multiple overlapping callbacks via
+  // pendingProfileReconcileRef) instead of each callback racing to
+  // run it independently. Never throws — a failure is logged and
+  // simply leaves the row as-is, so the checkProfile() call that
+  // every awaiter performs afterward falls through to the normal
+  // ProfileSetup fallback exactly as if there had been no pending
+  // data at all (Item 3 of the 51G.26B requirements).
+  async function reconcileOtpSignupProfile(user, pending) {
+    try {
+      // Requirement 4 (existing-user protection): never overwrite a
+      // real, already-completed profile — read fresh here rather
+      // than assumed. This is a sequential check-then-upsert, not an
+      // atomic database-level guarantee — a concurrent writer could
+      // in principle still land a completed profile in the gap
+      // between this read and the upsert below; closing that fully
+      // would require a database-level constraint this application
+      // code does not add and cannot claim.
+      const alreadyComplete = await hasCompletedProfile(user.id);
+
+      if (!alreadyComplete) {
+        const { error: saveError } = await upsertProfile(user.id, {
+          fullName: pending.fullName,
+          school: pending.school,
+          course: pending.course,
+          yearLevel: pending.yearLevel,
+        });
+
+        if (saveError) throw saveError;
+      }
+    } catch (saveErr) {
+      console.error("OTP signup profile save error:", saveErr);
+    }
+  }
+
+  // Step 51G.26C/51G.26E: the single place a SIGNED_IN event is
+  // turned into profile state. A pending OTP-signup profile (if any)
+  // is always fully resolved — saved or given up on — BEFORE
+  // needsProfile is ever set, never after, which is what prevents the
+  // premature ProfileSetup flash. Step 51G.26E additionally makes
+  // this safe for OVERLAPPING SIGNED_IN callbacks for the same user:
+  // instead of each one independently racing to save and then
+  // independently deciding whether it's "still current" before
+  // calling checkProfile (which let a newer callback's checkProfile
+  // run before an older callback's still-in-flight save had landed),
+  // every callback for the same user now joins and awaits the SAME
+  // save via pendingProfileReconcileRef, so by the time ANY of them
+  // reaches checkProfile() below, the save (if any) has already
+  // fully settled.
+  async function applySignedInUser(user, { silent, myToken }) {
+    const stillCurrent = () =>
+      authEventTokenRef.current === myToken;
+
+    // Synchronous, same tick as the SIGNED_IN event itself — covers
+    // the whole combined operation below (any pending save + the
+    // checkProfile call), so there is no gap where profileLoading is
+    // false while real work is still in flight.
+    if (!silent) setProfileLoading(true);
+
+    let reconcile = pendingProfileReconcileRef.current;
+
+    // A reconciliation for a DIFFERENT user is in flight (e.g. a
+    // very fast sign-out/sign-in as someone else) — never let this
+    // callback piggyback on the wrong one.
+    if (reconcile && reconcile.userId !== user.id) {
+      reconcile = null;
+    }
+
+    if (!reconcile) {
+      const pending = pendingOtpSignupProfileRef.current;
+      const pendingMatches =
+        pending &&
+        pending.email.trim().toLowerCase() ===
+          (user.email || "").toLowerCase();
+
+      if (pendingMatches) {
+        // Consume exactly once, synchronously, before anything async
+        // starts — a second overlapping callback arriving after this
+        // line sees null here and joins the shared promise below
+        // instead of ever re-reading the hand-off itself (Item 1 and
+        // Item 2's "consume exactly once" requirements).
+        pendingOtpSignupProfileRef.current = null;
+
+        reconcile = {
+          userId: user.id,
+          promise: reconcileOtpSignupProfile(user, pending),
+        };
+        pendingProfileReconcileRef.current = reconcile;
+      }
+    }
+
+    if (reconcile) {
+      try {
+        await reconcile.promise;
+      } finally {
+        // Only the entry's own identity match clears it — if a
+        // completely unrelated newer reconciliation has already
+        // replaced this ref's contents, leave that one alone.
+        if (pendingProfileReconcileRef.current === reconcile) {
+          pendingProfileReconcileRef.current = null;
+        }
+      }
+    }
+
+    if (!stillCurrent()) {
+      // Superseded by a newer auth event. This caller must not apply
+      // checkProfile's state (a newer callback's own call below will
+      // do that with fresh, post-save data) — but it must still
+      // release the loading gate it engaged above, so a superseded
+      // operation never leaves profileLoading stuck.
+      if (!silent) setProfileLoading(false);
+      return;
+    }
+
+    // Only now, after any pending save has fully settled one way or
+    // the other, does checkProfile() ever get to decide
+    // needsProfile — so a successful save is always reflected before
+    // the user could see a "complete your profile" screen. isStale
+    // closes the remaining gap INSIDE checkProfile's own awaited
+    // read (Item 3).
+    await checkProfile(user, { silent, isStale: () => !stillCurrent() });
   }
 
   // Stage 9E-2 shared-device fix: must call unsubscribeFromPush() BEFORE
@@ -1801,18 +2865,42 @@ function Root() {
   }
 
   useEffect(() => {
+    // Step 51G.26G (Item 2 fix): captured BEFORE the request starts —
+    // this is the generation this initial load is allowed to apply.
+    // onAuthStateChange is registered right after this same effect
+    // and can fire a real SIGNED_IN/SIGNED_OUT before this resolves;
+    // without this, that more current event's own setSession()/
+    // checkProfile() result could be overwritten by this stale
+    // snapshot landing afterward.
+    const initialSessionToken = authEventTokenRef.current;
+
     supabase.auth
       .getSession()
       .then(async ({ data }) => {
         const currentSession = data.session;
 
+        // Verify no newer auth event has superseded this BEFORE ever
+        // calling setSession() — if one has, that event's own handler
+        // already set session/profile/needsProfile/loading state
+        // correctly; this stale snapshot must not touch any of it.
+        if (authEventTokenRef.current !== initialSessionToken) return;
+
         setSession(currentSession);
 
         if (currentSession?.user) {
-          await checkProfile(
-            currentSession.user
-          );
+          await checkProfile(currentSession.user, {
+            isStale: () =>
+              authEventTokenRef.current !== initialSessionToken,
+          });
         }
+
+        // Check staleness again after the awaited checkProfile call,
+        // before the final setLoading(false) below — a newer event
+        // may have superseded this one while checkProfile's own read
+        // was in flight; that event's own handler already cleared
+        // `loading` itself, so there is nothing stuck left behind by
+        // returning here without touching it again.
+        if (authEventTokenRef.current !== initialSessionToken) return;
 
         setLoading(false);
       });
@@ -1821,6 +2909,13 @@ function Root() {
       supabase.auth.onAuthStateChange(
         (event, newSession) => {
           setSession(newSession);
+
+          // Step 51G.26C: every event — not just SIGNED_IN — advances
+          // this token, so any in-flight applySignedInUser() chain
+          // from an earlier event (still awaiting its own save/read)
+          // can detect it has been superseded and stop before
+          // touching state or the database (Requirement 4).
+          authEventTokenRef.current += 1;
 
           if (event === "PASSWORD_RECOVERY") {
             setIsRecovery(true);
@@ -1839,23 +2934,63 @@ function Root() {
             // same-user re-login) always gets a full, blocking check
             // rather than silently trusting state from before sign-out.
             authedUserIdWithProfileRef.current = null;
+            // Step 51G.26E (Item 2 fix): abandon any not-yet-consumed
+            // OTP signup hand-off on sign-out — otherwise it could
+            // later be picked up by an unrelated sign-in for the same
+            // email via a different auth method.
+            pendingOtpSignupProfileRef.current = null;
             return;
           }
 
           if (
-            event === "SIGNED_IN" &&
+            (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
             newSession?.user
           ) {
-            // Tab-return loading-flash fix: Supabase's own internal
-            // visibility-triggered session recovery re-emits SIGNED_IN
-            // for the SAME already-authenticated user on ordinary tab
-            // return (see authedUserIdWithProfileRef's own comment
-            // above) — comparing against a ref, never against
-            // session/profile React state (which this closure would
-            // otherwise see as permanently stale).
+            // Step 51G.27B regression fix: INITIAL_SESSION is included
+            // here now, not just SIGNED_IN. supabase-js emits
+            // INITIAL_SESSION as soon as onAuthStateChange is
+            // subscribed below — this increments authEventTokenRef
+            // (line above) exactly like every other event, which
+            // means it can win the race against the separate
+            // getSession().then() initial loader and mark THAT
+            // loader's own checkProfile call stale before it ever
+            // runs (see that effect's own isStale comments). Before
+            // this fix, INITIAL_SESSION fell through to the generic
+            // branch below (setSession + setLoading(false) only, no
+            // reconciliation at all) — so an existing user's profile/
+            // plan was simply never loaded, silently rendering them
+            // as a signed-in user with a null profile (e.g. a Pro
+            // plan read back as Free) until an unrelated later
+            // SIGNED_IN happened to fire. Routing INITIAL_SESSION
+            // through the exact same applySignedInUser() path SIGNED_IN
+            // already uses gives it a real, valid replacement
+            // reconciliation — including setting profileLoading(true)
+            // synchronously below, before this listener's own
+            // unconditional setLoading(false) at the bottom runs, so
+            // the combined loading gate (loading || profileLoading)
+            // is never left showing "done" while a check is still
+            // genuinely in flight. The now-redundant getSession()-based
+            // initial loader is intentionally left in place unchanged
+            // as a fallback — its own isStale guard correctly makes it
+            // a no-op once INITIAL_SESSION has already won this race,
+            // via the same token mechanism, with no duplicate work
+            // (the shared pendingProfileReconcileRef/stillCurrent
+            // machinery in applySignedInUser already coordinates two
+            // reconciliations for the same user if both somehow ran).
+            //
+            // Tab-return loading-flash fix (pre-existing): Supabase's
+            // own internal visibility-triggered session recovery
+            // re-emits SIGNED_IN for the SAME already-authenticated
+            // user on ordinary tab return (see authedUserIdWithProfileRef's
+            // own comment above) — comparing against a ref, never
+            // against session/profile React state (which this closure
+            // would otherwise see as permanently stale).
             const isSameKnownUser =
               authedUserIdWithProfileRef.current === newSession.user.id;
-            checkProfile(newSession.user, { silent: isSameKnownUser });
+            applySignedInUser(newSession.user, {
+              silent: isSameKnownUser,
+              myToken: authEventTokenRef.current,
+            });
           }
 
           setLoading(false);
@@ -2015,6 +3150,7 @@ function Root() {
         <AuthScreen
           initialMode="login"
           onBack={() => setPublicScreen("landing")}
+          pendingOtpProfileRef={pendingOtpSignupProfileRef}
         />
       );
     }
@@ -2024,6 +3160,7 @@ function Root() {
         <AuthScreen
           initialMode="signup"
           onBack={() => setPublicScreen("landing")}
+          pendingOtpProfileRef={pendingOtpSignupProfileRef}
         />
       );
     }
