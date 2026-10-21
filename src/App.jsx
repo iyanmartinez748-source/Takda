@@ -2293,7 +2293,7 @@ function ReminderBell({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="relative p-1.5 -m-1.5 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-[#3D2FE0] transition-colors duration-150"
+      className="relative p-1.5 -m-1.5 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-[#3D2FE0] takda-interactive"
       aria-label={count > 0 ? `Reminders — ${count} urgent` : "Reminders"}
     >
       <Bell size={17} />
