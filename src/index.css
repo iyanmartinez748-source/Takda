@@ -90,6 +90,17 @@
   --takda-pro-bg-start: #1b1b22;
   --takda-pro-bg-end: #2c2c36;
   --takda-pro-text: #e8cf9a;
+
+  /* Motion (Step 52D.2) — theme-independent, deliberately NOT declared
+     inside any `:root[data-takda-theme="..."]` block: every current
+     and future theme inherits the same timing from this base `:root`
+     unless a theme ever has a deliberate reason to override it (none
+     do today). No selector or animation rule references these yet —
+     adding them here changes no rendered pixel. */
+  --takda-motion-fast: 150ms;
+  --takda-motion-normal: 200ms;
+  --takda-motion-slow: 300ms;
+  --takda-ease-standard: cubic-bezier(0, 0, 0.2, 1);
 }
 
 /* =========================
@@ -208,5 +219,16 @@ body {
   .takda-dashboard-enter,
   .takda-emptystate-icon {
     animation: none;
+  }
+
+  /* Step 52D.2: overrides only the duration tokens above — no current
+     rule reads them yet, so this has no effect today, but any future
+     consumer of --takda-motion-* automatically becomes reduced-motion
+     safe the moment it starts referencing these variables, without
+     needing its own motion-safe:/motion-reduce: variant. */
+  :root {
+    --takda-motion-fast: 0ms;
+    --takda-motion-normal: 0ms;
+    --takda-motion-slow: 0ms;
   }
 }
