@@ -2,6 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================
+   TAKDA DESIGN TOKENS — Classic theme (Step 52A.3)
+
+   No-op foundation only: every value below is copied verbatim from its
+   current hardcoded literal in src/App.jsx, src/main.jsx, or this file
+   (re-verified against source immediately before writing this block).
+   Nothing below is referenced by any selector, class, or inline style
+   yet — declaring these variables changes no rendered pixel.
+
+   Distinct existing values are kept distinct, never merged, even where
+   visually similar (e.g. the three brand tints, or the three muted text
+   grays) — see Step 52A.2's confirmed color inventory.
+
+   Deliberately EXCLUDED: App.jsx's `COLORS` array (the user-selected,
+   per-subject color picker palette). Those are persisted data values,
+   not theme presentation, and must never be aliased to a swappable
+   token.
+========================= */
+:root {
+  /* Brand */
+  --takda-brand: #3D2FE0;
+  --takda-brand-tint-1: #F7F6FF;
+  --takda-brand-tint-2: #F0EEFF;
+  --takda-brand-tint-3: #EEECFC;
+  --takda-brand-border-tint: #DCD9FF;
+  --takda-brand-border-dashed: #C7C7E8;
+
+  /* Backgrounds / surfaces */
+  --takda-bg-page: #F5F6FA;
+  --takda-bg-page-landing: #F7F8FC;
+  --takda-bg-surface: #FFFFFF;
+  --takda-bg-reminder-chip: #FFF8E7;
+  --takda-bg-grade-locked-icon: #F5F1E4;
+
+  /* Text */
+  --takda-text-primary: #1B1B2F;
+  --takda-text-muted-1: #94A3B8;
+  --takda-text-muted-2: #64748B;
+  --takda-text-muted-3: #475569;
+
+  /* Borders */
+  --takda-border: #E4E4F0;
+  --takda-border-neutral-2: #CBD5E1;
+  --takda-scrollbar-thumb: #D8D8ED;
+
+  /* Focus (accessibility-critical — currently aliases brand exactly;
+     any future per-theme override must be re-verified for contrast,
+     never swapped blindly) */
+  --takda-focus: #3D2FE0;
+
+  /* Status: urgency groups (App.jsx URGENCY_STYLE) */
+  --takda-status-overdue-dot: #FF5A5F;
+  --takda-status-overdue-text: #B91C1C;
+  --takda-status-overdue-bg: #FEF2F2;
+  --takda-status-tomorrow-dot: #F59E0B;
+  --takda-status-tomorrow-text: #92400E;
+  --takda-status-tomorrow-bg: #FFFBEB;
+  --takda-status-week-dot: #16A34A;
+  --takda-status-week-text: #166534;
+  --takda-status-week-bg: #F0FDF4;
+  --takda-status-later-dot: #94A3B8;
+  --takda-status-later-text: #475569;
+  --takda-status-later-bg: #F8FAFC;
+
+  /* Status: workflow label (App.jsx STATUS_LABEL) */
+  --takda-label-pending: #64748B;
+  --takda-label-pending-bg: #F1F5F9;
+  --takda-label-inprogress: #1D4ED8;
+  --takda-label-inprogress-bg: #EFF6FF;
+
+  /* Priority (App.jsx PRIORITY_COLOR) */
+  --takda-priority-medium: #D97706;
+  --takda-priority-high: #DC2626;
+
+  /* Dashboard focus tiles / calendar day tones (App.jsx
+     FOCUS_TILE_STYLE, CALENDAR_DAY_TONE — the source's own comment
+     confirms CALENDAR_DAY_TONE deliberately reuses these same
+     bg/border pairs, so only the borders unique to this group are
+     declared here; their shared bg/text values are the status
+     variables above) */
+  --takda-focustile-overdue-border: #FBD5D5;
+  --takda-focustile-duetoday-border: #FDE9B0;
+  --takda-focustile-upcoming-border: #CDEFD8;
+
+  /* Pro badge (this file, .takda-pro-badge below) */
+  --takda-pro-bg-start: #1b1b22;
+  --takda-pro-bg-end: #2c2c36;
+  --takda-pro-text: #e8cf9a;
+}
+
 html, body, #root {
   min-height: 100%;
   margin: 0;
