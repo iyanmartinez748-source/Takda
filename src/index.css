@@ -92,6 +92,41 @@
   --takda-pro-text: #e8cf9a;
 }
 
+/* =========================
+   TAKDA DESIGN TOKENS — Matcha Café theme (Step 52C.3)
+
+   Proof-of-concept override block, reproduced verbatim from the Step
+   52C.1 design proposal (contrast-verified there against WCAG 2.1).
+   Overrides ONLY the Classic token names above — no new variable
+   names are introduced, and every Classic value above is left
+   completely unchanged by this block. Only a handful of component
+   locations (Step 52C.2) actually reference these variables yet, so
+   this alone does not retheme the whole app — it is a partial,
+   intentionally incomplete proof of concept, not a finished theme.
+   Status/priority/focustile tokens are deliberately NOT overridden
+   here — Matcha inherits Classic's status colors for now.
+========================= */
+:root[data-takda-theme="matcha"] {
+  --takda-brand: #4F7042;
+  --takda-brand-tint-1: #F0F4E9;
+  --takda-brand-tint-2: #E8EFDC;
+  --takda-brand-tint-3: #E1EAD0;
+  --takda-brand-border-tint: #D3E0C3;
+  --takda-brand-border-dashed: #C3D1AE;
+
+  --takda-bg-page: #F7F2E4;
+  --takda-bg-surface: #FFFEFA;
+
+  --takda-text-primary: #2F2B22;
+  --takda-text-muted-1: #A79E87;
+  --takda-text-muted-2: #736A52;
+  --takda-text-muted-3: #5A5345;
+
+  --takda-border: #E2DAC3;
+
+  --takda-focus: #4F7042;
+}
+
 html, body, #root {
   min-height: 100%;
   margin: 0;
@@ -106,12 +141,12 @@ body {
 }
 
 .takda-focus-visible:focus-visible {
-  outline: 2px solid #3D2FE0;
+  outline: 2px solid var(--takda-focus);
   outline-offset: 2px;
 }
 
 .takda-focus-visible-on-brand:focus-visible {
-  outline-color: #3D2FE0;
+  outline-color: var(--takda-focus);
   outline-offset: 4px;
 }
 

@@ -2591,7 +2591,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
     { key: "notes", label: "Notes", icon: StickyNote },
   ];
   return (
-    <div className="hidden md:flex md:flex-col w-56 shrink-0 bg-white border-r border-[#E4E4F0] p-5">
+    <div className="hidden md:flex md:flex-col w-56 shrink-0 bg-white border-r border-[var(--takda-border)] p-5">
       <div className="flex items-center gap-2 mb-8 px-1">
         <img
   src="/takda-icon.png"
@@ -2612,7 +2612,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               className="takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left"
               style={{
                 background: active ? "#EEECFC" : "transparent",
-                color: active ? "#3D2FE0" : "#475569",
+                color: active ? "var(--takda-brand)" : "#475569",
               }}
             >
               <Icon size={17} />
@@ -2626,7 +2626,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
         aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
         className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-        style={{ background: "#3D2FE0" }}
+        style={{ background: "var(--takda-brand)" }}
       >
         <Plus size={16} /> Add Subject
       </button>
@@ -2667,7 +2667,7 @@ function NavBtn({ it, active, onClick }) {
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
-      style={{ color: active ? "#3D2FE0" : "#94A3B8" }}
+      style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
     >
       <span className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out ${active ? "bg-[#EEECFC]" : ""}`}>
         <Icon size={19} />

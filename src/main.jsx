@@ -56,7 +56,13 @@ const PASSWORD_CAPTCHA_ENABLED =
    theme choice.
 ========================= */
 const TAKDA_THEME_STORAGE_KEY = "takda-theme";
-const TAKDA_ALLOWED_THEMES = ["classic"];
+// Step 52C.3: "matcha" added to the allow-list so the CSS override
+// block in index.css can be reached for manual QA (devtools attribute
+// edit only — no picker UI, no localStorage write reads/writes this
+// value in yet). readStoredTheme() above still only ever returns
+// "classic" from a normal page load, since nothing writes "matcha" to
+// TAKDA_THEME_STORAGE_KEY anywhere in this file.
+const TAKDA_ALLOWED_THEMES = ["classic", "matcha"];
 
 function readStoredTheme() {
   try {
@@ -3482,7 +3488,7 @@ function Root() {
   /* TAKDA DASHBOARD */
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] p-0 md:p-6">
+    <div className="min-h-screen bg-[var(--takda-bg-page)] p-0 md:p-6">
 
       <div className="mx-auto max-w-5xl">
 
@@ -3497,7 +3503,7 @@ function Root() {
                   Welcome back,
                 </p>
 
-                <p className="text-sm font-semibold text-[#1B1B2F]">
+                <p className="text-sm font-semibold text-[var(--takda-text-primary)]">
                   {profile.full_name}
                 </p>
               </>
