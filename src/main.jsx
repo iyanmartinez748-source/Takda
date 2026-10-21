@@ -779,6 +779,18 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
         setMessage("Please enter your year or grade level.");
         return;
       }
+
+      // Step 51G.29BK: explicit JS-level backstop matching the input's
+      // own native minLength={6} — the disabled-button guard in the JSX
+      // below covers the normal click path, but this still protects any
+      // submit that reaches this handler (e.g. a programmatic submit)
+      // without a password of the required length. Checked on the raw
+      // password value, never trimmed/normalized, since a password's
+      // whitespace is significant and must reach signUp() unchanged.
+      if (password.length < 6) {
+        setMessage("Password must be at least 6 characters.");
+        return;
+      }
     }
 
     // Requirement 5 (Step 51G.25B): defensive, in addition to the
@@ -1111,7 +1123,8 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                 (mode === "signup" &&
                   (!signupFullName.trim() ||
                     !signupCourse.trim() ||
-                    !signupYearLevel.trim()))
+                    !signupYearLevel.trim() ||
+                    password.length < 6))
               }
               className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
