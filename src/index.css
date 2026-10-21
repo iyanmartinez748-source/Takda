@@ -165,6 +165,22 @@ body {
   outline-offset: 4px;
 }
 
+/* Step 52E.2: reusable, theme-independent interaction timing/press
+   feedback. Deliberately owns ONLY transition timing and the
+   `:active` press transform — never a hover color — so each button's
+   own existing hover-color class (which varies per button on
+   purpose) is completely unaffected. Not yet applied to any element;
+   adding it here changes no rendered pixel. */
+.takda-interactive {
+  transition-property: color, background-color, border-color, box-shadow, transform;
+  transition-duration: var(--takda-motion-fast);
+  transition-timing-function: var(--takda-ease-standard);
+}
+
+.takda-interactive:not(:disabled):not([aria-disabled="true"]):active {
+  transform: scale(0.98);
+}
+
 /* Takda Pro badge — premium graphite/champagne pill with a subtle shine sweep */
 .takda-pro-badge {
   position: relative;
@@ -238,5 +254,13 @@ body {
     --takda-motion-normal: 0ms;
     --takda-motion-slow: 0ms;
     --takda-motion-entrance: 0ms;
+  }
+
+  /* Step 52E.2: explicit suppression, not relied on via 0ms duration
+     alone — a `transform: scale()` on `:active` is still an instant,
+     visible jump at 0ms, which `prefers-reduced-motion` users should
+     not see at all. */
+  .takda-interactive:not(:disabled):not([aria-disabled="true"]):active {
+    transform: none;
   }
 }
