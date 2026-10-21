@@ -100,6 +100,10 @@
   --takda-motion-fast: 150ms;
   --takda-motion-normal: 200ms;
   --takda-motion-slow: 300ms;
+  /* Step 52D.9B: dedicated to .takda-dashboard-enter's existing 220ms
+     entrance duration, which matches none of the three tokens above —
+     kept as its own value rather than forced onto 200ms/300ms. */
+  --takda-motion-entrance: 220ms;
   --takda-ease-standard: cubic-bezier(0, 0, 0.2, 1);
 }
 
@@ -203,11 +207,14 @@ body {
 }
 
 .takda-dashboard-enter {
-  animation: takda-fade-in-up 220ms ease-out both;
+  animation: takda-fade-in-up var(--takda-motion-entrance) ease-out both;
 }
 
 .takda-emptystate-icon {
-  animation: takda-pop-in 200ms ease-out both;
+  /* Step 52D.9A: 200ms matched --takda-motion-normal exactly before this
+     edit — confirmed via direct source inspection, not assumed — so this
+     is a pure token substitution with no rendered-duration change. */
+  animation: takda-pop-in var(--takda-motion-normal) ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -230,5 +237,6 @@ body {
     --takda-motion-fast: 0ms;
     --takda-motion-normal: 0ms;
     --takda-motion-slow: 0ms;
+    --takda-motion-entrance: 0ms;
   }
 }
