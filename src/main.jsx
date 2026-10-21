@@ -506,6 +506,19 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
   const [otpCourse, setOtpCourse] = useState("");
   const [otpYearLevel, setOtpYearLevel] = useState("");
 
+  // Password signup profile fields (Step 51G.29C) — UI/validation
+  // only, deliberately kept separate from the OTP fields above rather
+  // than shared: this screen's submit() does not yet read or persist
+  // these (profile persistence for this path is a separate, later,
+  // explicitly-scoped step — see Step 51G.29B's assessment). Plain
+  // component state, same survives-resend/retry property as every
+  // other field on this screen already has; only shown and validated
+  // when mode === "signup" and authMethod === "password".
+  const [signupFullName, setSignupFullName] = useState("");
+  const [signupSchool, setSignupSchool] = useState("");
+  const [signupCourse, setSignupCourse] = useState("");
+  const [signupYearLevel, setSignupYearLevel] = useState("");
+
   // Password-flow CAPTCHA state (Step 51G.25B) — deliberately separate
   // from the OTP captchaToken/captchaResetSignal above, even though
   // both use the same TurnstileWidget component. Shared across login,
@@ -741,6 +754,33 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
   async function submit(e) {
     e.preventDefault();
 
+    // Step 51G.29C: client-side profile-field validation for the
+    // password signup form ONLY — login mode never shows or needs
+    // these fields, so this block is a complete no-op for login,
+    // exactly mirroring how sendOtpCode() already validates OTP's own
+    // equivalent fields before doing anything else. UI/validation
+    // only: nothing here touches signUp()'s arguments, the CAPTCHA
+    // guard below, or any database write — a validation failure
+    // simply returns, leaving every already-entered field (including
+    // these) exactly as the user left them, since no state is cleared
+    // on this path.
+    if (mode === "signup") {
+      if (!signupFullName.trim()) {
+        setMessage("Please enter your full name.");
+        return;
+      }
+
+      if (!signupCourse.trim()) {
+        setMessage("Please enter your program or course.");
+        return;
+      }
+
+      if (!signupYearLevel.trim()) {
+        setMessage("Please enter your year or grade level.");
+        return;
+      }
+    }
+
     // Requirement 5 (Step 51G.25B): defensive, in addition to the
     // disabled-button guard in the JSX below — never attempt a
     // protected request without a token when the flag is on.
@@ -762,12 +802,39 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
 
     try {
       if (mode === "signup") {
+        // Step 51G.29E (Part A): carries the already-validated profile
+        // fields (validated above, before this function ever reaches
+        // this point) through Supabase Auth's own user_metadata —
+        // written to the auth.users record at signUp() time regardless
+        // of email-confirmation status, so it survives confirmation on
+        // a different browser/device without any URL or local-storage
+        // transport. Deliberately NEVER includes `password` or
+        // `captchaToken` — those remain exactly where they already
+        // were (the top-level signUp() argument and `options.captchaToken`
+        // respectively), untouched by this addition. Snake_case keys
+        // chosen to match the public.profiles column names this data
+        // will eventually be written to (see reconcilePasswordSignupProfile
+        // in Root below), making the shape self-describing wherever it's
+        // inspected (e.g. the Supabase Auth dashboard).
         const { error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
             emailRedirectTo: window.location.origin,
             captchaToken: passwordCaptchaToken || undefined,
+            data: {
+              full_name: signupFullName.trim(),
+              // Kept as a plain string (possibly empty), never null —
+              // matches the existing convention upsertProfile() and
+              // the OTP signup path already use (school is always a
+              // string there too; upsertProfile() itself is the one
+              // place that converts an empty string to a stored NULL,
+              // via `school.trim() || null`). Storing null here would
+              // make that same `.trim()` call throw downstream.
+              school: signupSchool.trim(),
+              course: signupCourse.trim(),
+              year_level: signupYearLevel.trim(),
+            },
           },
         });
 
@@ -936,6 +1003,27 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
         {authMethod === "password" && (
           <form onSubmit={submit} className="space-y-3">
 
+            {/* Step 51G.29C: full registration fields shown inline on
+                the password signup form itself — reusing the exact
+                same field set, order, placeholders, and validation
+                wording already established for the OTP signup screen
+                (see otpFullName/otpSchool/otpCourse/otpYearLevel
+                above), so the experience is consistent across both
+                signup paths. Login mode never shows or needs these;
+                gated purely on `mode`, independent of authMethod,
+                OTP_AUTH_ENABLED, and PASSWORD_CAPTCHA_ENABLED. */}
+            {mode === "signup" && (
+              <input
+                type="text"
+                required
+                value={signupFullName}
+                onChange={(e) => setSignupFullName(e.target.value)}
+                placeholder="Full name"
+                autoComplete="name"
+                className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              />
+            )}
+
             <input
               type="email"
               required
@@ -945,6 +1033,36 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               autoComplete="email"
               className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
             />
+
+            {mode === "signup" && (
+              <>
+                <input
+                  type="text"
+                  value={signupSchool}
+                  onChange={(e) => setSignupSchool(e.target.value)}
+                  placeholder="School (optional)"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  required
+                  value={signupCourse}
+                  onChange={(e) => setSignupCourse(e.target.value)}
+                  placeholder="Program / Track"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+
+                <input
+                  type="text"
+                  required
+                  value={signupYearLevel}
+                  onChange={(e) => setSignupYearLevel(e.target.value)}
+                  placeholder="Year / Grade level"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                />
+              </>
+            )}
 
             <div className="relative">
               <input
@@ -989,7 +1107,11 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="submit"
               disabled={
                 loading ||
-                (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
+                (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken) ||
+                (mode === "signup" &&
+                  (!signupFullName.trim() ||
+                    !signupCourse.trim() ||
+                    !signupYearLevel.trim()))
               }
               className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
@@ -1226,6 +1348,15 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
             setOtpCourse("");
             setOtpYearLevel("");
 
+            // Step 51G.29C: clear the password-signup profile fields
+            // on the same login/signup toggle, for the same reason —
+            // avoids stale entered values lingering if a user fills
+            // this form, switches to login, then back to signup.
+            setSignupFullName("");
+            setSignupSchool("");
+            setSignupCourse("");
+            setSignupYearLevel("");
+
             // Step 51G.26E (Item 2 fix): switching login/signup mode
             // also abandons any not-yet-consumed OTP signup hand-off
             // — otherwise stale data for this email could later be
@@ -1441,6 +1572,42 @@ async function hasCompletedProfile(userId) {
   if (error) throw error;
 
   return !!(data && data.full_name);
+}
+
+// Step 51G.29E (Part B, requirement 1): validates the SHAPE of
+// auth user_metadata before it is ever used as a save candidate —
+// metadata is self-reported by the client at signUp() time (see
+// AuthScreen's submit(), Part A above), so it is treated here as
+// ordinary, untrusted user input, never as authorization data
+// (requirement 2): this function only checks that the expected
+// string fields exist and that the required ones are non-empty; it
+// grants no elevated access and is not consulted for anything beyond
+// what values to attempt to save. Returns a normalized
+// {fullName, school, course, yearLevel} object (matching
+// upsertProfile()'s own parameter shape exactly) on success, or null
+// if the metadata is absent, the wrong shape, or missing a required
+// field — the null case is the normal, expected outcome for every
+// OTP signup, every existing user, and every password signup that
+// predates this change, not an error.
+function extractPasswordSignupMetadata(user) {
+  const metadata = user?.user_metadata;
+
+  if (!metadata || typeof metadata !== "object") return null;
+
+  const fullName =
+    typeof metadata.full_name === "string" ? metadata.full_name : "";
+  const school =
+    typeof metadata.school === "string" ? metadata.school : "";
+  const course =
+    typeof metadata.course === "string" ? metadata.course : "";
+  const yearLevel =
+    typeof metadata.year_level === "string" ? metadata.year_level : "";
+
+  if (!fullName.trim() || !course.trim() || !yearLevel.trim()) {
+    return null;
+  }
+
+  return { fullName, school, course, yearLevel };
 }
 
 function ProfileSetup({ user, onComplete }) {
@@ -2758,6 +2925,41 @@ function Root() {
     }
   }
 
+  // Step 51G.29E (Part B): the password-signup counterpart to
+  // reconcileOtpSignupProfile above — same shape, same guarantees,
+  // deliberately NOT merged into one shared function, since the two
+  // candidate sources (an in-memory ref vs. auth user_metadata) have
+  // different lifecycles (single-use-and-cleared vs. persistent —
+  // see the metadata-sourced branch in applySignedInUser below for
+  // why that difference matters). `metadata` here has already been
+  // shape-validated by extractPasswordSignupMetadata() before this is
+  // ever called — this function itself only concerns the save.
+  async function reconcilePasswordSignupProfile(user, metadata) {
+    try {
+      // Requirement 6: never overwrite a real, already-completed
+      // profile — same sequential check-then-upsert pattern and same
+      // disclosed limitation as reconcileOtpSignupProfile above (not
+      // an atomic database-level guarantee).
+      const alreadyComplete = await hasCompletedProfile(user.id);
+
+      if (!alreadyComplete) {
+        const { error: saveError } = await upsertProfile(user.id, {
+          fullName: metadata.fullName,
+          school: metadata.school,
+          course: metadata.course,
+          yearLevel: metadata.yearLevel,
+        });
+
+        if (saveError) throw saveError;
+      }
+    } catch (saveErr) {
+      // Requirement 10 fallback: log only — the caller's own
+      // checkProfile() call falls through to the normal ProfileSetup
+      // screen exactly as if no metadata had existed at all.
+      console.error("Password signup profile save error:", saveErr);
+    }
+  }
+
   // Step 51G.26C/51G.26E: the single place a SIGNED_IN event is
   // turned into profile state. A pending OTP-signup profile (if any)
   // is always fully resolved — saved or given up on — BEFORE
@@ -2811,6 +3013,37 @@ function Root() {
           promise: reconcileOtpSignupProfile(user, pending),
         };
         pendingProfileReconcileRef.current = reconcile;
+      } else {
+        // Step 51G.29E (Part B, requirement 7): the OTP hand-off above
+        // keeps absolute priority — this password-signup metadata path
+        // is only ever consulted when there was no OTP pending match
+        // at all, so the two sources can never race for the same
+        // event. Requirement 8/9: reusing the exact same
+        // pendingProfileReconcileRef shape (keyed by userId) means a
+        // second overlapping SIGNED_IN/INITIAL_SESSION for this same
+        // user joins this SAME promise below rather than starting a
+        // second read/write, and needsProfile is still only decided
+        // (further down) after this fully settles — identical
+        // coordination to the OTP path, reused rather than
+        // reimplemented. Requirement 11: deliberately does NOT clear
+        // `user.user_metadata` on success — it is left exactly as
+        // Supabase wrote it; hasCompletedProfile() inside
+        // reconcilePasswordSignupProfile is what makes every
+        // subsequent sign-in's re-read of this same metadata a safe
+        // no-op, not a one-time-consumption ref.
+        const passwordSignupMetadata =
+          extractPasswordSignupMetadata(user);
+
+        if (passwordSignupMetadata) {
+          reconcile = {
+            userId: user.id,
+            promise: reconcilePasswordSignupProfile(
+              user,
+              passwordSignupMetadata
+            ),
+          };
+          pendingProfileReconcileRef.current = reconcile;
+        }
       }
     }
 
