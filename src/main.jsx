@@ -43,6 +43,33 @@ const PASSWORD_CAPTCHA_ENABLED =
   import.meta.env.VITE_ENABLE_PASSWORD_CAPTCHA === "true";
 
 /* =========================
+   THEME STATE (Step 52B.3) — Classic-only foundation
+
+   No CSS selector anywhere references `data-takda-theme` yet (see
+   src/index.css), so applying this attribute changes no rendered
+   pixel. Only "classic" is accepted today; a stored value naming any
+   other theme (e.g. from a future rollback, or manual tampering) is
+   rejected and falls back to "classic" — never passed through
+   unchecked. Read-only for now: nothing writes to this key yet, since
+   there is no selection UI to write from (see Root's lazy useState
+   initializer below) — that comes later, alongside the first actual
+   theme choice.
+========================= */
+const TAKDA_THEME_STORAGE_KEY = "takda-theme";
+const TAKDA_ALLOWED_THEMES = ["classic"];
+
+function readStoredTheme() {
+  try {
+    const raw = localStorage.getItem(TAKDA_THEME_STORAGE_KEY);
+    return TAKDA_ALLOWED_THEMES.includes(raw) ? raw : "classic";
+  } catch {
+    // localStorage can throw (private browsing, blocked storage) —
+    // never let a theme preference read crash the app.
+    return "classic";
+  }
+}
+
+/* =========================
    HELPERS
 ========================= */
 
@@ -2660,6 +2687,21 @@ function setMetaAttribute(selector, attribute, value) {
 
 function Root() {
   const [session, setSession] = useState(null);
+
+  // Step 52B.3: lazy initializer runs once, on Root's first render
+  // only — never re-reads localStorage on subsequent renders.
+  const [theme] = useState(readStoredTheme);
+
+  // Runs on every Root render regardless of which branch below is
+  // currently returned (loading, public landing, auth screens, or the
+  // authenticated shell) — document.documentElement is outside all of
+  // them, so this is the one place that reaches every state uniformly.
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      "data-takda-theme",
+      theme
+    );
+  }, [theme]);
 
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] =
