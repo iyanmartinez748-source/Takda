@@ -2655,8 +2655,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
         onClick={onAddSubject}
         aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white takda-interactive ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-        style={{ background: "var(--takda-brand)" }}
+        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
       >
         <Plus size={16} /> Add Subject
       </button>
@@ -2678,8 +2677,7 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
       <button
         onClick={onFab}
         aria-disabled={!canCreate}
-        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
-        style={{ background: "#3D2FE0" }}
+        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 takda-interactive takda-cta-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
         aria-label="Add activity"
         title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
       >
@@ -3996,8 +3994,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           onClick={() => onAddActivity(formatLocalDate(selected))}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "var(--takda-brand)" }}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Activity
         </button>
@@ -4349,8 +4346,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           onClick={onAdd}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "var(--takda-brand)" }}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Activity
         </button>
