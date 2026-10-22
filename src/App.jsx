@@ -2289,14 +2289,18 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
 // Stage 9A: pure UI — no Notification permission, no Notification API, no
 // serviceWorker.showNotification() anywhere near this component. The badge
 // is a count of derived state only.
-function ReminderBell({ count, onClick }) {
+function ReminderBell({ count, onClick, ringKey }) {
   return (
     <button
       onClick={onClick}
       className="relative p-1.5 -m-1.5 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-[#3D2FE0] takda-interactive"
       aria-label={count > 0 ? `Reminders — ${count} urgent` : "Reminders"}
     >
-      <Bell size={17} />
+      <Bell
+        key={ringKey}
+        size={17}
+        className={ringKey > 0 ? "takda-bell-ring" : undefined}
+      />
       {count > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[#FF5A5F] text-white text-[10px] font-bold leading-4 text-center">
           {count > 9 ? "9+" : count}
@@ -2311,6 +2315,32 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
+  const [ringKey, setRingKey] = useState(0);
+  const prevRef = useRef({
+    count: reminderBadgeCount,
+    semesterId: activeSemesterId,
+    initialized: false,
+  });
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    const semesterChanged = prev.semesterId !== activeSemesterId;
+
+    if (
+      prev.initialized &&
+      !semesterChanged &&
+      reminderBadgeCount > prev.count
+    ) {
+      setRingKey((key) => key + 1);
+    }
+
+    prevRef.current = {
+      count: reminderBadgeCount,
+      semesterId: activeSemesterId,
+      initialized: true,
+    };
+  }, [reminderBadgeCount, activeSemesterId]);
+
   useEffect(() => {
     function handleOutsideClick(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -2324,7 +2354,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
       <div className="flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0">
         <span className="text-xs text-slate-500">No semesters set up yet.</span>
         <div className="flex items-center gap-3 shrink-0">
-          <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} />
+          <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
           <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
             + Set up semesters
           </button>
@@ -2359,7 +2389,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         <ChevronDown size={14} className="text-slate-400 shrink-0" />
       </button>
       <div className="flex items-center gap-3 shrink-0">
-        <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} />
+        <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
         <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
           Manage Semesters
         </button>
