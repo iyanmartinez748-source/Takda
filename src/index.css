@@ -178,7 +178,7 @@ body {
 }
 
 .takda-interactive:not(:disabled):not([aria-disabled="true"]):active {
-  transform: scale(0.98);
+  transform: scale(0.95);
 }
 
 /* Takda Pro badge — premium graphite/champagne pill with a subtle shine sweep */
