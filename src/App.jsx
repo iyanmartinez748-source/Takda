@@ -2639,9 +2639,9 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               key={it.key}
               onClick={() => setView(it.key)}
               aria-current={active ? "page" : undefined}
-              className="takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left"
+              className={`takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
               style={{
-                background: active ? "#EEECFC" : "transparent",
+                background: active ? "#EEECFC" : undefined,
                 color: active ? "var(--takda-brand)" : "#475569",
               }}
             >

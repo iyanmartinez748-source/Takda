@@ -206,6 +206,17 @@ body {
   }
 }
 
+/* Step 53A.18: subtle hover for inactive, enabled desktop Sidebar nav
+   items only — never applied when active (the active branch keeps its
+   existing inline background, untouched). No transition-property of
+   its own, same reasoning as .takda-cta-brand above: background-color
+   is already covered by .takda-interactive's existing transition. */
+@media (hover: hover) and (pointer: fine) {
+  .takda-sidebar-nav-hover:hover {
+    background-color: var(--takda-brand-tint-1);
+  }
+}
+
 /* Takda Pro badge — premium graphite/champagne pill with a subtle shine sweep */
 .takda-pro-badge {
   position: relative;
