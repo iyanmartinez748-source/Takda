@@ -250,6 +250,20 @@ body {
   animation: takda-bell-ring 1s var(--takda-ease-standard) 1;
 }
 
+/* Step 53A.10: entry-only one-shot slide-up+fade for MoreSheet's panel.
+   Distinct from takda-fade-in-up — that keyframe's 8px distance and
+   dedicated entrance token are tuned for the Dashboard specifically and
+   are left untouched. Applied to the sheet panel only, never the
+   backdrop (see src/App.jsx). */
+@keyframes takda-sheet-enter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.takda-sheet-enter {
+  animation: takda-sheet-enter var(--takda-motion-normal) var(--takda-ease-standard) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .takda-pro-badge::after {
     animation: none;
@@ -284,6 +298,11 @@ body {
   /* Step 52E.34: rotation-based shake suppressed entirely under
      reduced motion, same pattern as every other animation above. */
   .takda-bell-ring {
+    animation: none;
+  }
+
+  /* Step 53A.10: same suppression for MoreSheet's entry animation. */
+  .takda-sheet-enter {
     animation: none;
   }
 }

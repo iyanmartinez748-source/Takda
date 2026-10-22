@@ -2655,7 +2655,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
         onClick={onAddSubject}
         aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
+        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white takda-interactive ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
         style={{ background: "var(--takda-brand)" }}
       >
         <Plus size={16} /> Add Subject
@@ -2731,7 +2731,7 @@ function MoreSheet({ view, onClose, onNavigate }) {
       aria-modal="true"
       aria-label="More options"
     >
-      <div className="bg-white w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] takda-sheet-enter" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display text-lg font-semibold">More</h3>
           <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
@@ -3996,8 +3996,8 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           onClick={() => onAddActivity(formatLocalDate(selected))}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
+          style={{ background: "var(--takda-brand)" }}
         >
           <Plus size={15} /> Add Activity
         </button>
@@ -4349,8 +4349,8 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           onClick={onAdd}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
+          style={{ background: "var(--takda-brand)" }}
         >
           <Plus size={15} /> Add Activity
         </button>
