@@ -233,6 +233,23 @@ body {
   animation: takda-pop-in var(--takda-motion-normal) ease-out both;
 }
 
+/* Step 52E.34: isolated, reusable one-cycle "ringing" shake — not yet
+   applied to any element in React. Intended for the Bell icon only
+   (never the surrounding button), so it composes with .takda-interactive's
+   own :active scale on the parent without any transform conflict. */
+@keyframes takda-bell-ring {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(18deg); }
+  40% { transform: rotate(-18deg); }
+  60% { transform: rotate(12deg); }
+  80% { transform: rotate(-12deg); }
+}
+
+.takda-bell-ring {
+  transform-origin: 50% 15%;
+  animation: takda-bell-ring 1s var(--takda-ease-standard) 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .takda-pro-badge::after {
     animation: none;
@@ -262,5 +279,11 @@ body {
      not see at all. */
   .takda-interactive:not(:disabled):not([aria-disabled="true"]):active {
     transform: none;
+  }
+
+  /* Step 52E.34: rotation-based shake suppressed entirely under
+     reduced motion, same pattern as every other animation above. */
+  .takda-bell-ring {
+    animation: none;
   }
 }
