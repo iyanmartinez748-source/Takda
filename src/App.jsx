@@ -2639,7 +2639,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               key={it.key}
               onClick={() => setView(it.key)}
               aria-current={active ? "page" : undefined}
-              className="takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left"
+              className="takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left"
               style={{
                 background: active ? "#EEECFC" : "transparent",
                 color: active ? "var(--takda-brand)" : "#475569",
@@ -2696,7 +2696,7 @@ function NavBtn({ it, active, onClick }) {
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
+      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
       style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
     >
       <span className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out ${active ? "bg-[#EEECFC]" : ""}`}>
