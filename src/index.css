@@ -23,6 +23,11 @@
 :root {
   /* Brand */
   --takda-brand: #3D2FE0;
+  /* Step 53A.14: visibly darker than --takda-brand (white-text contrast
+     measures 10.52:1 vs. the base's 7.83:1 — computed via the WCAG
+     relative-luminance formula, not estimated), for hover darkening on
+     primary CTAs. */
+  --takda-brand-hover: #2E24B0;
   --takda-brand-tint-1: #F7F6FF;
   --takda-brand-tint-2: #F0EEFF;
   --takda-brand-tint-3: #EEECFC;
@@ -123,6 +128,9 @@
 ========================= */
 :root[data-takda-theme="matcha"] {
   --takda-brand: #4F7042;
+  /* Step 53A.14: white-text contrast measures 7.83:1 vs. the base's
+     5.63:1 — computed, not estimated — visibly darker for hover. */
+  --takda-brand-hover: #3E5934;
   --takda-brand-tint-1: #F0F4E9;
   --takda-brand-tint-2: #E8EFDC;
   --takda-brand-tint-3: #E1EAD0;
@@ -179,6 +187,34 @@ body {
 
 .takda-interactive:not(:disabled):not([aria-disabled="true"]):active {
   transform: scale(0.95);
+}
+
+/* Step 53A.14: primary CTA background, theme-aware. Deliberately
+   declares NO transition-property of its own — background-color is
+   already covered by .takda-interactive's existing transition (which
+   every consumer of this class also carries), so there is nothing here
+   that could override or race with its transform transition. Scoped to
+   (hover: hover) and (pointer: fine) so touch taps never produce a
+   stuck hover state. */
+.takda-cta-brand {
+  background-color: var(--takda-brand);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .takda-cta-brand:not(:disabled):not([aria-disabled="true"]):hover {
+    background-color: var(--takda-brand-hover);
+  }
+}
+
+/* Step 53A.18: subtle hover for inactive, enabled desktop Sidebar nav
+   items only — never applied when active (the active branch keeps its
+   existing inline background, untouched). No transition-property of
+   its own, same reasoning as .takda-cta-brand above: background-color
+   is already covered by .takda-interactive's existing transition. */
+@media (hover: hover) and (pointer: fine) {
+  .takda-sidebar-nav-hover:hover {
+    background-color: var(--takda-brand-tint-1);
+  }
 }
 
 /* Takda Pro badge — premium graphite/champagne pill with a subtle shine sweep */
@@ -250,6 +286,20 @@ body {
   animation: takda-bell-ring 1s var(--takda-ease-standard) 1;
 }
 
+/* Step 53A.10: entry-only one-shot slide-up+fade for MoreSheet's panel.
+   Distinct from takda-fade-in-up — that keyframe's 8px distance and
+   dedicated entrance token are tuned for the Dashboard specifically and
+   are left untouched. Applied to the sheet panel only, never the
+   backdrop (see src/App.jsx). */
+@keyframes takda-sheet-enter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.takda-sheet-enter {
+  animation: takda-sheet-enter var(--takda-motion-normal) var(--takda-ease-standard) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .takda-pro-badge::after {
     animation: none;
@@ -284,6 +334,11 @@ body {
   /* Step 52E.34: rotation-based shake suppressed entirely under
      reduced motion, same pattern as every other animation above. */
   .takda-bell-ring {
+    animation: none;
+  }
+
+  /* Step 53A.10: same suppression for MoreSheet's entry animation. */
+  .takda-sheet-enter {
     animation: none;
   }
 }

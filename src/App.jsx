@@ -2639,9 +2639,9 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               key={it.key}
               onClick={() => setView(it.key)}
               aria-current={active ? "page" : undefined}
-              className="takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left"
+              className={`takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
               style={{
-                background: active ? "#EEECFC" : "transparent",
+                background: active ? "#EEECFC" : undefined,
                 color: active ? "var(--takda-brand)" : "#475569",
               }}
             >
@@ -2655,8 +2655,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
         onClick={onAddSubject}
         aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-        style={{ background: "var(--takda-brand)" }}
+        className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
       >
         <Plus size={16} /> Add Subject
       </button>
@@ -2678,8 +2677,7 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
       <button
         onClick={onFab}
         aria-disabled={!canCreate}
-        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition-transform duration-150 ease-out motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
-        style={{ background: "#3D2FE0" }}
+        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 takda-interactive takda-cta-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
         aria-label="Add activity"
         title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
       >
@@ -2696,7 +2694,7 @@ function NavBtn({ it, active, onClick }) {
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
+      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
       style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
     >
       <span className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out ${active ? "bg-[#EEECFC]" : ""}`}>
@@ -2731,7 +2729,7 @@ function MoreSheet({ view, onClose, onNavigate }) {
       aria-modal="true"
       aria-label="More options"
     >
-      <div className="bg-white w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] takda-sheet-enter" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display text-lg font-semibold">More</h3>
           <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
@@ -3996,8 +3994,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           onClick={() => onAddActivity(formatLocalDate(selected))}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Activity
         </button>
@@ -4349,8 +4346,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           onClick={onAdd}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Activity
         </button>
