@@ -168,12 +168,12 @@ function urgency(activity) {
 }
 
 const URGENCY_STYLE = {
-  overdue: { dot: "#FF5A5F", label: "Overdue", text: "#B91C1C", bg: "#FEF2F2" },
-  today: { dot: "#FF5A5F", label: "Due Today", text: "#B91C1C", bg: "#FEF2F2" },
-  tomorrow: { dot: "#F59E0B", label: "Due Tomorrow", text: "#92400E", bg: "#FFFBEB" },
-  week: { dot: "#16A34A", label: "This Week", text: "#166534", bg: "#F0FDF4" },
-  later: { dot: "#94A3B8", label: "Upcoming", text: "#475569", bg: "#F8FAFC" },
-  done: { dot: "#16A34A", label: "Completed", text: "#166534", bg: "#F0FDF4" },
+  overdue: { dot: "var(--takda-status-overdue-dot)", label: "Overdue", text: "var(--takda-status-overdue-text)", bg: "var(--takda-status-overdue-bg)" },
+  today: { dot: "var(--takda-status-overdue-dot)", label: "Due Today", text: "var(--takda-status-overdue-text)", bg: "var(--takda-status-overdue-bg)" },
+  tomorrow: { dot: "var(--takda-status-tomorrow-dot)", label: "Due Tomorrow", text: "var(--takda-status-tomorrow-text)", bg: "var(--takda-status-tomorrow-bg)" },
+  week: { dot: "var(--takda-status-week-dot)", label: "This Week", text: "var(--takda-status-week-text)", bg: "var(--takda-status-week-bg)" },
+  later: { dot: "var(--takda-status-later-dot)", label: "Upcoming", text: "var(--takda-status-later-text)", bg: "var(--takda-status-later-bg)" },
+  done: { dot: "var(--takda-status-week-dot)", label: "Completed", text: "var(--takda-status-week-text)", bg: "var(--takda-status-week-bg)" },
 };
 
 function fmtDate(d) {
@@ -198,7 +198,7 @@ function StatusBadge({ status }) {
   );
 }
 
-const PRIORITY_COLOR = { Low: "#64748B", Medium: "#D97706", High: "#DC2626" };
+const PRIORITY_COLOR = { Low: "var(--takda-text-muted-2)", Medium: "#D97706", High: "#DC2626" };
 function PriorityTag({ priority }) {
   if (!priority) return null;
   const color = PRIORITY_COLOR[priority] || PRIORITY_COLOR.Medium;
@@ -1668,6 +1668,10 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               onToggle={toggleComplete}
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAddSubject={requestAddSubject}
+              onAddActivity={() => requestAddActivity()}
+              onViewSchedule={() => setView("calendar")}
+              onOpenGrades={() => setView("grades")}
+              isPro={isPro}
               onFocusFilter={goToActivities}
               canCreate={canCreateInSelectedSemester}
               reminderGroups={reminderGroups}
@@ -2775,6 +2779,10 @@ function Dashboard({
   onToggle,
   onOpenSubject,
   onAddSubject,
+  onAddActivity,
+  onViewSchedule,
+  onOpenGrades,
+  isPro,
   onFocusFilter,
   canCreate = true,
   reminderGroups,
@@ -2801,104 +2809,179 @@ function Dashboard({
     <div className="p-5 md:p-8 takda-dashboard-enter">
       <div className="mb-6">
         <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
-        <p className="text-sm text-slate-500 mt-1">{contextMessage}</p>
+        <p className="text-sm text-[color:var(--takda-text-muted-2)] mt-1">{contextMessage}</p>
       </div>
 
       {showActiveSemesterContext && (
-        <div className="rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 text-xs text-slate-500 mb-4">
+        <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
           Current classes, reminders, and insights are from {activeSemesterName} (Active).
         </div>
       )}
 
-      <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
-      <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
-
-      <SmartRemindersSection
-        groups={reminderGroups}
-        activeSemesterName={activeSemesterName}
-        hasSemesters={hasSemesters}
-        hasActiveSemesterForReminders={hasActiveSemesterForReminders}
-        onToggle={onToggle}
-        onOpenSubject={onOpenSubject}
-        onOpenReminders={onOpenReminders}
+      <QuickActions
+        onAddSubject={onAddSubject}
+        onAddActivity={onAddActivity}
+        onViewSchedule={onViewSchedule}
+        onOpenGrades={onOpenGrades}
+        canCreate={canCreate}
+        isPro={isPro}
       />
 
-      <SmartInsightsSection insights={smartInsights} />
+      <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
 
       <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
 
-      <SectionHeader
-        title="Needs Attention"
-        action={
-          focusCounts.overdue > 0 && (
-            <ViewAllLink label={`View all overdue (${focusCounts.overdue})`} onClick={() => onFocusFilter("overdue")} />
-          )
-        }
-      />
-      {overdueVisible.length === 0 ? (
-        <DashboardEmptyState icon={CheckCircle2} title="No overdue tasks" subtitle="You're all caught up." />
-      ) : (
-        <div className="flex flex-col gap-2 mb-7">
-          {overdueVisible.map((a) => (
-            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
-          ))}
-        </div>
-      )}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+        <div>
+          <div
+            className={
+              focusCounts.overdue > 0
+                ? "bg-[var(--takda-status-overdue-bg)] border border-[var(--takda-focustile-overdue-border)] rounded-xl p-4 mb-7"
+                : undefined
+            }
+          >
+            <SectionHeader
+              title="Needs Attention"
+              action={
+                focusCounts.overdue > 0 && (
+                  <ViewAllLink label={`View all overdue (${focusCounts.overdue})`} onClick={() => onFocusFilter("overdue")} />
+                )
+              }
+            />
+            {overdueVisible.length === 0 ? (
+              <DashboardEmptyState icon={CheckCircle2} title="No overdue tasks" subtitle="You're all caught up." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {overdueVisible.map((a) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+                ))}
+              </div>
+            )}
+          </div>
 
-      <SectionHeader
-        title="Due Today"
-        action={
-          focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
-            <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
-          )
-        }
-      />
-      {dueTodayVisible.length === 0 ? (
-        <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
-      ) : (
-        <div className="flex flex-col gap-2 mb-7">
-          {dueTodayVisible.map((a) => (
-            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
-          ))}
-        </div>
-      )}
+          <SectionHeader
+            title="Due Today"
+            action={
+              focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
+                <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
+              )
+            }
+          />
+          {dueTodayVisible.length === 0 ? (
+            <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
+          ) : (
+            <div className="flex flex-col gap-2 mb-7">
+              {dueTodayVisible.map((a) => (
+                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+              ))}
+            </div>
+          )}
 
-      <SectionHeader
-        title="Upcoming Deadlines"
-        action={
-          focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
-            <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
-          )
-        }
-      />
-      {upcomingVisible.length === 0 ? (
-        <DashboardEmptyState title="No upcoming deadlines." />
-      ) : (
-        <div className="flex flex-col gap-2 mb-7">
-          {upcomingVisible.map((a, i) => (
-            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
-          ))}
-        </div>
-      )}
+          <SectionHeader
+            title="Upcoming Deadlines"
+            action={
+              focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
+                <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
+              )
+            }
+          />
+          {upcomingVisible.length === 0 ? (
+            <DashboardEmptyState title="No upcoming deadlines." />
+          ) : (
+            <div className="flex flex-col gap-2 mb-7">
+              {upcomingVisible.map((a, i) => (
+                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
+              ))}
+            </div>
+          )}
 
-      <SectionHeader title="Recently Completed" muted />
-      {recentlyCompleted.length === 0 ? (
-        <DashboardEmptyState title="Completed tasks will show up here." />
-      ) : (
-        <div className="flex flex-col gap-2 mb-4 opacity-80">
-          {recentlyCompleted.map((a) => (
-            <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
-          ))}
-        </div>
-      )}
+          <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
 
-      <StatsStrip stats={stats} />
+          <SectionHeader title="Recently Completed" muted />
+          {recentlyCompleted.length === 0 ? (
+            <DashboardEmptyState title="Completed tasks will show up here." />
+          ) : (
+            <div className="flex flex-col gap-2 mb-4 opacity-80">
+              {recentlyCompleted.map((a) => (
+                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <SmartRemindersSection
+            groups={reminderGroups}
+            activeSemesterName={activeSemesterName}
+            hasSemesters={hasSemesters}
+            hasActiveSemesterForReminders={hasActiveSemesterForReminders}
+            onToggle={onToggle}
+            onOpenSubject={onOpenSubject}
+            onOpenReminders={onOpenReminders}
+          />
+
+          <SmartInsightsSection insights={smartInsights} />
+
+          <StatsStrip stats={stats} />
+        </div>
+      </div>
 
       {stats.subjects === 0 && canCreate && (
-        <button onClick={onAddSubject} className="mt-4 w-full rounded-xl border border-dashed border-[#C7C7E8] text-[#3D2FE0] py-3 text-sm font-medium">
+        <button onClick={onAddSubject} className="mt-4 w-full rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] text-[color:var(--takda-brand)] py-3 text-sm font-medium">
           + Add your first subject to get started
         </button>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Quick Actions (Phase 02) ---------------- */
+function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, hiddenOnMobile }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-disabled={disabled}
+      title={title}
+      className={`takda-focus-visible takda-interactive ${hiddenOnMobile ? "hidden md:flex" : "flex"} flex-col items-center justify-center gap-1.5 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-3 px-2 text-center relative`}
+    >
+      {showProBadge && (
+        <span
+          className="takda-pro-badge inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide"
+          style={{ position: "absolute", top: "-6px", right: "-6px" }}
+        >
+          PRO
+        </span>
+      )}
+      <Icon size={18} color="var(--takda-brand)" />
+      <span className="text-[11px] font-semibold text-[color:var(--takda-text-muted-2)]">{label}</span>
+    </button>
+  );
+}
+
+function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenGrades, canCreate = true, isPro }) {
+  return (
+    <div className="mb-7">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Quick Actions</h2>
+      <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+        <QuickActionTile
+          icon={BookOpen}
+          label="Add Subject"
+          onClick={onAddSubject}
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
+        />
+        <QuickActionTile
+          icon={CheckCircle2}
+          label="Add Activity"
+          onClick={onAddActivity}
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+          hiddenOnMobile
+        />
+        <QuickActionTile icon={CalendarIcon} label="View Schedule" onClick={onViewSchedule} />
+        <QuickActionTile icon={Lock} label="Grade Tracker" onClick={onOpenGrades} showProBadge={!isPro} />
+      </div>
     </div>
   );
 }
@@ -2927,7 +3010,7 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
   return (
     <div className="mb-7">
       <div className="flex items-center justify-between gap-2 mb-2.5">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">{captionText}</h2>
+        <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">{captionText}</h2>
         {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={() => onOpenReminders("all")} />}
       </div>
 
@@ -2935,7 +3018,7 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
         <button
           type="button"
           onClick={() => onOpenReminders("all")}
-          className="w-full text-left rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-3 text-xs text-slate-500"
+          className="w-full text-left rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-3 text-xs text-[color:var(--takda-text-muted-2)]"
         >
           No semester is currently active, so there's nothing to remind you about yet. Activate a semester to start tracking its deadlines here.
         </button>
@@ -2971,7 +3054,7 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
       type="button"
       onClick={onClick}
       className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
-      style={active ? { background: style.bg, borderColor: style.bg } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
+      style={active ? { background: style.bg, borderColor: style.bg } : { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)" }}
       aria-label={`${label} — ${value}`}
     >
       <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
@@ -2985,9 +3068,9 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
 }
 
 const FOCUS_TILE_STYLE = {
-  overdue: { bg: "#FEF2F2", border: "#FBD5D5", text: "#B91C1C" },
-  dueToday: { bg: "#FFFBEB", border: "#FDE9B0", text: "#92400E" },
-  upcoming: { bg: "#F0FDF4", border: "#CDEFD8", text: "#166534" },
+  overdue: { bg: "var(--takda-status-overdue-bg)", border: "var(--takda-focustile-overdue-border)", text: "var(--takda-status-overdue-text)" },
+  dueToday: { bg: "var(--takda-status-tomorrow-bg)", border: "var(--takda-focustile-duetoday-border)", text: "var(--takda-status-tomorrow-text)" },
+  upcoming: { bg: "var(--takda-status-week-bg)", border: "var(--takda-focustile-upcoming-border)", text: "var(--takda-status-week-text)" },
 };
 
 const FOCUS_TILE_FILTER = { overdue: "overdue", dueToday: "today", upcoming: "upcoming" };
@@ -2999,7 +3082,7 @@ function FocusTile({ tile, active, style, onSelect }) {
       type="button"
       onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
       className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
-      style={active ? { background: style.bg, borderColor: style.border } : { background: "#FFFFFF", borderColor: "#E4E4F0" }}
+      style={active ? { background: style.bg, borderColor: style.border } : { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)" }}
       aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
     >
       <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
@@ -3047,12 +3130,12 @@ function SmartInsightsSection({ insights }) {
                 key={insight.type}
                 type="button"
                 onClick={insight.onActivate}
-                className="w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F] transition-colors duration-150 hover:border-slate-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+                className="w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
               >
                 {insight.message}
               </button>
             ) : (
-              <div key={insight.type} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F]">
+              <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)]">
                 {insight.message}
               </div>
             )
@@ -3089,11 +3172,11 @@ function StatsStrip({ stats }) {
     { label: "Due Today", value: stats.dueToday },
   ];
   return (
-    <div className="flex items-stretch rounded-xl border border-[#E4E4F0] bg-white divide-x divide-[#E4E4F0] mb-7">
+    <div className="flex items-stretch rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] divide-x divide-[var(--takda-border)] mb-7">
       {items.map((it) => (
         <div key={it.label} className="flex-1 px-2 py-2.5 text-center">
           <div className="font-display text-lg font-semibold leading-none">{it.value}</div>
-          <div className="text-[10px] font-semibold text-slate-500 mt-1">{it.label}</div>
+          <div className="text-[10px] font-semibold text-[color:var(--takda-text-muted-2)] mt-1">{it.label}</div>
         </div>
       ))}
     </div>
@@ -3103,7 +3186,7 @@ function StatsStrip({ stats }) {
 function SectionHeader({ title, muted, action }) {
   return (
     <div className="flex items-center justify-between gap-2 mb-2.5 mt-1">
-      <h2 className={`text-sm ${muted ? "font-semibold text-slate-400" : "font-semibold text-slate-700"}`}>
+      <h2 className={`text-sm ${muted ? "font-semibold text-[color:var(--takda-text-muted-1)]" : "font-semibold text-[color:var(--takda-text-heading)]"}`}>
         {title}
       </h2>
       {action}
@@ -3116,7 +3199,7 @@ function ViewAllLink({ label, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[#3D2FE0] hover:underline focus:outline-none focus-visible:underline"
+      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[color:var(--takda-brand)] hover:underline focus:outline-none focus-visible:underline"
     >
       {label} →
     </button>
@@ -3125,10 +3208,10 @@ function ViewAllLink({ label, onClick }) {
 
 function DashboardEmptyState({ icon: Icon, title, subtitle }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 mb-7">
-      {Icon && <Icon size={14} className="text-emerald-500 shrink-0 takda-emptystate-icon" />}
-      <p className="text-xs text-slate-500">
-        <span className="font-semibold text-slate-600">{title}</span>
+    <div className="flex items-center gap-2.5 rounded-lg bg-[var(--takda-bg-empty-state)] border border-[var(--takda-border)] px-3 py-2.5 mb-7">
+      {Icon && <Icon size={14} className="text-[color:var(--takda-success-icon)] shrink-0 takda-emptystate-icon" />}
+      <p className="text-xs text-[color:var(--takda-text-muted-2)]">
+        <span className="font-semibold text-[color:var(--takda-text-muted-3)]">{title}</span>
         {subtitle && <span> — {subtitle}</span>}
       </p>
     </div>
@@ -3146,25 +3229,25 @@ function EmptyRow({ text }) {
 function NextClassCard({ nextClass, onOpenSubject }) {
   return (
     <div className="mb-7">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Next Class</h2>
+      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Next Class</h2>
       {!nextClass ? (
         <DashboardEmptyState title="No upcoming classes." subtitle="Add a class schedule from Add/Edit Subject to see it here." />
       ) : (
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="takda-focus-visible w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300 hover:shadow-sm"
+          className="takda-focus-visible w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
         >
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nextClass.subject?.color || "#3D2FE0" }} />
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold truncate">{nextClass.subject?.name || "Untitled Subject"}</div>
-            <div className="text-xs text-slate-500 mt-0.5">
+            <div className="text-xs text-[color:var(--takda-text-muted-2)] mt-0.5">
               {nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]}
               {" • "}
               {formatScheduleTime(nextClass.startTime)}
             </div>
             {nextClass.location && (
-              <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><MapPin size={11} />{nextClass.location}</div>
+              <div className="text-xs text-[color:var(--takda-text-muted-1)] mt-0.5 flex items-center gap-1"><MapPin size={11} />{nextClass.location}</div>
             )}
           </div>
         </button>
@@ -3176,7 +3259,7 @@ function NextClassCard({ nextClass, onOpenSubject }) {
 function TodaysClassesSection({ classes, onOpenSubject }) {
   return (
     <div className="mb-7">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Today's Classes</h2>
+      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Today's Classes</h2>
       {classes.length === 0 ? (
         <DashboardEmptyState title="No classes scheduled for today." />
       ) : (
@@ -3186,14 +3269,14 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
               key={row.id}
               type="button"
               onClick={() => row.subject && onOpenSubject(row.subject.id)}
-              className="takda-focus-visible w-full text-left rounded-xl bg-white border border-[#E4E4F0] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-slate-300"
+              className="takda-focus-visible w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)]"
             >
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: row.subject?.color || "#3D2FE0" }} />
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: row.subject?.color || "var(--takda-brand)" }} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold truncate">{row.subject?.name || "Untitled Subject"}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
+                <div className="text-xs text-[color:var(--takda-text-muted-2)] mt-0.5">{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
                 {row.location && (
-                  <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><MapPin size={11} />{row.location}</div>
+                  <div className="text-xs text-[color:var(--takda-text-muted-1)] mt-0.5 flex items-center gap-1"><MapPin size={11} />{row.location}</div>
                 )}
               </div>
             </button>
@@ -3207,7 +3290,7 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
 function TypeChip({ type }) {
   if (!type) return null;
   return (
-    <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">
+    <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-2)] bg-slate-100 rounded-full px-1.5 py-0.5">
       {type}
     </span>
   );
@@ -3218,12 +3301,12 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
   const done = activity.computedStatus === "completed";
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl bg-white border p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px ${highlight ? "border-[#3D2FE0]" : "border-[#E4E4F0] hover:border-slate-300"}`}
+      className={`flex items-center gap-3 rounded-xl bg-[var(--takda-bg-surface)] border p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px ${highlight ? "border-[var(--takda-brand)]" : "border-[var(--takda-border)] hover:border-[var(--takda-border-neutral-2)]"}`}
     >
       <button
         onClick={() => onToggle(activity)}
         className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out"
-        style={{ borderColor: done ? "#16A34A" : "#CBD5E1", background: done ? "#16A34A" : "transparent" }}
+        style={{ borderColor: done ? "var(--takda-status-week-dot)" : "var(--takda-border-neutral-2)", background: done ? "var(--takda-status-week-dot)" : "transparent" }}
         aria-label={done ? "Reopen task" : "Mark complete"}
       >
         <Check
@@ -3236,11 +3319,11 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
         <button className="text-left w-full" onClick={() => activity.subjectId && onOpenSubject(activity.subjectId)}>
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activity.subject?.color || "#94A3B8" }} />
-            <span className="text-[11px] font-medium text-slate-500 truncate">{activity.subject?.name || "General"}</span>
+            <span className="text-[11px] font-medium text-[color:var(--takda-text-muted-2)] truncate">{activity.subject?.name || "General"}</span>
             <TypeChip type={activity.type} />
             <PriorityTag priority={activity.priority} />
           </div>
-          <div className={`text-sm font-medium truncate mt-0.5 transition-colors duration-200 ease-out ${done ? "line-through text-slate-400" : "text-[#1B1B2F]"}`}>{activity.title}</div>
+          <div className={`text-sm font-medium truncate mt-0.5 transition-colors duration-200 ease-out ${done ? "line-through text-[color:var(--takda-text-muted-1)]" : "text-[color:var(--takda-text-primary)]"}`}>{activity.title}</div>
         </button>
       </div>
       <div className="shrink-0 flex flex-col items-end gap-1">
@@ -3249,7 +3332,7 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
             {style.label}
           </span>
         )}
-        <span className="text-[11px] text-slate-400 flex items-center gap-1">
+        <span className="text-[11px] text-[color:var(--takda-text-muted-1)] flex items-center gap-1">
           {compact && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: style.dot }} />}
           {fmtDate(activity.deadline)}
         </span>
