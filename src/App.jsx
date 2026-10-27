@@ -2932,9 +2932,9 @@ function Dashboard({
 
       {!hasAnySubjectEver && canCreate && (
         <div className="mt-4 rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] bg-[var(--takda-brand-tint-1)] p-4">
-          <p className="font-display text-base font-semibold text-[color:var(--takda-text-primary)]">
+          <h2 className="font-display text-base font-semibold text-[color:var(--takda-text-primary)]">
             👋 Welcome to TAKDA!
-          </p>
+          </h2>
           <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]" aria-live="polite">
             Start organizing your academic journey! Add your first subject to
             manage your classes, activities, and deadlines.
@@ -2952,9 +2952,9 @@ function Dashboard({
 
       {hasAnySubjectEver && !hasAnyActivityEver && canCreate && (
         <div className="mt-4 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-4">
-          <p className="font-display text-base font-semibold text-[color:var(--takda-text-primary)]">
+          <h2 className="font-display text-base font-semibold text-[color:var(--takda-text-primary)]">
             ✨ Great Start!
-          </p>
+          </h2>
           <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]" aria-live="polite">
             Your first subject is ready! Now, add an activity to start
             tracking assignments, quizzes, and deadlines.
