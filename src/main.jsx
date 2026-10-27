@@ -1882,10 +1882,163 @@ function ProBadge({ compact }) {
   );
 }
 
-function ProModal({ onClose }) {
+/* =========================
+   SHARED MODAL ACCESSIBILITY HOOK (Step 06F.2, hardened Step 06F.4)
+
+   Factored out of AppearanceModal's own proven implementation
+   (Step 03X/03Z) — AppearanceModal itself is NOT refactored onto this
+   hook (left exactly as-is, used only as a reference), to avoid any
+   risk to its already-verified behavior. Used by MyProfile and
+   ProModal only.
+
+   Step 06F.4 hardening, on top of Step 06F.2's original version:
+   - FOCUSABLE_SELECTOR still excludes `:disabled`/`[tabindex="-1"]`
+     at the (cheap) CSS-selector level, but eligibility is now also
+     filtered through isEligibleFocusTarget() — a rendering-aware check
+     (getClientRects().length, computed `visibility`, and any `[inert]`
+     ancestor) rather than class-name matching alone, so a
+     display:none/visibility:hidden control (e.g. MyProfile's hidden
+     file-picker <input>) can never become a Tab-trap boundary.
+     Deliberately does NOT use offsetParent — that check incorrectly
+     reports `null` for legitimately-visible `position: fixed`
+     elements, which this must not exclude.
+   - Both the panels (MyProfile, ProModal) now carry `tabIndex={-1}`,
+     and this hook focuses the panel itself whenever zero eligible
+     controls exist — on mount, and reactively if Tab is pressed while
+     none remain (e.g. everything becomes disabled mid-session).
+   - The Tab handler re-queries eligible nodes fresh on every keypress
+     (never cached), so controls that become enabled/disabled while
+     the modal is open are always evaluated against their current
+     state — no stale list.
+   - If focus is ever found outside the current eligible set (not just
+     past the first/last boundary, but genuinely not among them — e.g.
+     the previously-focused control just became disabled), Tab/Shift+Tab
+     redirect it back inside rather than deferring to native browser
+     behavior.
+   - `closeDisabled` is read through a ref (kept fresh by its own small
+     effect) rather than captured directly in the Escape handler's
+     closure — this avoids a stale-loading-state bug without
+     re-running the whole mount/unmount effect (and re-stealing focus)
+     every time a `loading` flag flips.
+   - Focus restoration on close additionally refuses a disconnected,
+     disabled, or now-inert-ancestor trigger — falling back to doing
+     nothing (never throwing) rather than focusing something invalid.
+========================= */
+function isEligibleFocusTarget(el) {
+  if (el.closest("[inert]")) return false;
+  if (el.getClientRects().length === 0) return false;
+  if (getComputedStyle(el).visibility === "hidden") return false;
+  return true;
+}
+
+function useModalA11y(panelRef, onClose, { returnFocusRef, closeDisabled = false } = {}) {
+  const closeDisabledRef = useRef(closeDisabled);
+
+  useEffect(() => {
+    closeDisabledRef.current = closeDisabled;
+  }, [closeDisabled]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const FOCUSABLE_SELECTOR =
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+    function getEligibleNodes() {
+      return Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+        isEligibleFocusTarget
+      );
+    }
+
+    const initialNodes = getEligibleNodes();
+    if (initialNodes.length > 0) {
+      initialNodes[0].focus();
+    } else {
+      panel.focus();
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        if (closeDisabledRef.current) return;
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const nodes = getEligibleNodes();
+
+      if (nodes.length === 0) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      const activeIsEligible = nodes.includes(document.activeElement);
+
+      if (!activeIsEligible) {
+        // Focus is somewhere the current eligible set doesn't include
+        // (e.g. the control it was on just became disabled/hidden, or
+        // it genuinely left the panel) — recover rather than letting
+        // native Tab order decide.
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+
+      const trigger = returnFocusRef?.current;
+      if (
+        trigger &&
+        document.contains(trigger) &&
+        !trigger.disabled &&
+        !trigger.closest("[inert]")
+      ) {
+        trigger.focus();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleBackdropClick() {
+    if (closeDisabledRef.current) return;
+    onClose();
+  }
+
+  return { handleBackdropClick };
+}
+
+function ProModal({ onClose, returnFocusRef }) {
+  const panelRef = useRef(null);
+  const titleId = "pro-modal-title";
   const [billing, setBilling] = useState("yearly");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  // Step 06F.2: Escape/backdrop must never close this modal while a
+  // checkout request is in flight — exactly the same guard the
+  // existing X button below already enforces via disabled={loading}.
+  const { handleBackdropClick } = useModalA11y(panelRef, onClose, {
+    returnFocusRef,
+    closeDisabled: loading,
+  });
 
   async function startCheckout() {
     if (loading) return;
@@ -1944,9 +2097,20 @@ function ProModal({ onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/50 p-4">
+    <div
+      className="fixed inset-0 z-[120] overflow-y-auto bg-black/50 p-4"
+      onClick={handleBackdropClick}
+    >
       <div className="flex min-h-full items-center justify-center">
-        <div className="w-full max-w-md overflow-hidden rounded-3xl border border-[#E4E4F0] bg-white shadow-2xl">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          onClick={(event) => event.stopPropagation()}
+          className="w-full max-w-md overflow-hidden rounded-3xl border border-[#E4E4F0] bg-white shadow-2xl"
+        >
           <div className="relative bg-[#1B1B2F] px-6 pb-7 pt-6 text-white">
             <button
               type="button"
@@ -1962,7 +2126,7 @@ function ProModal({ onClose }) {
               ⭐ TAKDA PRO
             </div>
 
-            <h2 className="mt-4 text-3xl font-extrabold">
+            <h2 id={titleId} className="mt-4 text-3xl font-extrabold">
               Do more with your school life.
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
@@ -2164,7 +2328,7 @@ function ProfileMenu({
               type="button"
               onClick={() => {
                 setOpen(false);
-                onOpenProfile();
+                onOpenProfile(triggerRef.current);
               }}
               className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#1B1B2F] hover:bg-[#F5F6FA]"
             >
@@ -2187,7 +2351,7 @@ function ProfileMenu({
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  onOpenPro();
+                  onOpenPro(triggerRef.current);
                 }}
                 className="mt-1 w-full rounded-xl bg-[#FFF8E7] px-3 py-2.5 text-left text-sm font-bold text-amber-700 hover:bg-amber-100"
               >
@@ -2361,8 +2525,11 @@ function MyProfile({
   profile,
   onClose,
   onProfileUpdated,
+  returnFocusRef,
 }) {
   const fileInputRef = useRef(null);
+  const panelRef = useRef(null);
+  const titleId = "my-profile-title";
 
   const [fullName, setFullName] = useState(
     profile?.full_name || ""
@@ -2388,6 +2555,15 @@ function MyProfile({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
+
+  // Step 06F.2: MyProfile's own existing Close/Cancel buttons have
+  // never been gated on saving/uploading (confirmed by inspection —
+  // closing was already unconditional), so closeDisabled is left at
+  // its default (false): Escape/backdrop introduce no new restriction
+  // beyond what already existed.
+  const { handleBackdropClick } = useModalA11y(panelRef, onClose, {
+    returnFocusRef,
+  });
 
   async function uploadAvatar(event) {
     const file = event.target.files?.[0];
@@ -2562,16 +2738,27 @@ function MyProfile({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/40 p-4">
+    <div
+      className="fixed inset-0 z-[100] overflow-y-auto bg-black/40 p-4"
+      onClick={handleBackdropClick}
+    >
 
       <div className="flex min-h-full items-center justify-center">
 
-        <div className="w-full max-w-lg rounded-3xl bg-white shadow-xl">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          onClick={(event) => event.stopPropagation()}
+          className="w-full max-w-lg rounded-3xl bg-white shadow-xl"
+        >
 
           <div className="flex items-center justify-between border-b border-[#E4E4F0] px-5 py-4">
 
             <div>
-              <h2 className="text-lg font-bold text-[#1B1B2F]">
+              <h2 id={titleId} className="text-lg font-bold text-[#1B1B2F]">
                 My Profile
               </h2>
 
@@ -2909,6 +3096,18 @@ function Root() {
   // modal closes — the ProfileMenu's own toggle button, captured at
   // the moment it opens (see onOpenAppearance below).
   const appearanceTriggerRef = useRef(null);
+
+  // Step 06F.2: same pattern for the two older modals. profileTriggerRef
+  // is always set from ProfileMenu's own toggle button (its only entry
+  // point). proTriggerRef is set the same way when opened from
+  // ProfileMenu, but TakdaApp's own onUpgrade (invoked from multiple
+  // places deep inside the Dashboard, e.g. GradeLockedView) has no
+  // trigger element to pass — that path explicitly clears this ref to
+  // null first, so useModalA11y's existing document.contains() guard
+  // cleanly skips focus restoration rather than restoring to a stale,
+  // unrelated previous trigger.
+  const profileTriggerRef = useRef(null);
+  const proTriggerRef = useRef(null);
 
   const [publicScreen, setPublicScreen] = useState("landing");
 
@@ -3676,23 +3875,22 @@ function Root() {
     <div className="min-h-screen bg-[var(--takda-bg-page)] p-0 md:p-6">
 
       {/*
-        Step 03Z: while the Appearance modal (a sibling below, not a
-        descendant of this div) is open, this is the entire background
-        app surface — profile bar + Dashboard. `inert` excludes it from
-        both the tab order and the accessibility tree; `aria-hidden` is
-        added alongside for older browsers without `inert` support.
-        Both are plain declarative props, not an imperative DOM
-        mutation, so React's own reconciliation adds and removes them
-        together, in the same commit as showAppearance itself changes —
+        Step 03Z (extended Step 06F.2): while any of MyProfile, ProModal,
+        or AppearanceModal — each a sibling below, never a descendant of
+        this div — is open, this is the entire background app surface:
+        profile bar + Dashboard. `inert` excludes it from both the tab
+        order and the accessibility tree; `aria-hidden` is added
+        alongside for older browsers without `inert` support. Both are
+        plain declarative props, not an imperative DOM mutation, so
+        React's own reconciliation adds and removes them together, in
+        the same commit as the relevant show* flag itself changes —
         there is no separate cleanup path that could leave this out of
-        sync with the modal's own open/closed state. Scoped to
-        showAppearance only, per Step 03Z's authorization —
-        showProfile/showPro are unaffected.
+        sync with whichever modal is actually open.
       */}
       <div
         className="mx-auto max-w-5xl"
-        inert={showAppearance ? true : undefined}
-        aria-hidden={showAppearance ? true : undefined}
+        inert={showAppearance || showProfile || showPro ? true : undefined}
+        aria-hidden={showAppearance || showProfile || showPro ? true : undefined}
       >
 
         {/* TOP PROFILE BAR */}
@@ -3716,16 +3914,18 @@ function Root() {
           <ProfileMenu
             profile={profile}
             user={session.user}
-            onOpenProfile={() =>
-              setShowProfile(true)
-            }
+            onOpenProfile={(triggerEl) => {
+              profileTriggerRef.current = triggerEl;
+              setShowProfile(true);
+            }}
             onOpenAppearance={(triggerEl) => {
               appearanceTriggerRef.current = triggerEl;
               setShowAppearance(true);
             }}
-            onOpenPro={() =>
-              setShowPro(true)
-            }
+            onOpenPro={(triggerEl) => {
+              proTriggerRef.current = triggerEl;
+              setShowPro(true);
+            }}
             onLogout={() =>
               signOutAndCleanupPush()
             }
@@ -3733,7 +3933,15 @@ function Root() {
 
         </div>
 
-        <TakdaApp isPro={isPro} onUpgrade={() => setShowPro(true)} />
+        <TakdaApp
+          isPro={isPro}
+          onUpgrade={() => {
+            // No trigger element available from this entry point — see
+            // the comment on proTriggerRef's declaration above.
+            proTriggerRef.current = null;
+            setShowPro(true);
+          }}
+        />
 
       </div>
 
@@ -3749,12 +3957,14 @@ function Root() {
           onProfileUpdated={(updatedProfile) => {
             setProfile(updatedProfile);
           }}
+          returnFocusRef={profileTriggerRef}
         />
       )}
 
       {showPro && (
         <ProModal
           onClose={() => setShowPro(false)}
+          returnFocusRef={proTriggerRef}
         />
       )}
 
