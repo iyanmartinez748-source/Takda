@@ -43,25 +43,16 @@ const PASSWORD_CAPTCHA_ENABLED =
   import.meta.env.VITE_ENABLE_PASSWORD_CAPTCHA === "true";
 
 /* =========================
-   THEME STATE (Step 52B.3) — Classic-only foundation
+   THEME STATE (Step 52B.3; selection UI added Step 03X)
 
-   No CSS selector anywhere references `data-takda-theme` yet (see
-   src/index.css), so applying this attribute changes no rendered
-   pixel. Only "classic" is accepted today; a stored value naming any
-   other theme (e.g. from a future rollback, or manual tampering) is
-   rejected and falls back to "classic" — never passed through
-   unchecked. Read-only for now: nothing writes to this key yet, since
-   there is no selection UI to write from (see Root's lazy useState
-   initializer below) — that comes later, alongside the first actual
-   theme choice.
+   Classic and Matcha both have full CSS override blocks in
+   src/index.css. A stored value naming anything outside
+   TAKDA_ALLOWED_THEMES (e.g. manual tampering) is rejected and falls
+   back to "classic" — never passed through unchecked. The Appearance
+   modal (Step 03X) is the only in-app writer of this key, via
+   setThemeAndPersist() in Root.
 ========================= */
 const TAKDA_THEME_STORAGE_KEY = "takda-theme";
-// Step 52C.3: "matcha" added to the allow-list so the CSS override
-// block in index.css can be reached for manual QA (devtools attribute
-// edit only — no picker UI, no localStorage write reads/writes this
-// value in yet). readStoredTheme() above still only ever returns
-// "classic" from a normal page load, since nothing writes "matcha" to
-// TAKDA_THEME_STORAGE_KEY anywhere in this file.
 const TAKDA_ALLOWED_THEMES = ["classic", "matcha"];
 
 function readStoredTheme() {
@@ -72,6 +63,19 @@ function readStoredTheme() {
     // localStorage can throw (private browsing, blocked storage) —
     // never let a theme preference read crash the app.
     return "classic";
+  }
+}
+
+// Step 03X: the write-side counterpart to readStoredTheme() above, same
+// defensive try/catch — a storage failure must never block the in-memory
+// theme switch itself (see setThemeAndPersist in Root), only its
+// persistence across reloads.
+function writeStoredTheme(value) {
+  try {
+    localStorage.setItem(TAKDA_THEME_STORAGE_KEY, value);
+  } catch {
+    // localStorage can throw (private browsing, blocked storage) — the
+    // theme still applies for this session, it just won't survive a reload.
   }
 }
 
@@ -2057,11 +2061,17 @@ function ProfileMenu({
   profile,
   user,
   onOpenProfile,
+  onOpenAppearance,
   onOpenPro,
   onLogout,
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  // Step 03X: captured so the Appearance modal can restore focus here
+  // on close — this button (unlike the dropdown items, which unmount
+  // the instant the dropdown closes) stays mounted for the modal's
+  // entire lifetime.
+  const triggerRef = useRef(null);
   const isPro = getTakdaPlan(profile) === "pro";
 
   useEffect(() => {
@@ -2101,6 +2111,7 @@ function ProfileMenu({
     <div className="relative" ref={menuRef}>
       <button
         type="button"
+        ref={triggerRef}
         onClick={() => setOpen((current) => !current)}
         className="flex items-center gap-2 rounded-full focus:outline-none"
         aria-label="Open profile menu"
@@ -2160,6 +2171,17 @@ function ProfileMenu({
               👤 My Profile
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onOpenAppearance(triggerRef.current);
+              }}
+              className="mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#1B1B2F] hover:bg-[#F5F6FA]"
+            >
+              🎨 Appearance
+            </button>
+
             {!isPro && (
               <button
                 type="button"
@@ -2183,6 +2205,149 @@ function ProfileMenu({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* =========================
+   APPEARANCE MODAL (Step 03X)
+========================= */
+
+function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
+  const panelRef = useRef(null);
+  const titleId = "appearance-modal-title";
+
+  // Mount-only: move focus into the dialog, trap Tab/Shift+Tab inside
+  // it, close on Escape, and restore focus to whatever opened it (the
+  // ProfileMenu toggle button, which stays mounted for this modal's
+  // entire lifetime — unlike the "Appearance" dropdown item itself,
+  // which unmounts the instant the dropdown closes) when it unmounts.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const FOCUSABLE_SELECTOR =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+    const focusable = panel.querySelectorAll(FOCUSABLE_SELECTOR);
+    focusable[0]?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const nodes = Array.from(
+        panel.querySelectorAll(FOCUSABLE_SELECTOR)
+      );
+      if (nodes.length === 0) return;
+
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+
+      if (
+        returnFocusRef?.current &&
+        document.contains(returnFocusRef.current)
+      ) {
+        returnFocusRef.current.focus();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const THEME_OPTIONS = [
+    { key: "classic", label: "Classic", description: "Default TAKDA theme" },
+    { key: "matcha", label: "Matcha", description: "Soft green and cream theme" },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] overflow-y-auto bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div className="flex min-h-full items-center justify-center">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          onClick={(event) => event.stopPropagation()}
+          className="w-full max-w-sm rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-xl"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3
+                id={titleId}
+                className="font-display text-lg font-semibold text-[color:var(--takda-text-primary)]"
+              >
+                Appearance
+              </h3>
+              <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]">
+                Personalize your TAKDA experience.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="takda-focus-visible shrink-0 rounded-lg p-1.5 text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-status-later-bg)]"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-2">
+            {THEME_OPTIONS.map((option) => {
+              const selected = currentTheme === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => onSelect(option.key)}
+                  aria-pressed={selected}
+                  className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
+                    selected
+                      ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
+                      : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
+                      {option.label}
+                    </span>
+                    {selected && (
+                      <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
+                    {option.description}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2696,7 +2861,7 @@ function Root() {
 
   // Step 52B.3: lazy initializer runs once, on Root's first render
   // only — never re-reads localStorage on subsequent renders.
-  const [theme] = useState(readStoredTheme);
+  const [theme, setTheme] = useState(readStoredTheme);
 
   // Runs on every Root render regardless of which branch below is
   // currently returned (loading, public landing, auth screens, or the
@@ -2708,6 +2873,18 @@ function Root() {
       theme
     );
   }, [theme]);
+
+  // Step 03X: the Appearance modal's only mutator. Validates against
+  // TAKDA_ALLOWED_THEMES before ever updating state — an invalid value
+  // is silently ignored rather than applied. Updates in-memory state
+  // first (always succeeds, takes effect immediately via the effect
+  // above) then persists — a storage failure in writeStoredTheme()
+  // never prevents the immediate, same-session theme switch.
+  function setThemeAndPersist(value) {
+    if (!TAKDA_ALLOWED_THEMES.includes(value)) return;
+    setTheme(value);
+    writeStoredTheme(value);
+  }
 
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] =
@@ -2724,6 +2901,14 @@ function Root() {
 
   const [showPro, setShowPro] =
     useState(false);
+
+  const [showAppearance, setShowAppearance] =
+    useState(false);
+
+  // Step 03X: element to return keyboard focus to when the Appearance
+  // modal closes — the ProfileMenu's own toggle button, captured at
+  // the moment it opens (see onOpenAppearance below).
+  const appearanceTriggerRef = useRef(null);
 
   const [publicScreen, setPublicScreen] = useState("landing");
 
@@ -3490,7 +3675,25 @@ function Root() {
   return (
     <div className="min-h-screen bg-[var(--takda-bg-page)] p-0 md:p-6">
 
-      <div className="mx-auto max-w-5xl">
+      {/*
+        Step 03Z: while the Appearance modal (a sibling below, not a
+        descendant of this div) is open, this is the entire background
+        app surface — profile bar + Dashboard. `inert` excludes it from
+        both the tab order and the accessibility tree; `aria-hidden` is
+        added alongside for older browsers without `inert` support.
+        Both are plain declarative props, not an imperative DOM
+        mutation, so React's own reconciliation adds and removes them
+        together, in the same commit as showAppearance itself changes —
+        there is no separate cleanup path that could leave this out of
+        sync with the modal's own open/closed state. Scoped to
+        showAppearance only, per Step 03Z's authorization —
+        showProfile/showPro are unaffected.
+      */}
+      <div
+        className="mx-auto max-w-5xl"
+        inert={showAppearance ? true : undefined}
+        aria-hidden={showAppearance ? true : undefined}
+      >
 
         {/* TOP PROFILE BAR */}
 
@@ -3516,6 +3719,10 @@ function Root() {
             onOpenProfile={() =>
               setShowProfile(true)
             }
+            onOpenAppearance={(triggerEl) => {
+              appearanceTriggerRef.current = triggerEl;
+              setShowAppearance(true);
+            }}
             onOpenPro={() =>
               setShowPro(true)
             }
@@ -3548,6 +3755,15 @@ function Root() {
       {showPro && (
         <ProModal
           onClose={() => setShowPro(false)}
+        />
+      )}
+
+      {showAppearance && (
+        <AppearanceModal
+          currentTheme={theme}
+          onSelect={setThemeAndPersist}
+          onClose={() => setShowAppearance(false)}
+          returnFocusRef={appearanceTriggerRef}
         />
       )}
 
