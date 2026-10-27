@@ -1665,6 +1665,8 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               focusLists={focusLists}
               stats={stats}
               recentlyCompleted={recentlyCompleted}
+              hasAnySubjectEver={subjects.length > 0}
+              hasAnyActivityEver={activities.length > 0}
               onToggle={toggleComplete}
               onOpenSubject={(id) => { setActiveSubjectId(id); setView("subject-detail"); }}
               onAddSubject={requestAddSubject}
@@ -2776,6 +2778,8 @@ function Dashboard({
   focusLists,
   stats,
   recentlyCompleted,
+  hasAnySubjectEver,
+  hasAnyActivityEver,
   onToggle,
   onOpenSubject,
   onAddSubject,
@@ -2926,10 +2930,44 @@ function Dashboard({
         </div>
       </div>
 
-      {stats.subjects === 0 && canCreate && (
-        <button onClick={onAddSubject} className="mt-4 w-full rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] text-[color:var(--takda-brand)] py-3 text-sm font-medium">
-          + Add your first subject to get started
-        </button>
+      {!hasAnySubjectEver && canCreate && (
+        <div className="mt-4 rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] bg-[var(--takda-brand-tint-1)] p-4">
+          <p className="font-display text-base font-semibold text-[color:var(--takda-text-primary)]">
+            👋 Welcome to TAKDA!
+          </p>
+          <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]" aria-live="polite">
+            Start organizing your academic journey! Add your first subject to
+            manage your classes, activities, and deadlines.
+          </p>
+          <button
+            type="button"
+            onClick={onAddSubject}
+            className="takda-focus-visible mt-3 w-full rounded-xl py-2.5 text-sm font-semibold text-white"
+            style={{ background: "var(--takda-brand)" }}
+          >
+            + Add Your First Subject
+          </button>
+        </div>
+      )}
+
+      {hasAnySubjectEver && !hasAnyActivityEver && canCreate && (
+        <div className="mt-4 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-4">
+          <p className="font-display text-base font-semibold text-[color:var(--takda-text-primary)]">
+            ✨ Great Start!
+          </p>
+          <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]" aria-live="polite">
+            Your first subject is ready! Now, add an activity to start
+            tracking assignments, quizzes, and deadlines.
+          </p>
+          <button
+            type="button"
+            onClick={onAddActivity}
+            className="takda-focus-visible mt-3 w-full rounded-xl py-2.5 text-sm font-semibold text-white"
+            style={{ background: "var(--takda-brand)" }}
+          >
+            + Add Your First Activity
+          </button>
+        </div>
       )}
     </div>
   );
