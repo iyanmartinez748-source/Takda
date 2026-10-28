@@ -4566,7 +4566,7 @@ function GradeLockedView({ onUpgrade }) {
         </p>
         <button
           type="button"
-          onClick={onUpgrade}
+          onClick={(event) => onUpgrade(event.currentTarget)}
           className="mt-6 w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-bold text-white"
         >
           Upgrade to Pro

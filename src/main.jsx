@@ -3935,10 +3935,17 @@ function Root() {
 
         <TakdaApp
           isPro={isPro}
-          onUpgrade={() => {
-            // No trigger element available from this entry point — see
-            // the comment on proTriggerRef's declaration above.
-            proTriggerRef.current = null;
+          onUpgrade={(triggerEl) => {
+            // Step 06G.9B: GradeLockedView's own "Upgrade to Pro" button
+            // now passes itself through (event.currentTarget in
+            // App.jsx) — it stays mounted (view stays "grades") while
+            // ProModal is open, so it's a valid restoration target.
+            // LimitReachedModal's own onUpgrade?.() hand-off still calls
+            // this with no argument at all (it already restores focus
+            // to its own trigger via limitModalReturnFocusRef before
+            // handing off) — triggerEl is undefined there, so this
+            // falls back to the prior, already-safe null behavior.
+            proTriggerRef.current = triggerEl ?? null;
             setShowPro(true);
           }}
         />
