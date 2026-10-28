@@ -96,6 +96,11 @@
   --takda-pro-bg-end: #2c2c36;
   --takda-pro-text: #e8cf9a;
 
+  /* Step 01E: Dashboard Premium Theme Foundation */
+  --takda-text-heading: #334155;
+  --takda-success-icon: #10B981;
+  --takda-bg-empty-state: #F8FAFC;
+
   /* Motion (Step 52D.2) — theme-independent, deliberately NOT declared
      inside any `:root[data-takda-theme="..."]` block: every current
      and future theme inherits the same timing from this base `:root`
@@ -148,6 +153,12 @@
   --takda-border: #E2DAC3;
 
   --takda-focus: #4F7042;
+
+  /* Step 01E: Dashboard Premium Theme Foundation. --takda-success-icon
+     is deliberately identical to Classic — not an oversight. */
+  --takda-text-heading: #5A5345;
+  --takda-success-icon: #10B981;
+  --takda-bg-empty-state: #F7F2E4;
 }
 
 html, body, #root {
