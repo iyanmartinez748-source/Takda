@@ -2994,6 +2994,174 @@ function MotivationPanel() {
   );
 }
 
+// Phase 10A.3: "Today's Focus" unified productivity panel.
+//
+// Classification ground truth (discovered, not assumed — see
+// `urgency()`/`computeStatus()` above and `focusLists`, both unchanged):
+//   - Overdue  = incomplete, deadline strictly before today (local date).
+//   - Today    = incomplete, deadline === today.
+//   - Upcoming = incomplete, deadline any day after today — this has NO
+//     fixed horizon cap in the existing app (it is every future
+//     incomplete activity, grouped only for color/label purposes into
+//     tomorrow/week/later elsewhere). The brief describes Upcoming as
+//     "within the existing Dashboard's upcoming horizon," implying a
+//     cutoff — no such cutoff actually exists in `focusLists`, so per
+//     this phase's own instruction ("preserve the existing behavior
+//     until clarified"), this panel reuses `focusLists.upcoming`
+//     exactly as-is, uncapped, rather than inventing a new limit.
+//   - Completed activities are excluded from all four tabs, exactly as
+//     they always were (`focusLists` itself already filters them out
+//     before this component ever sees the data) — "All" here means
+//     "all pending," not "every activity ever," matching prior behavior.
+//
+// "All" is simply the 3 existing, unmodified lists concatenated — not a
+// second/different classification system.
+const TODAYS_FOCUS_TABS = [
+  { key: "all", label: "All" },
+  { key: "overdue", label: "Overdue" },
+  { key: "today", label: "Today" },
+  { key: "upcoming", label: "Upcoming" },
+];
+
+const TODAYS_FOCUS_TAB_ACCENT = {
+  all: { bg: "var(--takda-brand)", text: "#fff" },
+  overdue: { bg: "var(--takda-status-overdue-bg)", text: "var(--takda-status-overdue-text)" },
+  today: { bg: "var(--takda-status-tomorrow-bg)", text: "var(--takda-status-tomorrow-text)" },
+  upcoming: { bg: "var(--takda-brand-tint-2)", text: "var(--takda-brand)" },
+};
+
+const TODAYS_FOCUS_EMPTY_COPY = {
+  all: { title: "You're all caught up!", subtitle: "No pending activities right now." },
+  overdue: { title: "No overdue activities.", subtitle: "You're on track." },
+  today: { title: "Nothing due today.", subtitle: "Enjoy the breathing room." },
+  upcoming: { title: "No upcoming activities.", subtitle: "Your schedule is clear for now." },
+};
+
+// `focusLists`/`onToggle`/`onOpenSubject`/`onFocusFilter`/`canCreate`/
+// `onAddActivity` are all existing props Dashboard already receives —
+// nothing new is fetched or computed outside this component. The 3
+// `*Visible` slices reuse the exact same `DASHBOARD_*_VISIBLE` caps the
+// old 3-section layout already used (same "View All" overflow pattern,
+// same navigation target via the existing `onFocusFilter`).
+function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, canCreate, onAddActivity }) {
+  const [activeFilter, setActiveFilter] = useState("all");
+
+  const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
+  const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
+  const upcomingVisible = focusLists.upcoming.slice(0, DASHBOARD_UPCOMING_VISIBLE);
+
+  const counts = {
+    all: focusLists.overdue.length + focusLists.dueToday.length + focusLists.upcoming.length,
+    overdue: focusLists.overdue.length,
+    today: focusLists.dueToday.length,
+    upcoming: focusLists.upcoming.length,
+  };
+
+  const visibleByTab = {
+    all: [...overdueVisible, ...dueTodayVisible, ...upcomingVisible],
+    overdue: overdueVisible,
+    today: dueTodayVisible,
+    upcoming: upcomingVisible,
+  };
+  const activeList = visibleByTab[activeFilter];
+
+  // 10A.3A fix: "View All" must appear whenever the active tab is
+  // actually hiding items. For the single-category tabs this is the
+  // same check as before (each category is independently sliced to its
+  // own DASHBOARD_*_VISIBLE cap). For "all", comparing the overall
+  // total against the summed cap (14) under-reported truncation —
+  // e.g. 0 overdue / 6 today / 0 upcoming has a total of 6 (≤ 14) but
+  // dueTodayVisible still only has 5 of those 6, so one item was
+  // silently hidden from the All tab with no way to reach it.
+  // Comparing the actual rendered list length against the true count
+  // is correct for every tab and needs no per-tab cap table.
+  const showViewAll = activeList.length < counts[activeFilter];
+  const emptyCopy = TODAYS_FOCUS_EMPTY_COPY[activeFilter];
+
+  return (
+    <div
+      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7"
+      style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+    >
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div>
+          <h2 className="font-display text-base font-semibold" style={{ color: "var(--takda-text-primary)" }}>Today's Focus</h2>
+          <p className="text-xs mt-0.5" style={{ color: "var(--takda-text-muted-2)" }}>Stay focused on what matters most.</p>
+        </div>
+        <span
+          className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+          style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+        >
+          {counts.all} pending
+        </span>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-3 mt-3 overflow-x-auto">
+        {TODAYS_FOCUS_TABS.map((tab) => {
+          const active = activeFilter === tab.key;
+          const accent = TODAYS_FOCUS_TAB_ACCENT[tab.key];
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveFilter(tab.key)}
+              aria-pressed={active}
+              className="takda-focus-visible takda-interactive px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
+              style={
+                active
+                  ? { background: accent.bg, color: accent.text }
+                  : { background: "var(--takda-bg-page)", color: "var(--takda-text-muted-3)", border: "1px solid var(--takda-border)" }
+              }
+            >
+              {tab.label} ({counts[tab.key]})
+            </button>
+          );
+        })}
+      </div>
+
+      {activeList.length === 0 ? (
+        <>
+          <DashboardEmptyState icon={CheckCircle2} title={emptyCopy.title} subtitle={emptyCopy.subtitle} />
+          {activeFilter === "all" && (
+            <button
+              type="button"
+              onClick={onAddActivity}
+              aria-disabled={!canCreate}
+              title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+              className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold -mt-4 ${!canCreate ? "opacity-40" : ""}`}
+              style={{ color: "var(--takda-brand)" }}
+            >
+              <Plus size={13} /> Add Activity
+            </button>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {activeList.map((a, i) => (
+            <ActivityRow
+              key={a.id}
+              activity={a}
+              onToggle={onToggle}
+              onOpenSubject={onOpenSubject}
+              compact={activeFilter === "all" || activeFilter === "upcoming"}
+              highlight={activeFilter === "upcoming" && i === 0}
+            />
+          ))}
+        </div>
+      )}
+
+      {showViewAll && (
+        <div className="mt-2">
+          <ViewAllLink
+            label={`View all ${activeFilter === "all" ? "" : activeFilter + " "}(${counts[activeFilter]})`}
+            onClick={() => onFocusFilter(activeFilter)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({
   greeting,
   contextMessage,
@@ -3025,10 +3193,11 @@ function Dashboard({
   overallAverage,
   onOpenNotes,
 }) {
-  const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
-  const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
-  const upcomingVisible = focusLists.upcoming.slice(0, DASHBOARD_UPCOMING_VISIBLE);
-
+  // overdueVisible/dueTodayVisible/upcomingVisible used to be computed
+  // here for the old 3-stacked-sections render; that render is now
+  // TodaysFocusPanel below, which recomputes the identical slices
+  // itself from this same `focusLists` prop. `focusCounts` stays — it's
+  // still used by FocusForToday just below.
   const focusCounts = {
     overdue: focusLists.overdue.length,
     dueToday: focusLists.dueToday.length,
@@ -3087,87 +3256,23 @@ function Dashboard({
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6">
         <div>
-          {/* Phase 10A: "Today's Focus" is this eyebrow label plus the
-              three sections below it — each section keeps its own
-              existing glass wrapper/data/handlers exactly as before
-              (Phase 09B.8); this just groups them under one heading to
-              match the TAKDA 2.0 reference's single prominent task
-              panel, without merging their underlying filtered lists. */}
-          <h2 className="text-xs font-bold uppercase tracking-wide mb-2.5" style={{ color: "var(--takda-text-muted-1)" }}>Today's Focus</h2>
-          {/* Phase 09B.8: each section below gets exactly one glass
-              surface (its own Dashboard-local wrapper div), applied only
-              when the section has real content — matching the existing
-              Needs Attention pattern. SectionHeader/DashboardEmptyState/
-              ActivityRow are shared across other pages and are
-              deliberately left untouched; the individual ActivityRow
-              rows inside each panel stay plain/solid rather than each
-              getting their own blur (Rule 8: one glass surface per
-              section, not nested blur per row). */}
-          <div
-            className={
-              focusCounts.overdue > 0
-                ? "takda-glass takda-glass-red rounded-2xl p-4 mb-7"
-                : undefined
-            }
-          >
-            <SectionHeader
-              title="Needs Attention"
-              action={
-                focusCounts.overdue > 0 && (
-                  <ViewAllLink label={`View all overdue (${focusCounts.overdue})`} onClick={() => onFocusFilter("overdue")} />
-                )
-              }
-            />
-            {overdueVisible.length === 0 ? (
-              <DashboardEmptyState icon={CheckCircle2} title="No overdue tasks" subtitle="You're all caught up." />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {overdueVisible.map((a) => (
-                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className={focusCounts.dueToday > 0 ? "takda-glass takda-glass-orange rounded-2xl p-4 mb-7" : undefined}>
-            <SectionHeader
-              title="Due Today"
-              action={
-                focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
-                  <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
-                )
-              }
-            />
-            {dueTodayVisible.length === 0 ? (
-              <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {dueTodayVisible.map((a) => (
-                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className={focusCounts.upcoming > 0 ? "takda-glass takda-glass-lightgreen rounded-2xl p-4 mb-7" : undefined}>
-            <SectionHeader
-              title="Upcoming Deadlines"
-              action={
-                focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
-                  <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
-                )
-              }
-            />
-            {upcomingVisible.length === 0 ? (
-              <DashboardEmptyState title="No upcoming deadlines." />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {upcomingVisible.map((a, i) => (
-                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
+              sections (Needs Attention/Due Today/Upcoming Deadlines) are
+              replaced by one unified TodaysFocusPanel with filter tabs.
+              It receives the same focusLists/onToggle/onOpenSubject/
+              onFocusFilter/canCreate/onAddActivity Dashboard already
+              had in scope — no new data source, no new classification
+              logic (see the component's own comment above its
+              definition for the confirmed existing deadline-boundary
+              rules this reuses verbatim). */}
+          <TodaysFocusPanel
+            focusLists={focusLists}
+            onToggle={onToggle}
+            onOpenSubject={onOpenSubject}
+            onFocusFilter={onFocusFilter}
+            canCreate={canCreate}
+            onAddActivity={onAddActivity}
+          />
 
           <div className={recentlyCompleted.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-4" : undefined}>
             <SectionHeader title="Recently Completed" muted />
