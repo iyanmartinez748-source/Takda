@@ -96,6 +96,17 @@ function getInitials(name, email = "") {
     .join("");
 }
 
+// TAKDA 2.0 Dashboard greeting hero (Phase 10A): a display-only first
+// name derived from the existing profile.full_name — no new fetch, no
+// fabricated name. Returns "" (never a placeholder like "Student") when
+// there is no profile name yet, so the Dashboard can fall back to a
+// name-less greeting instead of showing something fake.
+function getFirstName(fullName) {
+  const trimmed = fullName?.trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\s+/)[0];
+}
+
 /* =========================
    PUBLIC LANDING PAGE
 ========================= */
@@ -3935,6 +3946,7 @@ function Root() {
 
         <TakdaApp
           isPro={isPro}
+          studentName={getFirstName(profile?.full_name)}
           onUpgrade={(triggerEl) => {
             // Step 06G.9B: GradeLockedView's own "Upgrade to Pro" button
             // now passes itself through (event.currentTarget in

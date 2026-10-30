@@ -209,7 +209,7 @@ function PriorityTag({ priority }) {
   );
 }
 
-export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
+export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } = {}) {
   const [ready, setReady] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -930,6 +930,17 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     if (timePeriod === "afternoon") return "Good Afternoon";
     return "Good Evening";
   }, [timePeriod]);
+
+  // TAKDA 2.0 Dashboard (Phase 10A): Academic Performance overview card.
+  // This is the EXACT SAME formula as GradesView's own `overallAverage`
+  // (gradePercent is the same shared, unmodified pure function) —
+  // computed once more here only so the Dashboard can display it
+  // without GradesView itself passing anything new through. No grade
+  // calculation was changed or duplicated with different logic.
+  const dashboardOverallAverage = useMemo(() => {
+    if (grades.length === 0) return null;
+    return grades.reduce((sum, g) => sum + gradePercent(g), 0) / grades.length;
+  }, [grades]);
 
   function captureLimitModalReturnFocus(element = document.activeElement) {
     limitModalReturnFocusRef.current = element instanceof HTMLElement ? element : null;
@@ -1699,6 +1710,9 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
               todaysClasses={todaysClasses}
               smartInsights={smartInsightDescriptors}
               showActiveSemesterContext={showActiveSemesterContext}
+              studentName={studentName}
+              overallAverage={dashboardOverallAverage}
+              onOpenNotes={() => setView("notes")}
             />
           )}
 
@@ -2807,6 +2821,179 @@ const DASHBOARD_OVERDUE_VISIBLE = 3;
 const DASHBOARD_DUE_TODAY_VISIBLE = 5;
 const DASHBOARD_UPCOMING_VISIBLE = 6;
 
+/* ---------------- TAKDA 2.0 Academic Overview (Phase 10A) ---------------- */
+// One lightweight token-based card — no backdrop-filter, since there
+// are always exactly 4 of these rendered together (the batch's
+// "repeated-card performance" rule applies the same way it did to
+// every other grid in this app's redesign).
+// Phase 10A.2: 4 distinct pastel accents, each reusing EXISTING tokens
+// already defined in index.css (status/brand tokens) — no new color was
+// invented. These are the same "text-on-tint" pairs already used
+// elsewhere in this app (ReminderChip/FocusTile urgency badges etc.),
+// so their contrast is already an established, reused pattern; the
+// amber pair (the one most likely to be borderline) was additionally
+// re-verified by hand via the WCAG relative-luminance formula:
+// #92400E on #FFFBEB -> ~6.84:1, comfortably clear of the 4.5:1 AA
+// minimum.
+const OVERVIEW_ACCENTS = {
+  rose: { bg: "var(--takda-status-overdue-bg)", accent: "var(--takda-status-overdue-text)" },
+  lavender: { bg: "var(--takda-brand-tint-2)", accent: "var(--takda-brand)" },
+  mint: { bg: "var(--takda-status-week-bg)", accent: "var(--takda-status-week-text)" },
+  amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
+};
+
+// The corner circle is a plain translucent version of the card's own
+// accent color — an abstract shape, never a line/bar/sparkline, so it
+// can never be read as a real trend graphic (explicitly required this
+// phase: "do not imply fabricated academic trends").
+function OverviewCard({ icon: Icon, label, value, bg, accent }) {
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl p-4 border border-[var(--takda-border)]"
+      style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+    >
+      <span className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full pointer-events-none" aria-hidden="true" style={{ background: accent, opacity: 0.1 }} />
+      <span className="relative flex items-center justify-center w-9 h-9 rounded-xl mb-2" style={{ background: "rgba(255,255,255,0.6)" }}>
+        <Icon size={16} color={accent} />
+      </span>
+      <div className="relative font-display text-2xl font-semibold" style={{ color: accent }}>{value}</div>
+      <div className="relative text-xs mt-0.5 font-medium" style={{ color: accent }}>{label}</div>
+    </div>
+  );
+}
+
+// stats.pending/stats.subjects are the exact same already-computed
+// values StatsStrip displays elsewhere on this Dashboard — not
+// recalculated here. `classesToday` is `todaysClasses.length`, passed
+// in by Dashboard — deliberately labeled "Classes Today" rather than
+// the mockup's literal "Upcoming Classes" wording, because that is
+// the actual, accurate meaning of the only count already available
+// (there is no existing "classes in the next N days" aggregate
+// anywhere in this app to reuse without inventing new logic).
+// `overallAverage` reuses GradesView's own unmodified gradePercent-
+// based formula (see TakdaApp's dashboardOverallAverage), and is only
+// ever shown when `isPro` — Free users see a locked, Pro-upsell card
+// instead, exactly mirroring GradeLockedView's own existing gating.
+function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGrades }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-7">
+      <OverviewCard icon={CheckCircle2} label="Pending Activities" value={stats.pending} bg={OVERVIEW_ACCENTS.rose.bg} accent={OVERVIEW_ACCENTS.rose.accent} />
+      <OverviewCard icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
+      <OverviewCard icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
+      {isPro ? (
+        <OverviewCard
+          icon={Lock}
+          label="Academic Performance"
+          value={overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}
+          bg={OVERVIEW_ACCENTS.amber.bg}
+          accent={OVERVIEW_ACCENTS.amber.accent}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={onOpenGrades}
+          className="takda-focus-visible takda-interactive relative overflow-hidden rounded-2xl p-4 text-left border border-[var(--takda-border)]"
+          style={{ background: OVERVIEW_ACCENTS.amber.bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+        >
+          <span className="takda-pro-badge inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide mb-2">
+            <span aria-hidden="true">✦</span> PRO
+          </span>
+          <div className="text-sm font-semibold" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Academic Performance</div>
+          <div className="text-[11px] mt-0.5" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Upgrade to see your average</div>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Phase 10A: a Monday-start 7-day strip, built entirely from
+// `focusLists` (overdue/dueToday/upcoming — already passed into
+// Dashboard, never a new fetch). A day is marked only when a real
+// activity's own `deadline` falls on it — never an invented event.
+// Purely informational (no onClick), so no new focus-visible/ARIA
+// surface is needed beyond the existing heading semantics.
+function CompactWeekCalendar({ focusLists }) {
+  const today = startOfDay(new Date());
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - mondayOffset);
+
+  const dueDates = new Set(
+    [...focusLists.overdue, ...focusLists.dueToday, ...focusLists.upcoming].map(
+      (a) => parseLocalDate(a.deadline).toDateString()
+    )
+  );
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return { date: d, isToday: d.toDateString() === today.toDateString(), hasItems: dueDates.has(d.toDateString()) };
+  });
+
+  return (
+    <div
+      className="rounded-2xl p-4 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
+      style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+    >
+      <h2 className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "var(--takda-text-muted-1)" }}>This Week</h2>
+      <div className="flex items-center justify-between gap-1">
+        {weekDays.map(({ date, isToday, hasItems }) => {
+          // The "has items due" dot is a color-only signal for sighted
+          // users — this span carries the same information as real
+          // text, so a screen reader (or anyone relying on more than
+          // color alone) gets it too, not just a decorative dot.
+          const dayLabel = date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+          return (
+            <div key={date.toDateString()} className="flex flex-col items-center gap-1">
+              <span className="text-[10px]" style={{ color: "var(--takda-text-muted-1)" }} aria-hidden="true">
+                {date.toLocaleDateString("en-US", { weekday: "narrow" })}
+              </span>
+              <span
+                className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold"
+                style={isToday ? { background: "var(--takda-brand)", color: "#fff" } : { color: "var(--takda-text-primary)" }}
+                aria-hidden="true"
+              >
+                {date.getDate()}
+              </span>
+              <span className="w-1 h-1 rounded-full" style={{ background: hasItems ? "var(--takda-brand)" : "transparent" }} aria-hidden="true" />
+              <span className="sr-only">
+                {dayLabel}{isToday ? " (today)" : ""}{hasItems ? " — has activities due" : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const MOTIVATION_QUOTES = [
+  "Small steps every day lead to big results.",
+  "You've got this — one task at a time.",
+  "Progress, not perfection.",
+  "Future you is already proud of today's effort.",
+];
+
+// Phase 10A: purely decorative — clearly labeled "Daily Motivation",
+// never academic data. The quote is picked once per mount (lazy
+// useState initializer) so it stays stable for the session instead of
+// re-rolling on every re-render.
+function MotivationPanel() {
+  const [quote] = useState(() => MOTIVATION_QUOTES[Math.floor(Math.random() * MOTIVATION_QUOTES.length)]);
+  return (
+    <div
+      className="rounded-2xl p-4 text-center mb-4"
+      style={{
+        background: "linear-gradient(135deg, var(--takda-brand-tint-1), var(--takda-brand-tint-2))",
+        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)",
+      }}
+    >
+      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--takda-brand)" }}>✨ Daily Motivation</span>
+      <p className="text-sm mt-1.5 italic" style={{ color: "var(--takda-text-muted-3)" }}>{quote}</p>
+    </div>
+  );
+}
+
 function Dashboard({
   greeting,
   contextMessage,
@@ -2834,6 +3021,9 @@ function Dashboard({
   todaysClasses,
   smartInsights,
   showActiveSemesterContext,
+  studentName,
+  overallAverage,
+  onOpenNotes,
 }) {
   const overdueVisible = focusLists.overdue.slice(0, DASHBOARD_OVERDUE_VISIBLE);
   const dueTodayVisible = focusLists.dueToday.slice(0, DASHBOARD_DUE_TODAY_VISIBLE);
@@ -2867,7 +3057,7 @@ function Dashboard({
         <span className="absolute top-[40%] left-[85%] w-1.5 h-1.5 rounded-full bg-white/60" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.4)" }} />
       </div>
 
-      <GreetingHero timePeriod={timePeriod} greeting={greeting} contextMessage={contextMessage} />
+      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} />
 
       {showActiveSemesterContext && (
         <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
@@ -2875,13 +3065,20 @@ function Dashboard({
         </div>
       )}
 
+      <AcademicOverview
+        stats={stats}
+        classesToday={todaysClasses.length}
+        overallAverage={overallAverage}
+        isPro={isPro}
+        onOpenGrades={onOpenGrades}
+      />
+
       <QuickActions
         onAddSubject={onAddSubject}
         onAddActivity={onAddActivity}
         onViewSchedule={onViewSchedule}
-        onOpenGrades={onOpenGrades}
+        onOpenNotes={onOpenNotes}
         canCreate={canCreate}
-        isPro={isPro}
       />
 
       <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
@@ -2890,6 +3087,13 @@ function Dashboard({
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6">
         <div>
+          {/* Phase 10A: "Today's Focus" is this eyebrow label plus the
+              three sections below it — each section keeps its own
+              existing glass wrapper/data/handlers exactly as before
+              (Phase 09B.8); this just groups them under one heading to
+              match the TAKDA 2.0 reference's single prominent task
+              panel, without merging their underlying filtered lists. */}
+          <h2 className="text-xs font-bold uppercase tracking-wide mb-2.5" style={{ color: "var(--takda-text-muted-1)" }}>Today's Focus</h2>
           {/* Phase 09B.8: each section below gets exactly one glass
               surface (its own Dashboard-local wrapper div), applied only
               when the section has real content — matching the existing
@@ -2965,8 +3169,6 @@ function Dashboard({
             )}
           </div>
 
-          <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
-
           <div className={recentlyCompleted.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-4" : undefined}>
             <SectionHeader title="Recently Completed" muted />
             {recentlyCompleted.length === 0 ? (
@@ -2981,7 +3183,16 @@ function Dashboard({
           </div>
         </div>
 
+        {/* Phase 10A: right utility panel — compact calendar, today's
+            schedule (TodaysClassesSection, moved here unchanged from the
+            left column), the existing Reminders/Insights/Stats
+            components (untouched), and a purely decorative motivation
+            panel at the end. */}
         <div>
+          <CompactWeekCalendar focusLists={focusLists} />
+
+          <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
+
           <SmartRemindersSection
             groups={reminderGroups}
             activeSemesterName={activeSemesterName}
@@ -2995,6 +3206,8 @@ function Dashboard({
           <SmartInsightsSection insights={smartInsights} />
 
           <StatsStrip stats={stats} />
+
+          <MotivationPanel />
         </div>
       </div>
 
@@ -3053,129 +3266,106 @@ function getTimePeriod() {
   return "night";
 }
 
-// Fixed per-time-period palette, intentionally NOT swapped by Classic/
-// Matcha — same reasoning as index.css's seven approved glass accent
-// colors (Step 09B.3): the greeting/reminder text sits directly on this
-// gradient, so its color must guarantee contrast against that specific
-// gradient regardless of the active theme, not against a theme token.
-// Phase 09B.14: `subtleColor` was previously an alpha-blended rgba of
-// `textColor` (e.g. rgba(90,58,30,0.78)). Calculating WCAG contrast of
-// that blend against each gradient's darkest stop showed Morning
-// dropping to ~3.78:1 and Afternoon to ~4.06:1 — both below the 4.5:1
-// AA minimum for normal text. The minimal, safe fix is to drop the
-// alpha and reuse the already-verified-passing solid `textColor` value
-// for `subtleColor` too (Morning headline measured >=5.97:1, Afternoon
-// >=6.72:1 against every gradient stop — see this phase's report for
-// the full calculation). Night's subtleColor was already passing
-// (measured >=8.77:1 at its worst stop) and is left unchanged.
-const GREETING_HERO_STYLE = {
-  morning: {
-    background: "linear-gradient(135deg, #FFE8C2 0%, #FFD3A8 45%, #FFB4A0 100%)",
-    textColor: "#5A3A1E",
-    subtleColor: "#5A3A1E",
-  },
-  afternoon: {
-    background: "linear-gradient(135deg, #BEE3FB 0%, #8FCBF2 55%, #6FB6E8 100%)",
-    textColor: "#0F2A3D",
-    subtleColor: "#0F2A3D",
-  },
-  night: {
-    background: "linear-gradient(135deg, #1B1F3B 0%, #121735 55%, #090B1F 100%)",
-    textColor: "#F2F4FF",
-    subtleColor: "rgba(242,244,255,0.75)",
-  },
-};
+// TAKDA 2.0 (Phase 10A.2): the approved illustrated asset
+// (public/takda-hero-sunset.png) replaces the 3 CSS-gradient time-of-
+// day variants and their decorative sun/moon/star shapes — there is
+// only one supplied illustration, so it's used for every time of day;
+// the greeting WORD itself ("Good Morning"/"Good Afternoon"/"Good
+// Evening") still genuinely varies by time of day exactly as before,
+// since that comes from the unchanged `greeting` prop (computed
+// upstream in TakdaApp from its own unchanged `timePeriod` state) —
+// only the background image/illustration stopped varying, not the
+// text. Text color is now one fixed pair rather than 3, since the
+// background is now one fixed image rather than 3 different gradients.
+//
+// Contrast: the approved mockup screenshot already shows this exact
+// asset rendered with white text over its left (text) side, which is a
+// deep navy sky — confirmed legible there. I have no image-analysis
+// tool to re-measure WCAG contrast against actual pixel data, so a
+// defensive dark gradient overlay (left-to-right, fading to transparent
+// over the illustration) is layered under the text as a safety net
+// rather than relying on the photo alone — this is the "subtle
+// gradient overlay where necessary" this phase asked for.
+const HERO_TEXT_COLOR = "#FFFFFF";
+const HERO_SUBTLE_COLOR = "#F2EFFF";
 
 // `greeting`/`contextMessage` are passed through unchanged from TakdaApp
 // (the existing time-based greeting text and the existing overdue/due-
 // today/all-caught-up message — this component invents no new deadline
-// or class data of its own, per Phase 09B.10 instruction #4). Only the
-// illustrated glass surface around them is new.
-function GreetingHero({ timePeriod, greeting, contextMessage }) {
-  const tone = GREETING_HERO_STYLE[timePeriod] || GREETING_HERO_STYLE.morning;
+// or class data of its own, per Phase 09B.10 instruction #4). `studentName`
+// (Phase 10A) is an existing, already-fetched profile field threaded
+// down from Root/TakdaApp, never a hardcoded sample name; it renders
+// only when present. The date line (Phase 10A.2) is `new Date()`
+// formatted inline on every render — no new timer, no new state; it
+// self-corrects whenever anything else causes a re-render (including
+// the existing 60s timePeriod poll in TakdaApp), which is more than
+// sufficient for a value that only changes once every 24 hours.
+function GreetingHero({ greeting, contextMessage, studentName }) {
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
   return (
     <div
-      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-6 mb-6"
-      style={{ background: tone.background, backdropFilter: "none", WebkitBackdropFilter: "none" }}
+      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-6 mb-6 min-h-[220px] md:min-h-[260px] flex items-end"
+      style={{
+        backgroundImage:
+          "linear-gradient(to right, rgba(10,8,30,0.62) 0%, rgba(10,8,30,0.28) 45%, rgba(10,8,30,0.05) 70%), url('/takda-hero-sunset.png')",
+        backgroundSize: "cover, cover",
+        backgroundPosition: "left center, center",
+        backgroundRepeat: "no-repeat, no-repeat",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+      }}
     >
-      <style>{`
-        @keyframes takda-star-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
-        .takda-greeting-star { animation: takda-star-twinkle 2.6s ease-in-out infinite; }
-        @media (prefers-reduced-motion: reduce) {
-          .takda-greeting-star { animation: none; opacity: 0.6; }
-        }
-      `}</style>
-
-      {/* Decorative illustration only — lightweight CSS shapes, no
-          images. Hidden from assistive tech since it carries no
-          information beyond what `greeting`/`contextMessage` already
-          say in text. */}
-      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-        {timePeriod === "morning" && (
-          <>
-            <span className="absolute -top-4 right-6 w-16 h-16 rounded-full" style={{ background: "radial-gradient(circle, #FFF4D6 0%, #FFD98A 60%, transparent 100%)" }} />
-            <span className="absolute top-6 right-16 w-14 h-5 rounded-full bg-white/50" />
-            <span className="absolute top-10 right-6 w-10 h-4 rounded-full bg-white/40" />
-          </>
-        )}
-        {timePeriod === "afternoon" && (
-          <>
-            <span className="absolute -top-3 right-8 w-14 h-14 rounded-full" style={{ background: "radial-gradient(circle, #FFFBEA 0%, #FFE9A8 55%, transparent 100%)" }} />
-            <span className="absolute top-8 right-20 w-16 h-6 rounded-full bg-white/55" />
-            <span className="absolute top-2 right-2 w-10 h-4 rounded-full bg-white/45" />
-          </>
-        )}
-        {timePeriod === "night" && (
-          <>
-            <span className="absolute top-2 right-8 w-12 h-12 rounded-full bg-[#F4F1DE]" style={{ boxShadow: "inset -6px -4px 0 0 rgba(18,23,53,0.85)" }} />
-            <span className="takda-greeting-star absolute top-4 right-28 w-1 h-1 rounded-full bg-white" />
-            <span className="takda-greeting-star absolute top-10 right-36 w-1 h-1 rounded-full bg-white" style={{ animationDelay: "0.6s" }} />
-            <span className="takda-greeting-star absolute top-16 right-20 w-[3px] h-[3px] rounded-full bg-white" style={{ animationDelay: "1.1s" }} />
-            <span className="takda-greeting-star absolute top-6 right-44 w-[3px] h-[3px] rounded-full bg-white" style={{ animationDelay: "1.6s" }} />
-          </>
-        )}
-      </div>
-
-      <div className="relative">
-        <h1 className="font-display text-2xl md:text-3xl font-semibold" style={{ color: tone.textColor }}>{greeting} 👋</h1>
-        <p className="text-sm mt-1" style={{ color: tone.subtleColor }}>{contextMessage}</p>
+      <div className="relative max-w-[70%] md:max-w-[60%]">
+        <h1 className="font-display text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
+          {greeting}{studentName ? `, ${studentName}` : ""} 👋
+        </h1>
+        <p className="text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
+        <div
+          className="inline-flex items-center gap-1.5 mt-3 rounded-full px-3 py-1.5 text-xs font-semibold"
+          style={{ background: "rgba(255,255,255,0.14)", color: HERO_TEXT_COLOR }}
+        >
+          <CalendarIcon size={13} aria-hidden="true" />
+          <span>{todayLabel}</span>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ---------------- Quick Actions (Phase 02, forest-glass redesign Phase 09B.6, perf Phase 09B.13) ---------------- */
-// Deep forest-green (#1D4101) glossy glass identity, fixed regardless of
-// theme (same reasoning as index.css's other six approved glass accent
-// colors — a deliberate fixed palette, not brand-swappable). Reuses the
-// shared `.takda-glass` mechanics (border, inset highlight, premium
-// shadow, pointer-gated hover lift, reduced-motion support) from the
-// Phase 09B.3 foundation; the gradient background/border below are
-// supplied here via inline style rather than a new `.takda-glass-forest`
-// class reference, since this step is scoped to App.jsx only and must
-// not edit index.css.
-//
-// Phase 09B.13: backdrop-filter is explicitly turned off via inline
-// style only on this component. The gradient here is already ~95%
-// opaque (0.95/0.95/0.96 alpha), so the blur it would sample from
-// behind the button was already visually imperceptible — this removes
-// 3 of the audit's ~17 simultaneous backdrop-filter surfaces with no
-// visible change, while every other `.takda-glass` consumer (and the
-// shared class itself) is completely untouched.
-function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge }) {
+/* ---------------- Quick Actions (TAKDA 2.0, Phase 10A.2) ---------------- */
+// Pastel per-tile accents, replacing the prior uniform indigo glossy
+// gradient. All 4 colors reuse existing tokens — Add Subject/lavender
+// reuses --takda-brand*, Add Activity/mint and Take Notes/amber reuse
+// the same status tokens as the Academic Overview cards above, and
+// View Calendar/blue reuses the existing --takda-label-inprogress*
+// pair (STATUS_LABEL's "In Progress" blue) — no new color invented.
+// No `.takda-glass`/backdrop-filter here at all now (these are flat
+// pastel tiles, not glass) — consistent with "avoid backdrop-filter on
+// repeated cards" for a 4-tile grid. Hover/press feedback is
+// `motion-safe:`-gated Tailwind utilities (respects prefers-reduced-
+// motion automatically) plus the existing `.takda-interactive` press
+// scale (already reduced-motion-safe in index.css, untouched).
+const QUICK_ACTION_ACCENTS = {
+  lavender: { bg: "var(--takda-brand-tint-2)", accent: "var(--takda-brand)" },
+  mint: { bg: "var(--takda-status-week-bg)", accent: "var(--takda-status-week-text)" },
+  blue: { bg: "var(--takda-label-inprogress-bg)", accent: "var(--takda-label-inprogress)" },
+  amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
+};
+
+function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, bg, accent }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className="takda-glass takda-focus-visible takda-interactive flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 px-2 text-center relative"
-      style={{
-        background: "linear-gradient(135deg, rgba(64,122,21,0.95) 0%, rgba(29,65,1,0.95) 55%, rgba(13,30,0,0.96) 100%)",
-        borderColor: "rgba(255,255,255,0.16)",
-        backdropFilter: "none",
-        WebkitBackdropFilter: "none",
-      }}
+      className="takda-focus-visible takda-interactive flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 px-2 text-center relative border border-[var(--takda-border)] transition-shadow duration-200 hover:shadow-md motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
+      style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       {showProBadge && (
         <span
@@ -3185,29 +3375,64 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
           PRO
         </span>
       )}
-      <Icon size={18} color="#F3F7EE" />
-      <span className="text-[11px] font-semibold" style={{ color: "#F3F7EE" }}>{label}</span>
+      <Icon size={18} color={accent} />
+      <span className="text-[11px] font-semibold" style={{ color: accent }}>{label}</span>
     </button>
   );
 }
 
-function QuickActions({ onAddSubject, onViewSchedule, onOpenGrades, canCreate = true, isPro }) {
+// Phase 10A: 4 tiles (Add Subject, Add Activity, View Calendar, Take
+// Notes) — matching the TAKDA 2.0 mockup's own named examples.
+// `onOpenNotes` is wiring added in Phase 10A (App.jsx + main.jsx) but
+// navigates to the Notes page via the exact same `setView(...)`
+// mechanism every other nav handler already uses — no new page, no new
+// capability. Grade Tracker's own shortcut tile was removed from this
+// grid (My Grades stays fully reachable from the Sidebar/mobile nav,
+// unchanged) to keep 4 tiles matching the approved reference rather
+// than introducing a 5th unrequested one — a deliberate recomposition
+// choice, not a functionality removal. All click handlers, the
+// `disabled`/`title` gating, and keyboard focus (`takda-focus-visible`)
+// are unchanged from before this color pass.
+function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenNotes, canCreate = true }) {
   return (
     <div className="mb-7">
       {/* Visible "Quick Actions" heading removed per Phase 09B.6 — kept
           in the DOM as sr-only so screen-reader heading navigation and
           grouping context are preserved. */}
       <h2 className="sr-only">Quick Actions</h2>
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <QuickActionTile
           icon={BookOpen}
           label="Add Subject"
           onClick={onAddSubject}
           disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
+          bg={QUICK_ACTION_ACCENTS.lavender.bg}
+          accent={QUICK_ACTION_ACCENTS.lavender.accent}
         />
-        <QuickActionTile icon={CalendarIcon} label="View Schedule" onClick={onViewSchedule} />
-        <QuickActionTile icon={Lock} label="Grade Tracker" onClick={onOpenGrades} showProBadge={!isPro} />
+        <QuickActionTile
+          icon={CheckCircle2}
+          label="Add Activity"
+          onClick={onAddActivity}
+          disabled={!canCreate}
+          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+          bg={QUICK_ACTION_ACCENTS.mint.bg}
+          accent={QUICK_ACTION_ACCENTS.mint.accent}
+        />
+        <QuickActionTile
+          icon={CalendarIcon}
+          label="View Calendar"
+          onClick={onViewSchedule}
+          bg={QUICK_ACTION_ACCENTS.blue.bg}
+          accent={QUICK_ACTION_ACCENTS.blue.accent}
+        />
+        <QuickActionTile
+          icon={StickyNote}
+          label="Take Notes"
+          onClick={onOpenNotes}
+          bg={QUICK_ACTION_ACCENTS.amber.bg}
+          accent={QUICK_ACTION_ACCENTS.amber.accent}
+        />
       </div>
     </div>
   );
