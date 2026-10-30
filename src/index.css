@@ -311,6 +311,140 @@ body {
   animation: takda-sheet-enter var(--takda-motion-normal) var(--takda-ease-standard) both;
 }
 
+/* =========================
+   TAKDA DESIGN TOKENS — Premium Glassmorphism Foundation (Step 09B.3)
+
+   Foundation-only: these tokens/utilities are not yet referenced by any
+   Dashboard component. Declaring them here changes no rendered pixel
+   until a future step applies `.takda-glass` + a color variant class to
+   a real element.
+
+   The seven color variants below (silver / forest / gold / light-green /
+   orange / red / neutral) are the approved palette for, respectively:
+   Semester Header, Quick Actions, Next Class, Upcoming, Due Today,
+   Overdue/Needs Attention, and general surfaces/navigation.
+
+   Like the existing status/priority/focustile tokens above, these seven
+   accent tints are deliberately NOT overridden per-theme — they are a
+   fixed, approved palette, not brand-swappable. Only the neutral
+   frosted-glass variant (used for generic surfaces/navigation, where a
+   theme-aware feel matters most) is overridden in the Matcha block
+   below. Every variant's background stays light (max alpha ~0.28 over
+   an already-light page background), so the existing dark text tokens
+   (--takda-text-primary / --takda-text-heading) remain the intended text
+   color on top of any glass surface — contrast still needs visual
+   verification once these are actually applied to real content.
+========================= */
+:root {
+  /* Shared glass mechanics — theme-independent, same pattern as the
+     --takda-motion-* tokens above. */
+  --takda-glass-blur: 20px;
+  --takda-glass-blur-mobile: 10px; /* Rule 8: lighter blur on small/mobile viewports */
+  --takda-glass-saturate: 150%;
+  --takda-glass-highlight: rgba(255, 255, 255, 0.5);
+  --takda-glass-shadow-elevated: 0 12px 28px -8px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.06);
+  --takda-glass-shadow-hover: 0 16px 36px -10px rgba(15, 23, 42, 0.22), 0 3px 8px rgba(15, 23, 42, 0.08);
+  --takda-glass-border-width: 1px;
+
+  /* 1. Metallic silver glass — Semester Header */
+  --takda-glass-silver-bg: linear-gradient(135deg, rgba(248, 249, 251, 0.55), rgba(203, 209, 219, 0.35));
+  --takda-glass-silver-bg-solid: #E7E9ED; /* fallback when backdrop-filter is unsupported */
+  --takda-glass-silver-border: rgba(255, 255, 255, 0.6);
+
+  /* 2. Forest-green glass (#1D4101) — Quick Actions */
+  --takda-glass-forest-bg: linear-gradient(135deg, rgba(29, 65, 1, 0.22), rgba(29, 65, 1, 0.1));
+  --takda-glass-forest-bg-solid: #E3EBDA;
+  --takda-glass-forest-border: rgba(29, 65, 1, 0.35);
+
+  /* 3. Gold glass — Next Class */
+  --takda-glass-gold-bg: linear-gradient(135deg, rgba(212, 175, 55, 0.28), rgba(212, 175, 55, 0.12));
+  --takda-glass-gold-bg-solid: #F6ECD2;
+  --takda-glass-gold-border: rgba(212, 175, 55, 0.45);
+
+  /* 4. Light-green glass — Upcoming */
+  --takda-glass-lightgreen-bg: linear-gradient(135deg, rgba(74, 222, 128, 0.24), rgba(74, 222, 128, 0.1));
+  --takda-glass-lightgreen-bg-solid: #E3F8E9;
+  --takda-glass-lightgreen-border: rgba(74, 222, 128, 0.4);
+
+  /* 5. Orange glass — Due Today */
+  --takda-glass-orange-bg: linear-gradient(135deg, rgba(249, 115, 22, 0.24), rgba(249, 115, 22, 0.1));
+  --takda-glass-orange-bg-solid: #FDE9D8;
+  --takda-glass-orange-border: rgba(249, 115, 22, 0.4);
+
+  /* 6. Red glass — Overdue / Needs Attention */
+  --takda-glass-red-bg: linear-gradient(135deg, rgba(239, 68, 68, 0.24), rgba(239, 68, 68, 0.1));
+  --takda-glass-red-bg-solid: #FBE1E1;
+  --takda-glass-red-border: rgba(239, 68, 68, 0.4);
+
+  /* 7. Neutral frosted glass — other surfaces / navigation (theme-aware) */
+  --takda-glass-neutral-bg: rgba(255, 255, 255, 0.55);
+  --takda-glass-neutral-bg-solid: #FFFFFF;
+  --takda-glass-neutral-border: rgba(255, 255, 255, 0.45);
+}
+
+:root[data-takda-theme="matcha"] {
+  /* Warm-neutral frosted glass to match Matcha's cream surface tone.
+     The six vivid accent variants above stay unchanged — see the
+     comment on the Classic :root block for why. */
+  --takda-glass-neutral-bg: rgba(255, 254, 250, 0.55);
+  --takda-glass-neutral-bg-solid: #FFFEFA;
+  --takda-glass-neutral-border: rgba(255, 250, 235, 0.45);
+}
+
+@media (max-width: 640px) {
+  /* Rule 8: cheaper blur radius on small/mobile viewports, applies to
+     every glass surface automatically since they all read this token. */
+  :root {
+    --takda-glass-blur: var(--takda-glass-blur-mobile);
+  }
+}
+
+/* Base glass surface. Not yet applied to any element — a future step
+   pairs this with exactly one color variant class below, e.g.
+   `takda-glass takda-glass-forest`. Uses an inset top highlight via
+   box-shadow (not a masked gradient border) to keep this cheap on
+   mobile GPUs. Deliberately no continuous/looping animation (Rule 9) —
+   only a one-shot hover lift, scoped to fine-pointer hover input so
+   touch taps never get stuck in a hovered state. */
+.takda-glass {
+  position: relative;
+  border: var(--takda-glass-border-width) solid transparent;
+  backdrop-filter: blur(var(--takda-glass-blur)) saturate(var(--takda-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--takda-glass-blur)) saturate(var(--takda-glass-saturate));
+  box-shadow: inset 0 1px 0 var(--takda-glass-highlight), var(--takda-glass-shadow-elevated);
+  transition-property: box-shadow, transform;
+  transition-duration: var(--takda-motion-normal);
+  transition-timing-function: var(--takda-ease-standard);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .takda-glass:hover {
+    box-shadow: inset 0 1px 0 var(--takda-glass-highlight), var(--takda-glass-shadow-hover);
+    transform: translateY(-1px);
+  }
+}
+
+/* Rule 7: graceful fallback when backdrop-filter is unavailable — swap
+   the translucent gradient for a near-opaque solid so the surface still
+   reads clearly without the blur. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .takda-glass-silver { background: var(--takda-glass-silver-bg-solid); }
+  .takda-glass-forest { background: var(--takda-glass-forest-bg-solid); }
+  .takda-glass-gold { background: var(--takda-glass-gold-bg-solid); }
+  .takda-glass-lightgreen { background: var(--takda-glass-lightgreen-bg-solid); }
+  .takda-glass-orange { background: var(--takda-glass-orange-bg-solid); }
+  .takda-glass-red { background: var(--takda-glass-red-bg-solid); }
+  .takda-glass-neutral { background: var(--takda-glass-neutral-bg-solid); }
+}
+
+.takda-glass-silver { background: var(--takda-glass-silver-bg); border-color: var(--takda-glass-silver-border); }
+.takda-glass-forest { background: var(--takda-glass-forest-bg); border-color: var(--takda-glass-forest-border); }
+.takda-glass-gold { background: var(--takda-glass-gold-bg); border-color: var(--takda-glass-gold-border); }
+.takda-glass-lightgreen { background: var(--takda-glass-lightgreen-bg); border-color: var(--takda-glass-lightgreen-border); }
+.takda-glass-orange { background: var(--takda-glass-orange-bg); border-color: var(--takda-glass-orange-border); }
+.takda-glass-red { background: var(--takda-glass-red-bg); border-color: var(--takda-glass-red-border); }
+.takda-glass-neutral { background: var(--takda-glass-neutral-bg); border-color: var(--takda-glass-neutral-border); }
+
 @media (prefers-reduced-motion: reduce) {
   .takda-pro-badge::after {
     animation: none;
@@ -351,5 +485,13 @@ body {
   /* Step 53A.10: same suppression for MoreSheet's entry animation. */
   .takda-sheet-enter {
     animation: none;
+  }
+
+  /* Step 09B.3: suppress the glass hover lift's transform. The
+     transition-duration already collapses to 0ms via the zeroed
+     --takda-motion-normal above; this additionally removes the
+     translateY itself so reduced-motion users never see the jump. */
+  .takda-glass:hover {
+    transform: none;
   }
 }

@@ -911,12 +911,25 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return "You're all caught up for today.";
   }, [focusLists]);
 
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 12) return "Good Morning";
-    if (h < 18) return "Good Afternoon";
-    return "Good Evening";
+  // Phase 09B.10: timePeriod now lives in real state, re-derived from the
+  // device clock on a lightweight 60s interval (not a high-frequency
+  // timer), so the greeting/hero actually updates when the user crosses
+  // a morning/afternoon/night boundary during an open session — the
+  // previous `useMemo(..., [])` computed this once at mount and never
+  // again, which this step was explicitly asked to fix (see Phase
+  // 09B.10's own instruction #7).
+  const [timePeriod, setTimePeriod] = useState(() => getTimePeriod());
+
+  useEffect(() => {
+    const id = setInterval(() => setTimePeriod(getTimePeriod()), 60000);
+    return () => clearInterval(id);
   }, []);
+
+  const greeting = useMemo(() => {
+    if (timePeriod === "morning") return "Good Morning";
+    if (timePeriod === "afternoon") return "Good Afternoon";
+    return "Good Evening";
+  }, [timePeriod]);
 
   function captureLimitModalReturnFocus(element = document.activeElement) {
     limitModalReturnFocusRef.current = element instanceof HTMLElement ? element : null;
@@ -1662,6 +1675,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
             <Dashboard
               greeting={greeting}
               contextMessage={contextMessage}
+              timePeriod={timePeriod}
               focusLists={focusLists}
               stats={stats}
               recentlyCompleted={recentlyCompleted}
@@ -2357,11 +2371,11 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
 
   if (semesters.length === 0) {
     return (
-      <div className="flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0">
-        <span className="text-xs text-slate-500">No semesters set up yet.</span>
+      <div className="takda-glass takda-glass-silver flex items-center justify-between gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0">
+        <span className="text-xs text-[color:var(--takda-text-muted-2)]">No semesters set up yet.</span>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
             + Set up semesters
           </button>
         </div>
@@ -2383,32 +2397,32 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
   const current = options.find((o) => o.id === selectedSemesterId) || options[options.length - 1];
 
   return (
-    <div className="relative flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0" ref={ref}>
+    <div className="relative takda-glass takda-glass-silver flex items-center justify-between gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors duration-150"
+        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-white/40 transition-colors duration-150"
       >
-        <CalendarIcon size={15} className="text-[#3D2FE0] shrink-0" />
-        <span className="text-sm font-semibold truncate">{current.label}</span>
-        {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">Active</span>}
-        {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
+        <CalendarIcon size={15} className="text-[color:var(--takda-brand)] shrink-0" />
+        <span className="text-[15px] font-semibold truncate">{current.label}</span>
+        {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
+        {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
         <ChevronDown size={14} className="text-slate-400 shrink-0" />
       </button>
       <div className="flex items-center gap-3 shrink-0">
         <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-        <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
+        <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
           Manage Semesters
         </button>
       </div>
 
       {open && (
-        <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[#E4E4F0] bg-white shadow-lg py-1.5">
+        <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-lg py-1.5">
           {options.map((o) => (
             <button
               key={o.id ?? "unassigned"}
               onClick={() => { onSelect(o.id); setOpen(false); }}
               className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors duration-150"
-              style={o.id === selectedSemesterId ? { color: "#3D2FE0", fontWeight: 600 } : undefined}
+              style={o.id === selectedSemesterId ? { color: "var(--takda-brand)", fontWeight: 600 } : undefined}
             >
               <span className="truncate">{o.label}</span>
               <span className="flex items-center gap-1 shrink-0">
@@ -2678,12 +2692,13 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
   const rightItems = [{ key: "calendar", label: "Calendar", icon: CalendarIcon }];
   const moreActive = ["notes", "activities", "grades"].includes(view);
   return (
-    <div className="md:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto bg-white border-t border-[#E4E4F0] shadow-[0_-2px_10px_rgba(15,23,42,0.05)] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
+    <div className="md:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto takda-glass takda-glass-neutral rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
         aria-disabled={!canCreate}
-        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 takda-interactive takda-cta-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
+        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shrink-0 takda-interactive takda-cta-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--takda-brand)] ${!canCreate ? "opacity-40" : ""}`}
+        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 14px -2px color-mix(in srgb, var(--takda-brand) 55%, transparent)" }}
         aria-label="Add activity"
         title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
       >
@@ -2700,10 +2715,13 @@ function NavBtn({ it, active, onClick }) {
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
+      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 rounded-lg"
       style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
     >
-      <span className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out ${active ? "bg-[#EEECFC]" : ""}`}>
+      <span
+        className="flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out"
+        style={active ? { background: "var(--takda-brand-tint-2)", boxShadow: "0 0 10px 1px color-mix(in srgb, var(--takda-brand) 45%, transparent)" } : undefined}
+      >
         <Icon size={19} />
       </span>
       <span className="text-[10px] font-semibold truncate max-w-full">{it.label}</span>
@@ -2775,6 +2793,7 @@ const DASHBOARD_UPCOMING_VISIBLE = 6;
 function Dashboard({
   greeting,
   contextMessage,
+  timePeriod,
   focusLists,
   stats,
   recentlyCompleted,
@@ -2810,11 +2829,28 @@ function Dashboard({
   };
 
   return (
-    <div className="p-5 md:p-8 takda-dashboard-enter">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
-        <p className="text-sm text-[color:var(--takda-text-muted-2)] mt-1">{contextMessage}</p>
+    <div className="relative p-5 md:p-8 takda-dashboard-enter">
+      {/* Phase 09B.11: Dashboard-only background wash — purely decorative,
+          built entirely from existing theme tokens (--takda-brand-tint-*)
+          so it reads correctly in both Classic and Matcha with no new
+          index.css rules. Sits behind all Dashboard content via -z-10
+          inside this now-`relative` root, so it cannot bleed into the
+          Sidebar, SemesterBar, MobileNav, or any other page. No
+          animation — Rule 4 explicitly asks for static sparkles only. */}
+      <div
+        className="absolute inset-0 -z-10 overflow-hidden pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(circle at 12% 8%, var(--takda-brand-tint-1) 0%, transparent 42%), radial-gradient(circle at 88% 4%, var(--takda-brand-tint-2) 0%, transparent 38%), radial-gradient(circle at 50% 100%, var(--takda-brand-tint-3) 0%, transparent 46%)",
+        }}
+      >
+        <span className="absolute top-[6%] left-[22%] w-1.5 h-1.5 rounded-full bg-white/70" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.5)" }} />
+        <span className="absolute top-[14%] left-[68%] w-1 h-1 rounded-full bg-white/60" style={{ boxShadow: "0 0 5px 2px rgba(255,255,255,0.4)" }} />
+        <span className="absolute top-[40%] left-[85%] w-1.5 h-1.5 rounded-full bg-white/60" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.4)" }} />
       </div>
+
+      <GreetingHero timePeriod={timePeriod} greeting={greeting} contextMessage={contextMessage} />
 
       {showActiveSemesterContext && (
         <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
@@ -2837,10 +2873,19 @@ function Dashboard({
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6">
         <div>
+          {/* Phase 09B.8: each section below gets exactly one glass
+              surface (its own Dashboard-local wrapper div), applied only
+              when the section has real content — matching the existing
+              Needs Attention pattern. SectionHeader/DashboardEmptyState/
+              ActivityRow are shared across other pages and are
+              deliberately left untouched; the individual ActivityRow
+              rows inside each panel stay plain/solid rather than each
+              getting their own blur (Rule 8: one glass surface per
+              section, not nested blur per row). */}
           <div
             className={
               focusCounts.overdue > 0
-                ? "bg-[var(--takda-status-overdue-bg)] border border-[var(--takda-focustile-overdue-border)] rounded-xl p-4 mb-7"
+                ? "takda-glass takda-glass-red rounded-2xl p-4 mb-7"
                 : undefined
             }
           >
@@ -2863,54 +2908,60 @@ function Dashboard({
             )}
           </div>
 
-          <SectionHeader
-            title="Due Today"
-            action={
-              focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
-                <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
-              )
-            }
-          />
-          {dueTodayVisible.length === 0 ? (
-            <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
-          ) : (
-            <div className="flex flex-col gap-2 mb-7">
-              {dueTodayVisible.map((a) => (
-                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
-              ))}
-            </div>
-          )}
+          <div className={focusCounts.dueToday > 0 ? "takda-glass takda-glass-orange rounded-2xl p-4 mb-7" : undefined}>
+            <SectionHeader
+              title="Due Today"
+              action={
+                focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
+                  <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
+                )
+              }
+            />
+            {dueTodayVisible.length === 0 ? (
+              <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {dueTodayVisible.map((a) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+                ))}
+              </div>
+            )}
+          </div>
 
-          <SectionHeader
-            title="Upcoming Deadlines"
-            action={
-              focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
-                <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
-              )
-            }
-          />
-          {upcomingVisible.length === 0 ? (
-            <DashboardEmptyState title="No upcoming deadlines." />
-          ) : (
-            <div className="flex flex-col gap-2 mb-7">
-              {upcomingVisible.map((a, i) => (
-                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
-              ))}
-            </div>
-          )}
+          <div className={focusCounts.upcoming > 0 ? "takda-glass takda-glass-lightgreen rounded-2xl p-4 mb-7" : undefined}>
+            <SectionHeader
+              title="Upcoming Deadlines"
+              action={
+                focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
+                  <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
+                )
+              }
+            />
+            {upcomingVisible.length === 0 ? (
+              <DashboardEmptyState title="No upcoming deadlines." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {upcomingVisible.map((a, i) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
+                ))}
+              </div>
+            )}
+          </div>
 
           <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
 
-          <SectionHeader title="Recently Completed" muted />
-          {recentlyCompleted.length === 0 ? (
-            <DashboardEmptyState title="Completed tasks will show up here." />
-          ) : (
-            <div className="flex flex-col gap-2 mb-4 opacity-80">
-              {recentlyCompleted.map((a) => (
-                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
-              ))}
-            </div>
-          )}
+          <div className={recentlyCompleted.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-4" : undefined}>
+            <SectionHeader title="Recently Completed" muted />
+            {recentlyCompleted.length === 0 ? (
+              <DashboardEmptyState title="Completed tasks will show up here." />
+            ) : (
+              <div className="flex flex-col gap-2 opacity-80">
+                {recentlyCompleted.map((a) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
@@ -2973,15 +3024,141 @@ function Dashboard({
   );
 }
 
-/* ---------------- Quick Actions (Phase 02) ---------------- */
-function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, hiddenOnMobile }) {
+/* ---------------- Greeting hero (Phase 09B.10) ---------------- */
+// Pure function of the device clock — no new dependency, no network,
+// no invented data. Only three buckets are needed by the approved
+// design (morning / afternoon / evening-night), matching the existing
+// Good Morning/Afternoon/Evening greeting text exactly.
+function getTimePeriod() {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 18) return "afternoon";
+  return "night";
+}
+
+// Fixed per-time-period palette, intentionally NOT swapped by Classic/
+// Matcha — same reasoning as index.css's seven approved glass accent
+// colors (Step 09B.3): the greeting/reminder text sits directly on this
+// gradient, so its color must guarantee contrast against that specific
+// gradient regardless of the active theme, not against a theme token.
+// Phase 09B.14: `subtleColor` was previously an alpha-blended rgba of
+// `textColor` (e.g. rgba(90,58,30,0.78)). Calculating WCAG contrast of
+// that blend against each gradient's darkest stop showed Morning
+// dropping to ~3.78:1 and Afternoon to ~4.06:1 — both below the 4.5:1
+// AA minimum for normal text. The minimal, safe fix is to drop the
+// alpha and reuse the already-verified-passing solid `textColor` value
+// for `subtleColor` too (Morning headline measured >=5.97:1, Afternoon
+// >=6.72:1 against every gradient stop — see this phase's report for
+// the full calculation). Night's subtleColor was already passing
+// (measured >=8.77:1 at its worst stop) and is left unchanged.
+const GREETING_HERO_STYLE = {
+  morning: {
+    background: "linear-gradient(135deg, #FFE8C2 0%, #FFD3A8 45%, #FFB4A0 100%)",
+    textColor: "#5A3A1E",
+    subtleColor: "#5A3A1E",
+  },
+  afternoon: {
+    background: "linear-gradient(135deg, #BEE3FB 0%, #8FCBF2 55%, #6FB6E8 100%)",
+    textColor: "#0F2A3D",
+    subtleColor: "#0F2A3D",
+  },
+  night: {
+    background: "linear-gradient(135deg, #1B1F3B 0%, #121735 55%, #090B1F 100%)",
+    textColor: "#F2F4FF",
+    subtleColor: "rgba(242,244,255,0.75)",
+  },
+};
+
+// `greeting`/`contextMessage` are passed through unchanged from TakdaApp
+// (the existing time-based greeting text and the existing overdue/due-
+// today/all-caught-up message — this component invents no new deadline
+// or class data of its own, per Phase 09B.10 instruction #4). Only the
+// illustrated glass surface around them is new.
+function GreetingHero({ timePeriod, greeting, contextMessage }) {
+  const tone = GREETING_HERO_STYLE[timePeriod] || GREETING_HERO_STYLE.morning;
+  return (
+    <div
+      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-6 mb-6"
+      style={{ background: tone.background, backdropFilter: "none", WebkitBackdropFilter: "none" }}
+    >
+      <style>{`
+        @keyframes takda-star-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+        .takda-greeting-star { animation: takda-star-twinkle 2.6s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .takda-greeting-star { animation: none; opacity: 0.6; }
+        }
+      `}</style>
+
+      {/* Decorative illustration only — lightweight CSS shapes, no
+          images. Hidden from assistive tech since it carries no
+          information beyond what `greeting`/`contextMessage` already
+          say in text. */}
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+        {timePeriod === "morning" && (
+          <>
+            <span className="absolute -top-4 right-6 w-16 h-16 rounded-full" style={{ background: "radial-gradient(circle, #FFF4D6 0%, #FFD98A 60%, transparent 100%)" }} />
+            <span className="absolute top-6 right-16 w-14 h-5 rounded-full bg-white/50" />
+            <span className="absolute top-10 right-6 w-10 h-4 rounded-full bg-white/40" />
+          </>
+        )}
+        {timePeriod === "afternoon" && (
+          <>
+            <span className="absolute -top-3 right-8 w-14 h-14 rounded-full" style={{ background: "radial-gradient(circle, #FFFBEA 0%, #FFE9A8 55%, transparent 100%)" }} />
+            <span className="absolute top-8 right-20 w-16 h-6 rounded-full bg-white/55" />
+            <span className="absolute top-2 right-2 w-10 h-4 rounded-full bg-white/45" />
+          </>
+        )}
+        {timePeriod === "night" && (
+          <>
+            <span className="absolute top-2 right-8 w-12 h-12 rounded-full bg-[#F4F1DE]" style={{ boxShadow: "inset -6px -4px 0 0 rgba(18,23,53,0.85)" }} />
+            <span className="takda-greeting-star absolute top-4 right-28 w-1 h-1 rounded-full bg-white" />
+            <span className="takda-greeting-star absolute top-10 right-36 w-1 h-1 rounded-full bg-white" style={{ animationDelay: "0.6s" }} />
+            <span className="takda-greeting-star absolute top-16 right-20 w-[3px] h-[3px] rounded-full bg-white" style={{ animationDelay: "1.1s" }} />
+            <span className="takda-greeting-star absolute top-6 right-44 w-[3px] h-[3px] rounded-full bg-white" style={{ animationDelay: "1.6s" }} />
+          </>
+        )}
+      </div>
+
+      <div className="relative">
+        <h1 className="font-display text-2xl md:text-3xl font-semibold" style={{ color: tone.textColor }}>{greeting} 👋</h1>
+        <p className="text-sm mt-1" style={{ color: tone.subtleColor }}>{contextMessage}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Quick Actions (Phase 02, forest-glass redesign Phase 09B.6, perf Phase 09B.13) ---------------- */
+// Deep forest-green (#1D4101) glossy glass identity, fixed regardless of
+// theme (same reasoning as index.css's other six approved glass accent
+// colors — a deliberate fixed palette, not brand-swappable). Reuses the
+// shared `.takda-glass` mechanics (border, inset highlight, premium
+// shadow, pointer-gated hover lift, reduced-motion support) from the
+// Phase 09B.3 foundation; the gradient background/border below are
+// supplied here via inline style rather than a new `.takda-glass-forest`
+// class reference, since this step is scoped to App.jsx only and must
+// not edit index.css.
+//
+// Phase 09B.13: backdrop-filter is explicitly turned off via inline
+// style only on this component. The gradient here is already ~95%
+// opaque (0.95/0.95/0.96 alpha), so the blur it would sample from
+// behind the button was already visually imperceptible — this removes
+// 3 of the audit's ~17 simultaneous backdrop-filter surfaces with no
+// visible change, while every other `.takda-glass` consumer (and the
+// shared class itself) is completely untouched.
+function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className={`takda-focus-visible takda-interactive ${hiddenOnMobile ? "hidden md:flex" : "flex"} flex-col items-center justify-center gap-1.5 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-3 px-2 text-center relative`}
+      className="takda-glass takda-focus-visible takda-interactive flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 px-2 text-center relative"
+      style={{
+        background: "linear-gradient(135deg, rgba(64,122,21,0.95) 0%, rgba(29,65,1,0.95) 55%, rgba(13,30,0,0.96) 100%)",
+        borderColor: "rgba(255,255,255,0.16)",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+      }}
     >
       {showProBadge && (
         <span
@@ -2991,31 +3168,26 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
           PRO
         </span>
       )}
-      <Icon size={18} color="var(--takda-brand)" />
-      <span className="text-[11px] font-semibold text-[color:var(--takda-text-muted-2)]">{label}</span>
+      <Icon size={18} color="#F3F7EE" />
+      <span className="text-[11px] font-semibold" style={{ color: "#F3F7EE" }}>{label}</span>
     </button>
   );
 }
 
-function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenGrades, canCreate = true, isPro }) {
+function QuickActions({ onAddSubject, onViewSchedule, onOpenGrades, canCreate = true, isPro }) {
   return (
     <div className="mb-7">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Quick Actions</h2>
-      <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+      {/* Visible "Quick Actions" heading removed per Phase 09B.6 — kept
+          in the DOM as sr-only so screen-reader heading navigation and
+          grouping context are preserved. */}
+      <h2 className="sr-only">Quick Actions</h2>
+      <div className="grid grid-cols-3 gap-2.5">
         <QuickActionTile
           icon={BookOpen}
           label="Add Subject"
           onClick={onAddSubject}
           disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        />
-        <QuickActionTile
-          icon={CheckCircle2}
-          label="Add Activity"
-          onClick={onAddActivity}
-          disabled={!canCreate}
-          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          hiddenOnMobile
         />
         <QuickActionTile icon={CalendarIcon} label="View Schedule" onClick={onViewSchedule} />
         <QuickActionTile icon={Lock} label="Grade Tracker" onClick={onOpenGrades} showProBadge={!isPro} />
@@ -3045,8 +3217,15 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
   // second Activities list.
   const previewItems = [...groups.overdue, ...groups.dueToday, ...groups.dueTomorrow, ...groups.dueSoon].slice(0, 3);
 
+  // Phase 09B.8: one neutral glass surface for the whole section, but
+  // only when there's real content to show — the "no active semester"
+  // prompt and the urgent-chips/preview-rows case both count; the plain
+  // "all caught up" DashboardEmptyState (shared component) is left bare,
+  // same convention used by every other Dashboard section this phase.
+  const hasGlassContent = totalUrgent > 0 || (hasSemesters && !hasActiveSemesterForReminders);
+
   return (
-    <div className="mb-7">
+    <div className={hasGlassContent ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-7" : "mb-7"}>
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">{captionText}</h2>
         {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={() => onOpenReminders("all")} />}
@@ -3106,24 +3285,32 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
 }
 
 const FOCUS_TILE_STYLE = {
-  overdue: { bg: "var(--takda-status-overdue-bg)", border: "var(--takda-focustile-overdue-border)", text: "var(--takda-status-overdue-text)" },
-  dueToday: { bg: "var(--takda-status-tomorrow-bg)", border: "var(--takda-focustile-duetoday-border)", text: "var(--takda-status-tomorrow-text)" },
-  upcoming: { bg: "var(--takda-status-week-bg)", border: "var(--takda-focustile-upcoming-border)", text: "var(--takda-status-week-text)" },
+  overdue: { text: "var(--takda-status-overdue-text)", glass: "takda-glass-red" },
+  dueToday: { text: "var(--takda-status-tomorrow-text)", glass: "takda-glass-orange" },
+  upcoming: { text: "var(--takda-status-week-text)", glass: "takda-glass-lightgreen" },
 };
 
 const FOCUS_TILE_FILTER = { overdue: "overdue", dueToday: "today", upcoming: "upcoming" };
 
 function FocusTile({ tile, active, style, onSelect }) {
   const displayValue = useCountUp(tile.value);
+  const baseClasses = "rounded-2xl p-3 flex flex-col items-start gap-1 text-left transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1";
+  // Active (count > 0) tiles get the premium colored glass treatment and
+  // rely on .takda-glass's own hover lift/shadow (defined in index.css,
+  // already reduced-motion safe) — no duplicate hover transform utility
+  // is added here to avoid two rules fighting over `transform`. Inactive
+  // (zero-count) tiles keep their original neutral surface and motion
+  // classes exactly as before this step.
+  const activeClasses = `takda-glass ${style.glass} ${baseClasses} motion-safe:transition-transform motion-safe:duration-200 motion-safe:active:scale-[0.98]`;
+  const inactiveClasses = `bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] ${baseClasses}`;
   return (
     <button
       type="button"
       onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
-      className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
-      style={active ? { background: style.bg, borderColor: style.border } : { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)" }}
+      className={active ? activeClasses : inactiveClasses}
       aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
     >
-      <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+      <span className="font-display text-2xl font-bold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
         {displayValue}
       </span>
       <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
@@ -3151,36 +3338,41 @@ function FocusTile({ tile, active, style, onSelect }) {
 function SmartInsightsSection({ insights }) {
   const list = Array.isArray(insights) ? insights : [];
 
-  return (
-    <>
-      <SectionHeader title="Smart Insights" />
-      {list.length === 0 ? (
+  if (list.length === 0) {
+    return (
+      <>
+        <SectionHeader title="Smart Insights" />
         <DashboardEmptyState
           icon={CheckCircle2}
           title="No workload alerts right now"
           subtitle="Your current academic workload looks clear."
         />
-      ) : (
-        <div className="flex flex-col gap-2 mb-7">
-          {list.map((insight) =>
-            insight.onActivate ? (
-              <button
-                key={insight.type}
-                type="button"
-                onClick={insight.onActivate}
-                className="w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
-              >
-                {insight.message}
-              </button>
-            ) : (
-              <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)]">
-                {insight.message}
-              </div>
-            )
-          )}
-        </div>
-      )}
-    </>
+      </>
+    );
+  }
+
+  return (
+    <div className="takda-glass takda-glass-neutral rounded-2xl p-4 mb-7">
+      <SectionHeader title="Smart Insights" />
+      <div className="flex flex-col gap-2">
+        {list.map((insight) =>
+          insight.onActivate ? (
+            <button
+              key={insight.type}
+              type="button"
+              onClick={insight.onActivate}
+              className="w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
+            >
+              {insight.message}
+            </button>
+          ) : (
+            <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)]">
+              {insight.message}
+            </div>
+          )
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -3193,7 +3385,7 @@ function FocusForToday({ counts, onSelect }) {
   return (
     <div className="mb-7">
       <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Focus for Today</h2>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2.5">
         {tiles.map((tile) => (
           <FocusTile key={tile.key} tile={tile} active={tile.value > 0} style={FOCUS_TILE_STYLE[tile.key]} onSelect={onSelect} />
         ))}
@@ -3274,9 +3466,9 @@ function NextClassCard({ nextClass, onOpenSubject }) {
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="takda-focus-visible w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
+          className="takda-glass takda-glass-gold takda-focus-visible w-full text-left rounded-2xl p-4 flex items-center gap-3"
         >
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
+          <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/50" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold truncate">{nextClass.subject?.name || "Untitled Subject"}</div>
             <div className="text-xs text-[color:var(--takda-text-muted-2)] mt-0.5">
@@ -3296,7 +3488,7 @@ function NextClassCard({ nextClass, onOpenSubject }) {
 
 function TodaysClassesSection({ classes, onOpenSubject }) {
   return (
-    <div className="mb-7">
+    <div className={classes.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-7" : "mb-7"}>
       <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Today's Classes</h2>
       {classes.length === 0 ? (
         <DashboardEmptyState title="No classes scheduled for today." />
