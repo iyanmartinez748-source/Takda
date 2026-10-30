@@ -911,12 +911,25 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
     return "You're all caught up for today.";
   }, [focusLists]);
 
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 12) return "Good Morning";
-    if (h < 18) return "Good Afternoon";
-    return "Good Evening";
+  // Phase 09B.10: timePeriod now lives in real state, re-derived from the
+  // device clock on a lightweight 60s interval (not a high-frequency
+  // timer), so the greeting/hero actually updates when the user crosses
+  // a morning/afternoon/night boundary during an open session — the
+  // previous `useMemo(..., [])` computed this once at mount and never
+  // again, which this step was explicitly asked to fix (see Phase
+  // 09B.10's own instruction #7).
+  const [timePeriod, setTimePeriod] = useState(() => getTimePeriod());
+
+  useEffect(() => {
+    const id = setInterval(() => setTimePeriod(getTimePeriod()), 60000);
+    return () => clearInterval(id);
   }, []);
+
+  const greeting = useMemo(() => {
+    if (timePeriod === "morning") return "Good Morning";
+    if (timePeriod === "afternoon") return "Good Afternoon";
+    return "Good Evening";
+  }, [timePeriod]);
 
   function captureLimitModalReturnFocus(element = document.activeElement) {
     limitModalReturnFocusRef.current = element instanceof HTMLElement ? element : null;
@@ -1662,6 +1675,7 @@ export default function TakdaApp({ isPro = false, onUpgrade } = {}) {
             <Dashboard
               greeting={greeting}
               contextMessage={contextMessage}
+              timePeriod={timePeriod}
               focusLists={focusLists}
               stats={stats}
               recentlyCompleted={recentlyCompleted}
@@ -2055,27 +2069,29 @@ function LimitReachedModal({ kind, onClose, onUpgrade, returnFocusRef }) {
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+        className="w-full max-w-sm rounded-2xl bg-[var(--takda-bg-surface)] p-6 shadow-2xl"
+        style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 20px 40px -12px rgba(15,23,42,0.28)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <span className="takda-pro-badge inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide">
           <span aria-hidden="true">✦</span> PRO
         </span>
-        <h3 id="limit-reached-title" className="font-display mt-3 text-lg font-semibold text-[#1B1B2F]">Free plan limit reached</h3>
-        <p id="limit-reached-description" className="mt-2 text-sm leading-6 text-slate-500">{message}</p>
+        <h3 id="limit-reached-title" className="font-display mt-3 text-lg font-semibold" style={{ color: "var(--takda-text-primary)" }}>Free plan limit reached</h3>
+        <p id="limit-reached-description" className="mt-2 text-sm leading-6" style={{ color: "var(--takda-text-muted-2)" }}>{message}</p>
         <div className="mt-5 flex gap-2">
           <button
             ref={notNowRef}
             type="button"
             onClick={onClose}
-            className="takda-focus-visible flex-1 rounded-xl border border-[#E4E4F0] py-2.5 text-sm font-semibold text-slate-500"
+            className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] py-2.5 text-sm font-semibold"
+            style={{ color: "var(--takda-text-muted-2)" }}
           >
             Not now
           </button>
           <button
             type="button"
             onClick={handleUpgrade}
-            className="takda-focus-visible takda-focus-visible-on-brand flex-1 rounded-xl bg-[#3D2FE0] py-2.5 text-sm font-bold text-white"
+            className="takda-focus-visible takda-focus-visible-on-brand takda-interactive takda-cta-brand flex-1 rounded-xl py-2.5 text-sm font-bold text-white"
           >
             Upgrade to Pro
           </button>
@@ -2140,13 +2156,12 @@ function RemindersModal({
         onSendBackgroundPushTest={onSendBackgroundPushTest}
       />
       {hasSemesters && !hasActiveSemesterForReminders ? (
-        <div className="rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] p-4 text-sm text-slate-500">
+        <div className="rounded-2xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] p-4 text-sm" style={{ color: "var(--takda-text-muted-2)" }}>
           <p className="mb-3">No semester is currently active, so there's nothing to remind you about yet. Reminders will pick back up once you activate a semester.</p>
           <button
             type="button"
             onClick={onManageSemesters}
-            className="rounded-lg px-3 py-2 text-sm font-semibold text-white"
-            style={{ background: "#3D2FE0" }}
+            className="takda-focus-visible takda-interactive takda-cta-brand rounded-xl px-3 py-2 text-sm font-semibold text-white"
           >
             Manage Semesters
           </button>
@@ -2166,7 +2181,7 @@ function RemindersModal({
       ) : (
         sections.map((section) => (
           <div key={section.key} className="mb-5 last:mb-0">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">{section.label} ({section.items.length})</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: "var(--takda-text-muted-1)" }}>{section.label} ({section.items.length})</h3>
             <div className="flex flex-col gap-2">
               {section.items.map((a) => (
                 <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
@@ -2221,18 +2236,18 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
 
   if (permission === "unsupported") {
     return (
-      <div className="mb-4 rounded-xl bg-[#F8FAFC] border border-[#E4E4F0] px-3 py-2.5 text-xs text-slate-400">
+      <div className="mb-4 rounded-2xl bg-[var(--takda-bg-empty-state)] border border-[var(--takda-border)] px-3 py-2.5 text-xs" style={{ color: "var(--takda-text-muted-1)" }}>
         Notifications aren't supported on this browser or device.
       </div>
     );
   }
 
   return (
-    <div className="mb-4 rounded-xl border border-[#E4E4F0] px-3 py-2.5">
+    <div className="mb-4 rounded-2xl border border-[var(--takda-border)] px-3 py-2.5" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-slate-700">Notifications</div>
-          <p className="text-[11px] text-slate-500 mt-0.5">
+          <div className="text-xs font-semibold" style={{ color: "var(--takda-text-heading)" }}>Notifications</div>
+          <p className="text-[11px] mt-0.5" style={{ color: "var(--takda-text-muted-2)" }}>
             {permission === "denied"
               ? "Notification permission was blocked. You can change this in your browser or device settings."
               : "Get deadline alerts while Takda is active and your device supports notifications."}
@@ -2242,7 +2257,8 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
           <button
             type="button"
             onClick={onDisable}
-            className="shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E4F0] text-slate-600 hover:bg-slate-50 transition-colors duration-150"
+            className="takda-focus-visible shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] hover:bg-slate-50 transition-colors duration-150"
+            style={{ color: "var(--takda-text-muted-3)" }}
           >
             Disable
           </button>
@@ -2250,8 +2266,7 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
           <button
             type="button"
             onClick={onEnable}
-            className="shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-lg text-white hover:opacity-90 transition duration-150 ease-out"
-            style={{ background: "#3D2FE0" }}
+            className="takda-focus-visible takda-interactive takda-cta-brand shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-xl text-white"
           >
             Enable
           </button>
@@ -2263,12 +2278,13 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             type="button"
             onClick={handleLocalTestClick}
             disabled={localTestState.status === "sending"}
-            className="text-[11px] font-semibold text-[#3D2FE0] hover:underline disabled:opacity-50"
+            className="takda-focus-visible text-[11px] font-semibold hover:underline disabled:opacity-50"
+            style={{ color: "var(--takda-brand)" }}
           >
             {localTestState.status === "sending" ? "Sending…" : "Send test notification"}
           </button>
           {localTestState.message && (
-            <p className={`text-[11px] ${localTestState.status === "error" ? "text-red-500" : "text-slate-500"}`}>
+            <p className="text-[11px]" style={{ color: localTestState.status === "error" ? "#ef4444" : "var(--takda-text-muted-2)" }}>
               {localTestState.message}
             </p>
           )}
@@ -2276,12 +2292,13 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             type="button"
             onClick={handleBackgroundPushTestClick}
             disabled={pushTestState.status === "sending"}
-            className="text-[11px] font-semibold text-[#3D2FE0] hover:underline disabled:opacity-50"
+            className="takda-focus-visible text-[11px] font-semibold hover:underline disabled:opacity-50"
+            style={{ color: "var(--takda-brand)" }}
           >
             {pushTestState.status === "sending" ? "Sending…" : "Send background push test"}
           </button>
           {pushTestState.message && (
-            <p className={`text-[11px] ${pushTestState.status === "error" ? "text-red-500" : "text-slate-500"}`}>
+            <p className="text-[11px]" style={{ color: pushTestState.status === "error" ? "#ef4444" : "var(--takda-text-muted-2)" }}>
               {pushTestState.message}
             </p>
           )}
@@ -2357,11 +2374,11 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
 
   if (semesters.length === 0) {
     return (
-      <div className="flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0">
-        <span className="text-xs text-slate-500">No semesters set up yet.</span>
+      <div className="takda-glass takda-glass-silver flex items-center justify-between gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0">
+        <span className="text-xs text-[color:var(--takda-text-muted-2)]">No semesters set up yet.</span>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
             + Set up semesters
           </button>
         </div>
@@ -2383,32 +2400,32 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
   const current = options.find((o) => o.id === selectedSemesterId) || options[options.length - 1];
 
   return (
-    <div className="relative flex items-center justify-between gap-3 px-5 md:px-8 py-3 border-b border-[#E4E4F0] bg-white shrink-0" ref={ref}>
+    <div className="relative takda-glass takda-glass-silver flex items-center justify-between gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors duration-150"
+        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-white/40 transition-colors duration-150"
       >
-        <CalendarIcon size={15} className="text-[#3D2FE0] shrink-0" />
-        <span className="text-sm font-semibold truncate">{current.label}</span>
-        {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">Active</span>}
-        {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
+        <CalendarIcon size={15} className="text-[color:var(--takda-brand)] shrink-0" />
+        <span className="text-[15px] font-semibold truncate">{current.label}</span>
+        {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
+        {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
         <ChevronDown size={14} className="text-slate-400 shrink-0" />
       </button>
       <div className="flex items-center gap-3 shrink-0">
         <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-        <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[#3D2FE0] hover:underline">
+        <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
           Manage Semesters
         </button>
       </div>
 
       {open && (
-        <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[#E4E4F0] bg-white shadow-lg py-1.5">
+        <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-lg py-1.5">
           {options.map((o) => (
             <button
               key={o.id ?? "unassigned"}
               onClick={() => { onSelect(o.id); setOpen(false); }}
               className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors duration-150"
-              style={o.id === selectedSemesterId ? { color: "#3D2FE0", fontWeight: 600 } : undefined}
+              style={o.id === selectedSemesterId ? { color: "var(--takda-brand)", fontWeight: 600 } : undefined}
             >
               <span className="truncate">{o.label}</span>
               <span className="flex items-center gap-1 shrink-0">
@@ -2514,14 +2531,15 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
   return (
     <ModalShell title={mode === "form" ? (formSemester ? "Edit Semester" : "New Semester") : "Manage Semesters"} onClose={onClose}>
       {error && (
-        <div className="mb-3 rounded-lg bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2">{error}</div>
+        <div className="mb-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2">{error}</div>
       )}
 
       {mode === "list" ? (
         <>
           <button
             onClick={openCreateForm}
-            className="w-full mb-4 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#C7C7E8] text-[#3D2FE0] py-2.5 text-sm font-semibold"
+            className="takda-focus-visible w-full mb-4 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] py-2.5 text-sm font-semibold"
+            style={{ color: "var(--takda-brand)" }}
           >
             <Plus size={15} /> New Semester
           </button>
@@ -2531,25 +2549,26 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
           ) : (
             <div className="flex flex-col gap-2 mb-1">
               {sorted.map((s) => (
-                <div key={s.id} className="rounded-xl border border-[#E4E4F0] p-3">
+                <div key={s.id} className="rounded-2xl border border-[var(--takda-border)] p-3" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold truncate">{s.name}</div>
                       {(s.schoolYear || s.startDate || s.endDate) && (
-                        <div className="text-[11px] text-slate-500 truncate">
+                        <div className="text-[11px] truncate" style={{ color: "var(--takda-text-muted-2)" }}>
                           {[s.schoolYear, [s.startDate, s.endDate].filter(Boolean).join(" – ")].filter(Boolean).join(" · ")}
                         </div>
                       )}
                     </div>
                     <div className="shrink-0 flex items-center gap-1.5">
                       {s.isActive && <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">Active</span>}
-                      {s.archivedAt && <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
+                      {s.archivedAt && <span className="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{ color: "var(--takda-text-muted-2)", background: "var(--takda-border)" }}>Archived</span>}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     <button
                       onClick={() => openEditForm(s)}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E4F0] text-slate-600 hover:bg-slate-50 transition-colors duration-150"
+                      className="takda-focus-visible text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] hover:bg-slate-50 transition-colors duration-150"
+                      style={{ color: "var(--takda-text-muted-3)" }}
                     >
                       Edit
                     </button>
@@ -2557,8 +2576,7 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
                       <button
                         onClick={() => handleActivate(s.id)}
                         disabled={busyId === s.id}
-                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-white disabled:opacity-50"
-                        style={{ background: "#3D2FE0" }}
+                        className="takda-focus-visible takda-interactive takda-cta-brand text-xs font-semibold px-2.5 py-1.5 rounded-xl text-white disabled:opacity-50"
                       >
                         {busyId === s.id ? "Activating…" : "Set as Active"}
                       </button>
@@ -2567,7 +2585,7 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
                       <button
                         onClick={() => handleArchive(s.id)}
                         disabled={busyId === s.id}
-                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E4F0] text-red-500 hover:bg-red-50 transition-colors duration-150 disabled:opacity-50"
+                        className="takda-focus-visible text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] text-red-500 hover:bg-red-50 transition-colors duration-150 disabled:opacity-50"
                       >
                         {busyId === s.id ? "Archiving…" : "Archive"}
                       </button>
@@ -2597,15 +2615,15 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
           <div className="flex gap-2 mt-2">
             <button
               onClick={() => setMode("list")}
-              className="flex-1 rounded-xl border border-[#E4E4F0] py-2.5 text-sm font-semibold text-slate-500"
+              className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] py-2.5 text-sm font-semibold"
+              style={{ color: "var(--takda-text-muted-2)" }}
             >
               Cancel
             </button>
             <button
               disabled={!form.name.trim() || saving}
               onClick={submitForm}
-              className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-40"
-              style={{ background: "#3D2FE0" }}
+              className="takda-focus-visible takda-interactive takda-cta-brand flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-40"
             >
               {saving ? "Saving…" : formSemester ? "Save Changes" : "Create Semester"}
             </button>
@@ -2626,8 +2644,19 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
     { key: "grades", label: "My Grades", icon: Lock },
     { key: "notes", label: "Notes", icon: StickyNote },
   ];
+  // Phase 09C.2B: premium frosted-white redesign, deliberately with no
+  // backdrop-filter — the Sidebar is a persistent full-height panel
+  // beside the content (never scrolling over it), so there is nothing
+  // for a blur to meaningfully sample; the "frosted"/"glass-inspired"
+  // look instead comes from a plain inset box-shadow reusing the
+  // existing --takda-glass-highlight token (same technique already
+  // used by EmptyRow, Phase 09C.2A), plus a very soft directional
+  // elevation shadow — both pure box-shadow, zero blur cost.
   return (
-    <div className="hidden md:flex md:flex-col w-56 shrink-0 bg-white border-r border-[var(--takda-border)] p-5">
+    <div
+      className="hidden md:flex md:flex-col w-56 shrink-0 bg-[var(--takda-bg-surface)] border-r border-[var(--takda-border)] p-5"
+      style={{ boxShadow: "inset -1px 0 0 var(--takda-glass-highlight), 1px 0 3px rgba(15,23,42,0.04)" }}
+    >
       <div className="flex items-center gap-2 mb-8 px-1">
         <img
   src="/takda-icon.png"
@@ -2647,8 +2676,9 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               aria-current={active ? "page" : undefined}
               className={`takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
               style={{
-                background: active ? "#EEECFC" : undefined,
-                color: active ? "var(--takda-brand)" : "#475569",
+                background: active ? "var(--takda-brand-tint-3)" : undefined,
+                color: active ? "var(--takda-brand)" : "var(--takda-text-muted-3)",
+                boxShadow: active ? "inset 0 1px 0 var(--takda-glass-highlight)" : undefined,
               }}
             >
               <Icon size={17} />
@@ -2662,6 +2692,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
         aria-disabled={!canCreate}
         title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
         className={`takda-focus-visible takda-focus-visible-on-brand mt-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
+        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px -2px color-mix(in srgb, var(--takda-brand) 45%, transparent)" }}
       >
         <Plus size={16} /> Add Subject
       </button>
@@ -2678,12 +2709,13 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
   const rightItems = [{ key: "calendar", label: "Calendar", icon: CalendarIcon }];
   const moreActive = ["notes", "activities", "grades"].includes(view);
   return (
-    <div className="md:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto bg-white border-t border-[#E4E4F0] shadow-[0_-2px_10px_rgba(15,23,42,0.05)] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
+    <div className="md:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto takda-glass takda-glass-neutral rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
         aria-disabled={!canCreate}
-        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 takda-interactive takda-cta-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3D2FE0] ${!canCreate ? "opacity-40" : ""}`}
+        className={`w-12 h-12 -mt-6 rounded-full flex items-center justify-center text-white shrink-0 takda-interactive takda-cta-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--takda-brand)] ${!canCreate ? "opacity-40" : ""}`}
+        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 14px -2px color-mix(in srgb, var(--takda-brand) 55%, transparent)" }}
         aria-label="Add activity"
         title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
       >
@@ -2700,10 +2732,13 @@ function NavBtn({ it, active, onClick }) {
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 rounded-lg"
+      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 rounded-lg"
       style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
     >
-      <span className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out ${active ? "bg-[#EEECFC]" : ""}`}>
+      <span
+        className="flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out"
+        style={active ? { background: "var(--takda-brand-tint-2)", boxShadow: "0 0 10px 1px color-mix(in srgb, var(--takda-brand) 45%, transparent)" } : undefined}
+      >
         <Icon size={19} />
       </span>
       <span className="text-[10px] font-semibold truncate max-w-full">{it.label}</span>
@@ -2775,6 +2810,7 @@ const DASHBOARD_UPCOMING_VISIBLE = 6;
 function Dashboard({
   greeting,
   contextMessage,
+  timePeriod,
   focusLists,
   stats,
   recentlyCompleted,
@@ -2810,11 +2846,28 @@ function Dashboard({
   };
 
   return (
-    <div className="p-5 md:p-8 takda-dashboard-enter">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl md:text-3xl font-semibold">{greeting} 👋</h1>
-        <p className="text-sm text-[color:var(--takda-text-muted-2)] mt-1">{contextMessage}</p>
+    <div className="relative p-5 md:p-8 takda-dashboard-enter">
+      {/* Phase 09B.11: Dashboard-only background wash — purely decorative,
+          built entirely from existing theme tokens (--takda-brand-tint-*)
+          so it reads correctly in both Classic and Matcha with no new
+          index.css rules. Sits behind all Dashboard content via -z-10
+          inside this now-`relative` root, so it cannot bleed into the
+          Sidebar, SemesterBar, MobileNav, or any other page. No
+          animation — Rule 4 explicitly asks for static sparkles only. */}
+      <div
+        className="absolute inset-0 -z-10 overflow-hidden pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(circle at 12% 8%, var(--takda-brand-tint-1) 0%, transparent 42%), radial-gradient(circle at 88% 4%, var(--takda-brand-tint-2) 0%, transparent 38%), radial-gradient(circle at 50% 100%, var(--takda-brand-tint-3) 0%, transparent 46%)",
+        }}
+      >
+        <span className="absolute top-[6%] left-[22%] w-1.5 h-1.5 rounded-full bg-white/70" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.5)" }} />
+        <span className="absolute top-[14%] left-[68%] w-1 h-1 rounded-full bg-white/60" style={{ boxShadow: "0 0 5px 2px rgba(255,255,255,0.4)" }} />
+        <span className="absolute top-[40%] left-[85%] w-1.5 h-1.5 rounded-full bg-white/60" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.4)" }} />
       </div>
+
+      <GreetingHero timePeriod={timePeriod} greeting={greeting} contextMessage={contextMessage} />
 
       {showActiveSemesterContext && (
         <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
@@ -2837,10 +2890,19 @@ function Dashboard({
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6">
         <div>
+          {/* Phase 09B.8: each section below gets exactly one glass
+              surface (its own Dashboard-local wrapper div), applied only
+              when the section has real content — matching the existing
+              Needs Attention pattern. SectionHeader/DashboardEmptyState/
+              ActivityRow are shared across other pages and are
+              deliberately left untouched; the individual ActivityRow
+              rows inside each panel stay plain/solid rather than each
+              getting their own blur (Rule 8: one glass surface per
+              section, not nested blur per row). */}
           <div
             className={
               focusCounts.overdue > 0
-                ? "bg-[var(--takda-status-overdue-bg)] border border-[var(--takda-focustile-overdue-border)] rounded-xl p-4 mb-7"
+                ? "takda-glass takda-glass-red rounded-2xl p-4 mb-7"
                 : undefined
             }
           >
@@ -2863,54 +2925,60 @@ function Dashboard({
             )}
           </div>
 
-          <SectionHeader
-            title="Due Today"
-            action={
-              focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
-                <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
-              )
-            }
-          />
-          {dueTodayVisible.length === 0 ? (
-            <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
-          ) : (
-            <div className="flex flex-col gap-2 mb-7">
-              {dueTodayVisible.map((a) => (
-                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
-              ))}
-            </div>
-          )}
+          <div className={focusCounts.dueToday > 0 ? "takda-glass takda-glass-orange rounded-2xl p-4 mb-7" : undefined}>
+            <SectionHeader
+              title="Due Today"
+              action={
+                focusCounts.dueToday > DASHBOARD_DUE_TODAY_VISIBLE && (
+                  <ViewAllLink label={`View all (${focusCounts.dueToday})`} onClick={() => onFocusFilter("today")} />
+                )
+              }
+            />
+            {dueTodayVisible.length === 0 ? (
+              <DashboardEmptyState icon={CheckCircle2} title="Nothing due today" subtitle="You're clear for today." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {dueTodayVisible.map((a) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} />
+                ))}
+              </div>
+            )}
+          </div>
 
-          <SectionHeader
-            title="Upcoming Deadlines"
-            action={
-              focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
-                <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
-              )
-            }
-          />
-          {upcomingVisible.length === 0 ? (
-            <DashboardEmptyState title="No upcoming deadlines." />
-          ) : (
-            <div className="flex flex-col gap-2 mb-7">
-              {upcomingVisible.map((a, i) => (
-                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
-              ))}
-            </div>
-          )}
+          <div className={focusCounts.upcoming > 0 ? "takda-glass takda-glass-lightgreen rounded-2xl p-4 mb-7" : undefined}>
+            <SectionHeader
+              title="Upcoming Deadlines"
+              action={
+                focusCounts.upcoming > DASHBOARD_UPCOMING_VISIBLE && (
+                  <ViewAllLink label={`View all upcoming (${focusCounts.upcoming})`} onClick={() => onFocusFilter("upcoming")} />
+                )
+              }
+            />
+            {upcomingVisible.length === 0 ? (
+              <DashboardEmptyState title="No upcoming deadlines." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {upcomingVisible.map((a, i) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact highlight={i === 0} />
+                ))}
+              </div>
+            )}
+          </div>
 
           <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
 
-          <SectionHeader title="Recently Completed" muted />
-          {recentlyCompleted.length === 0 ? (
-            <DashboardEmptyState title="Completed tasks will show up here." />
-          ) : (
-            <div className="flex flex-col gap-2 mb-4 opacity-80">
-              {recentlyCompleted.map((a) => (
-                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
-              ))}
-            </div>
-          )}
+          <div className={recentlyCompleted.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-4" : undefined}>
+            <SectionHeader title="Recently Completed" muted />
+            {recentlyCompleted.length === 0 ? (
+              <DashboardEmptyState title="Completed tasks will show up here." />
+            ) : (
+              <div className="flex flex-col gap-2 opacity-80">
+                {recentlyCompleted.map((a) => (
+                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
@@ -2973,15 +3041,141 @@ function Dashboard({
   );
 }
 
-/* ---------------- Quick Actions (Phase 02) ---------------- */
-function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, hiddenOnMobile }) {
+/* ---------------- Greeting hero (Phase 09B.10) ---------------- */
+// Pure function of the device clock — no new dependency, no network,
+// no invented data. Only three buckets are needed by the approved
+// design (morning / afternoon / evening-night), matching the existing
+// Good Morning/Afternoon/Evening greeting text exactly.
+function getTimePeriod() {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 18) return "afternoon";
+  return "night";
+}
+
+// Fixed per-time-period palette, intentionally NOT swapped by Classic/
+// Matcha — same reasoning as index.css's seven approved glass accent
+// colors (Step 09B.3): the greeting/reminder text sits directly on this
+// gradient, so its color must guarantee contrast against that specific
+// gradient regardless of the active theme, not against a theme token.
+// Phase 09B.14: `subtleColor` was previously an alpha-blended rgba of
+// `textColor` (e.g. rgba(90,58,30,0.78)). Calculating WCAG contrast of
+// that blend against each gradient's darkest stop showed Morning
+// dropping to ~3.78:1 and Afternoon to ~4.06:1 — both below the 4.5:1
+// AA minimum for normal text. The minimal, safe fix is to drop the
+// alpha and reuse the already-verified-passing solid `textColor` value
+// for `subtleColor` too (Morning headline measured >=5.97:1, Afternoon
+// >=6.72:1 against every gradient stop — see this phase's report for
+// the full calculation). Night's subtleColor was already passing
+// (measured >=8.77:1 at its worst stop) and is left unchanged.
+const GREETING_HERO_STYLE = {
+  morning: {
+    background: "linear-gradient(135deg, #FFE8C2 0%, #FFD3A8 45%, #FFB4A0 100%)",
+    textColor: "#5A3A1E",
+    subtleColor: "#5A3A1E",
+  },
+  afternoon: {
+    background: "linear-gradient(135deg, #BEE3FB 0%, #8FCBF2 55%, #6FB6E8 100%)",
+    textColor: "#0F2A3D",
+    subtleColor: "#0F2A3D",
+  },
+  night: {
+    background: "linear-gradient(135deg, #1B1F3B 0%, #121735 55%, #090B1F 100%)",
+    textColor: "#F2F4FF",
+    subtleColor: "rgba(242,244,255,0.75)",
+  },
+};
+
+// `greeting`/`contextMessage` are passed through unchanged from TakdaApp
+// (the existing time-based greeting text and the existing overdue/due-
+// today/all-caught-up message — this component invents no new deadline
+// or class data of its own, per Phase 09B.10 instruction #4). Only the
+// illustrated glass surface around them is new.
+function GreetingHero({ timePeriod, greeting, contextMessage }) {
+  const tone = GREETING_HERO_STYLE[timePeriod] || GREETING_HERO_STYLE.morning;
+  return (
+    <div
+      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-6 mb-6"
+      style={{ background: tone.background, backdropFilter: "none", WebkitBackdropFilter: "none" }}
+    >
+      <style>{`
+        @keyframes takda-star-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+        .takda-greeting-star { animation: takda-star-twinkle 2.6s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .takda-greeting-star { animation: none; opacity: 0.6; }
+        }
+      `}</style>
+
+      {/* Decorative illustration only — lightweight CSS shapes, no
+          images. Hidden from assistive tech since it carries no
+          information beyond what `greeting`/`contextMessage` already
+          say in text. */}
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+        {timePeriod === "morning" && (
+          <>
+            <span className="absolute -top-4 right-6 w-16 h-16 rounded-full" style={{ background: "radial-gradient(circle, #FFF4D6 0%, #FFD98A 60%, transparent 100%)" }} />
+            <span className="absolute top-6 right-16 w-14 h-5 rounded-full bg-white/50" />
+            <span className="absolute top-10 right-6 w-10 h-4 rounded-full bg-white/40" />
+          </>
+        )}
+        {timePeriod === "afternoon" && (
+          <>
+            <span className="absolute -top-3 right-8 w-14 h-14 rounded-full" style={{ background: "radial-gradient(circle, #FFFBEA 0%, #FFE9A8 55%, transparent 100%)" }} />
+            <span className="absolute top-8 right-20 w-16 h-6 rounded-full bg-white/55" />
+            <span className="absolute top-2 right-2 w-10 h-4 rounded-full bg-white/45" />
+          </>
+        )}
+        {timePeriod === "night" && (
+          <>
+            <span className="absolute top-2 right-8 w-12 h-12 rounded-full bg-[#F4F1DE]" style={{ boxShadow: "inset -6px -4px 0 0 rgba(18,23,53,0.85)" }} />
+            <span className="takda-greeting-star absolute top-4 right-28 w-1 h-1 rounded-full bg-white" />
+            <span className="takda-greeting-star absolute top-10 right-36 w-1 h-1 rounded-full bg-white" style={{ animationDelay: "0.6s" }} />
+            <span className="takda-greeting-star absolute top-16 right-20 w-[3px] h-[3px] rounded-full bg-white" style={{ animationDelay: "1.1s" }} />
+            <span className="takda-greeting-star absolute top-6 right-44 w-[3px] h-[3px] rounded-full bg-white" style={{ animationDelay: "1.6s" }} />
+          </>
+        )}
+      </div>
+
+      <div className="relative">
+        <h1 className="font-display text-2xl md:text-3xl font-semibold" style={{ color: tone.textColor }}>{greeting} 👋</h1>
+        <p className="text-sm mt-1" style={{ color: tone.subtleColor }}>{contextMessage}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Quick Actions (Phase 02, forest-glass redesign Phase 09B.6, perf Phase 09B.13) ---------------- */
+// Deep forest-green (#1D4101) glossy glass identity, fixed regardless of
+// theme (same reasoning as index.css's other six approved glass accent
+// colors — a deliberate fixed palette, not brand-swappable). Reuses the
+// shared `.takda-glass` mechanics (border, inset highlight, premium
+// shadow, pointer-gated hover lift, reduced-motion support) from the
+// Phase 09B.3 foundation; the gradient background/border below are
+// supplied here via inline style rather than a new `.takda-glass-forest`
+// class reference, since this step is scoped to App.jsx only and must
+// not edit index.css.
+//
+// Phase 09B.13: backdrop-filter is explicitly turned off via inline
+// style only on this component. The gradient here is already ~95%
+// opaque (0.95/0.95/0.96 alpha), so the blur it would sample from
+// behind the button was already visually imperceptible — this removes
+// 3 of the audit's ~17 simultaneous backdrop-filter surfaces with no
+// visible change, while every other `.takda-glass` consumer (and the
+// shared class itself) is completely untouched.
+function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className={`takda-focus-visible takda-interactive ${hiddenOnMobile ? "hidden md:flex" : "flex"} flex-col items-center justify-center gap-1.5 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-3 px-2 text-center relative`}
+      className="takda-glass takda-focus-visible takda-interactive flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 px-2 text-center relative"
+      style={{
+        background: "linear-gradient(135deg, rgba(64,122,21,0.95) 0%, rgba(29,65,1,0.95) 55%, rgba(13,30,0,0.96) 100%)",
+        borderColor: "rgba(255,255,255,0.16)",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+      }}
     >
       {showProBadge && (
         <span
@@ -2991,31 +3185,26 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
           PRO
         </span>
       )}
-      <Icon size={18} color="var(--takda-brand)" />
-      <span className="text-[11px] font-semibold text-[color:var(--takda-text-muted-2)]">{label}</span>
+      <Icon size={18} color="#F3F7EE" />
+      <span className="text-[11px] font-semibold" style={{ color: "#F3F7EE" }}>{label}</span>
     </button>
   );
 }
 
-function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenGrades, canCreate = true, isPro }) {
+function QuickActions({ onAddSubject, onViewSchedule, onOpenGrades, canCreate = true, isPro }) {
   return (
     <div className="mb-7">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Quick Actions</h2>
-      <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+      {/* Visible "Quick Actions" heading removed per Phase 09B.6 — kept
+          in the DOM as sr-only so screen-reader heading navigation and
+          grouping context are preserved. */}
+      <h2 className="sr-only">Quick Actions</h2>
+      <div className="grid grid-cols-3 gap-2.5">
         <QuickActionTile
           icon={BookOpen}
           label="Add Subject"
           onClick={onAddSubject}
           disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-        />
-        <QuickActionTile
-          icon={CheckCircle2}
-          label="Add Activity"
-          onClick={onAddActivity}
-          disabled={!canCreate}
-          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          hiddenOnMobile
         />
         <QuickActionTile icon={CalendarIcon} label="View Schedule" onClick={onViewSchedule} />
         <QuickActionTile icon={Lock} label="Grade Tracker" onClick={onOpenGrades} showProBadge={!isPro} />
@@ -3045,8 +3234,15 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
   // second Activities list.
   const previewItems = [...groups.overdue, ...groups.dueToday, ...groups.dueTomorrow, ...groups.dueSoon].slice(0, 3);
 
+  // Phase 09B.8: one neutral glass surface for the whole section, but
+  // only when there's real content to show — the "no active semester"
+  // prompt and the urgent-chips/preview-rows case both count; the plain
+  // "all caught up" DashboardEmptyState (shared component) is left bare,
+  // same convention used by every other Dashboard section this phase.
+  const hasGlassContent = totalUrgent > 0 || (hasSemesters && !hasActiveSemesterForReminders);
+
   return (
-    <div className="mb-7">
+    <div className={hasGlassContent ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-7" : "mb-7"}>
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">{captionText}</h2>
         {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={() => onOpenReminders("all")} />}
@@ -3106,24 +3302,32 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
 }
 
 const FOCUS_TILE_STYLE = {
-  overdue: { bg: "var(--takda-status-overdue-bg)", border: "var(--takda-focustile-overdue-border)", text: "var(--takda-status-overdue-text)" },
-  dueToday: { bg: "var(--takda-status-tomorrow-bg)", border: "var(--takda-focustile-duetoday-border)", text: "var(--takda-status-tomorrow-text)" },
-  upcoming: { bg: "var(--takda-status-week-bg)", border: "var(--takda-focustile-upcoming-border)", text: "var(--takda-status-week-text)" },
+  overdue: { text: "var(--takda-status-overdue-text)", glass: "takda-glass-red" },
+  dueToday: { text: "var(--takda-status-tomorrow-text)", glass: "takda-glass-orange" },
+  upcoming: { text: "var(--takda-status-week-text)", glass: "takda-glass-lightgreen" },
 };
 
 const FOCUS_TILE_FILTER = { overdue: "overdue", dueToday: "today", upcoming: "upcoming" };
 
 function FocusTile({ tile, active, style, onSelect }) {
   const displayValue = useCountUp(tile.value);
+  const baseClasses = "rounded-2xl p-3 flex flex-col items-start gap-1 text-left transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1";
+  // Active (count > 0) tiles get the premium colored glass treatment and
+  // rely on .takda-glass's own hover lift/shadow (defined in index.css,
+  // already reduced-motion safe) — no duplicate hover transform utility
+  // is added here to avoid two rules fighting over `transform`. Inactive
+  // (zero-count) tiles keep their original neutral surface and motion
+  // classes exactly as before this step.
+  const activeClasses = `takda-glass ${style.glass} ${baseClasses} motion-safe:transition-transform motion-safe:duration-200 motion-safe:active:scale-[0.98]`;
+  const inactiveClasses = `bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] ${baseClasses}`;
   return (
     <button
       type="button"
       onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
-      className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
-      style={active ? { background: style.bg, borderColor: style.border } : { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)" }}
+      className={active ? activeClasses : inactiveClasses}
       aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
     >
-      <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+      <span className="font-display text-2xl font-bold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
         {displayValue}
       </span>
       <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
@@ -3151,36 +3355,41 @@ function FocusTile({ tile, active, style, onSelect }) {
 function SmartInsightsSection({ insights }) {
   const list = Array.isArray(insights) ? insights : [];
 
-  return (
-    <>
-      <SectionHeader title="Smart Insights" />
-      {list.length === 0 ? (
+  if (list.length === 0) {
+    return (
+      <>
+        <SectionHeader title="Smart Insights" />
         <DashboardEmptyState
           icon={CheckCircle2}
           title="No workload alerts right now"
           subtitle="Your current academic workload looks clear."
         />
-      ) : (
-        <div className="flex flex-col gap-2 mb-7">
-          {list.map((insight) =>
-            insight.onActivate ? (
-              <button
-                key={insight.type}
-                type="button"
-                onClick={insight.onActivate}
-                className="w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
-              >
-                {insight.message}
-              </button>
-            ) : (
-              <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)]">
-                {insight.message}
-              </div>
-            )
-          )}
-        </div>
-      )}
-    </>
+      </>
+    );
+  }
+
+  return (
+    <div className="takda-glass takda-glass-neutral rounded-2xl p-4 mb-7">
+      <SectionHeader title="Smart Insights" />
+      <div className="flex flex-col gap-2">
+        {list.map((insight) =>
+          insight.onActivate ? (
+            <button
+              key={insight.type}
+              type="button"
+              onClick={insight.onActivate}
+              className="w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
+            >
+              {insight.message}
+            </button>
+          ) : (
+            <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)]">
+              {insight.message}
+            </div>
+          )
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -3193,7 +3402,7 @@ function FocusForToday({ counts, onSelect }) {
   return (
     <div className="mb-7">
       <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Focus for Today</h2>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2.5">
         {tiles.map((tile) => (
           <FocusTile key={tile.key} tile={tile} active={tile.value > 0} style={FOCUS_TILE_STYLE[tile.key]} onSelect={onSelect} />
         ))}
@@ -3256,8 +3465,31 @@ function DashboardEmptyState({ icon: Icon, title, subtitle }) {
   );
 }
 
+// Phase 09C.2A: shared empty-state primitive, redesigned to the
+// Balanced Premium token system. No backdrop-filter — the "glass"
+// highlight is a plain inset box-shadow reusing the existing
+// --takda-glass-highlight token (from the Phase 09B.3 foundation),
+// which costs nothing beyond a normal box-shadow paint. Text color
+// uses --takda-text-muted-3 (not -muted-2) specifically for contrast
+// margin: --takda-text-muted-2 on --takda-bg-empty-state computes to
+// only ~4.55:1 in Classic (just over the 4.5:1 AA minimum) via the WCAG
+// relative-luminance formula, whereas --takda-text-muted-3 computes to
+// ~7.2:1 (Classic) / ~6.8:1 (Matcha) — comfortably clear of AA in both
+// themes, not a hairline pass.
 function EmptyRow({ text }) {
-  return <div className="text-sm text-slate-400 rounded-xl bg-white border border-dashed border-[#E4E4F0] py-4 px-4 mb-7 text-center">{text}</div>;
+  return (
+    <div
+      className="rounded-2xl text-center text-sm py-5 px-4 mb-7"
+      style={{
+        background: "var(--takda-bg-empty-state)",
+        border: "1px solid var(--takda-border)",
+        color: "var(--takda-text-muted-3)",
+        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
+      }}
+    >
+      {text}
+    </div>
+  );
 }
 
 /* ---------------- Phase 9D Stage 9D-4A: Dashboard class schedule ---------------- */
@@ -3274,9 +3506,9 @@ function NextClassCard({ nextClass, onOpenSubject }) {
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="takda-focus-visible w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3.5 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
+          className="takda-glass takda-glass-gold takda-focus-visible w-full text-left rounded-2xl p-4 flex items-center gap-3"
         >
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
+          <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/50" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold truncate">{nextClass.subject?.name || "Untitled Subject"}</div>
             <div className="text-xs text-[color:var(--takda-text-muted-2)] mt-0.5">
@@ -3296,7 +3528,7 @@ function NextClassCard({ nextClass, onOpenSubject }) {
 
 function TodaysClassesSection({ classes, onOpenSubject }) {
   return (
-    <div className="mb-7">
+    <div className={classes.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-7" : "mb-7"}>
       <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Today's Classes</h2>
       {classes.length === 0 ? (
         <DashboardEmptyState title="No classes scheduled for today." />
@@ -3380,6 +3612,10 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
 }
 
 /* ---------------- Subjects ---------------- */
+// Phase 09C.3A: Balanced Premium redesign. Cards stay plain token-based
+// surfaces with a soft inset highlight + shadow — no backdrop-filter,
+// per this batch's explicit "avoid backdrop-filter on repeated cards"
+// performance rule (there can be many of these in one grid).
 function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onAdd, canCreate = true }) {
   return (
     <div className="p-5 md:p-8">
@@ -3389,8 +3625,7 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
           onClick={onAdd}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`takda-focus-visible takda-interactive takda-cta-brand flex items-center gap-1.5 text-sm font-semibold text-white rounded-xl px-3 py-2 ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Subject
         </button>
@@ -3398,7 +3633,7 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
       {subjects.length === 0 ? (
         <EmptyRow text="No subjects yet — add one to start tracking assignments." />
       ) : (
-        <div className="grid md:grid-cols-2 gap-3">
+        <div className="grid md:grid-cols-2 gap-4">
           {subjects.map((s) => {
             const subActs = activities.filter((a) => a.subjectId === s.id);
             const pending = subActs.filter((a) => a.computedStatus !== "completed").length;
@@ -3408,20 +3643,21 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
               <button
                 key={s.id}
                 onClick={() => onOpen(s.id)}
-                className="text-left rounded-xl bg-white border border-[#E4E4F0] p-4 hover:border-[#3D2FE0] transition-colors"
+                className="takda-focus-visible takda-interactive text-left rounded-2xl p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
+                style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span className="w-3 h-3 rounded-full shrink-0" style={{ background: s.color }} />
                   <span className="font-display text-lg font-semibold truncate">{s.name}</span>
                 </div>
                 <div className="mb-3">
-                  {s.teacher && <div className="text-xs text-slate-500 mb-1 flex items-center gap-1"><User size={12} />{s.teacher}</div>}
-                  {s.schedule && <div className="text-xs text-slate-500 mb-1 flex items-center gap-1"><Clock size={12} />{s.schedule}</div>}
+                  {s.teacher && <div className="text-xs mb-1 flex items-center gap-1" style={{ color: "var(--takda-text-muted-2)" }}><User size={12} />{s.teacher}</div>}
+                  {s.schedule && <div className="text-xs mb-1 flex items-center gap-1" style={{ color: "var(--takda-text-muted-2)" }}><Clock size={12} />{s.schedule}</div>}
                   {subSchedules.length > 0 && <SubjectScheduleSummary schedules={subSchedules} />}
                 </div>
-                <div className="flex gap-4 text-xs font-semibold">
-                  <span className="text-amber-600">{pending} Pending</span>
-                  <span className="text-emerald-600">{completed} Completed</span>
+                <div className="flex gap-2 text-xs font-semibold">
+                  <span className="rounded-full px-2 py-0.5" style={{ background: "var(--takda-label-pending-bg)", color: "var(--takda-label-pending)" }}>{pending} Pending</span>
+                  <span className="rounded-full px-2 py-0.5" style={{ background: "var(--takda-status-week-bg)", color: "var(--takda-status-week-text)" }}>{completed} Completed</span>
                 </div>
               </button>
             );
@@ -3450,20 +3686,20 @@ function SubjectDetail({
   const completed = activities.filter((a) => a.computedStatus === "completed");
   return (
     <div className="p-5 md:p-8">
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-slate-500 mb-4"><ArrowLeft size={15} /> Subjects</button>
+      <button onClick={onBack} className="takda-focus-visible flex items-center gap-1 text-sm mb-4" style={{ color: "var(--takda-text-muted-2)" }}><ArrowLeft size={15} /> Subjects</button>
       <div className="flex items-start justify-between gap-3 mb-1">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: subject.color }} />
           <h1 className="font-display text-2xl font-semibold truncate">{subject.name}</h1>
-          {readOnly && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">Archived</span>}
+          {readOnly && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{ color: "var(--takda-text-muted-2)", background: "var(--takda-border)" }}>Archived</span>}
         </div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={onEditSubject} disabled={readOnly} aria-label="Edit subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50 disabled:opacity-40"><Edit2 size={14} /></button>
-          <button onClick={onDeleteSubject} disabled={readOnly} aria-label="Delete subject" className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] text-red-500 transition-colors duration-150 hover:bg-red-50 disabled:opacity-40"><Trash2 size={14} /></button>
+          <button onClick={onEditSubject} disabled={readOnly} aria-label="Edit subject" className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] disabled:opacity-40"><Edit2 size={14} /></button>
+          <button onClick={onDeleteSubject} disabled={readOnly} aria-label="Delete subject" className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] text-red-500 transition-colors duration-150 hover:bg-red-50 disabled:opacity-40"><Trash2 size={14} /></button>
         </div>
       </div>
       <div className="mb-6">
-        <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+        <div className="flex flex-wrap gap-3 text-xs" style={{ color: "var(--takda-text-muted-2)" }}>
           {subject.teacher && <span className="flex items-center gap-1"><User size={12} />{subject.teacher}</span>}
           {subject.schedule && <span className="flex items-center gap-1"><Clock size={12} />{subject.schedule}</span>}
           {subject.room && <span className="flex items-center gap-1"><MapPin size={12} />{subject.room}</span>}
@@ -3476,48 +3712,55 @@ function SubjectDetail({
       </div>
 
       <div className="flex items-center justify-between mb-2.5">
-        <h2 className="text-sm font-semibold text-slate-700 min-w-0 truncate">Activities ({pending.length} pending, {completed.length} completed)</h2>
-        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canCreate ? "opacity-40" : ""}`} style={{ color: "#3D2FE0" }}><Plus size={13} /> Add</button>
+        <h2 className="text-sm font-semibold min-w-0 truncate" style={{ color: "var(--takda-text-heading)" }}>Activities ({pending.length} pending, {completed.length} completed)</h2>
+        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canCreate ? "opacity-40" : ""}`} style={{ color: "var(--takda-brand)" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
         <EmptyRow text="No activities for this subject yet." />
       ) : (
         <div className="flex flex-col gap-2 mb-7">
           {activities.sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((a) => (
-            <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
-              <button onClick={() => onToggle(a)} disabled={readOnly} className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out disabled:opacity-40" style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}>
+            <div
+              key={a.id}
+              className="flex items-center gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-[var(--takda-border-neutral-2)] motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+              style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+            >
+              <button onClick={() => onToggle(a)} disabled={readOnly} className="takda-focus-visible shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out disabled:opacity-40" style={{ borderColor: a.computedStatus === "completed" ? "var(--takda-status-week-dot)" : "var(--takda-border-neutral-2)", background: a.computedStatus === "completed" ? "var(--takda-status-week-dot)" : "transparent" }}>
                 <Check size={14} color="white" className={`transition-all duration-200 ease-out motion-reduce:transition-none ${a.computedStatus === "completed" ? "opacity-100 scale-100" : "opacity-0 scale-50"}`} />
               </button>
               <div className="flex-1 min-w-0">
-                <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
+                <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through" : ""}`} style={{ color: a.computedStatus === "completed" ? "var(--takda-text-muted-1)" : undefined }}>{a.title}</div>
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                  <span className="text-[11px] text-slate-500">{a.type} · {fmtDate(a.deadline)}</span>
+                  <span className="text-[11px]" style={{ color: "var(--takda-text-muted-2)" }}>{a.type} · {fmtDate(a.deadline)}</span>
                   <StatusBadge status={a.computedStatus} />
                   <PriorityTag priority={a.priority} />
                 </div>
               </div>
-              <button onClick={() => onEditActivity(a)} disabled={readOnly} aria-label="Edit activity" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
-              <button onClick={() => onDeleteActivity(a.id)} disabled={readOnly} aria-label="Delete activity" className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+              <button onClick={() => onEditActivity(a)} disabled={readOnly} aria-label="Edit activity" className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+              <button onClick={() => onDeleteActivity(a.id)} disabled={readOnly} aria-label="Delete activity" className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
       )}
 
-      <h2 className="text-sm font-semibold text-slate-700 mb-2.5">Notes</h2>
+      <h2 className="text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-heading)" }}>Notes</h2>
       <div className="flex gap-2 mb-3">
-        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none" />
+        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-sm outline-none" />
         <button
           onClick={() => { if (noteText.trim() && onAddNote(noteText.trim())) setNoteText(""); }}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a note." : undefined}
-          className={`rounded-lg px-3 py-2 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`takda-focus-visible takda-interactive takda-cta-brand rounded-xl px-3 py-2 text-sm font-semibold text-white ${!canCreate ? "opacity-40" : ""}`}
         >Save</button>
       </div>
       <div className="flex flex-col gap-2">
-        {notes.length === 0 && <div className="text-sm text-slate-400">No notes yet.</div>}
+        {notes.length === 0 && <div className="text-sm" style={{ color: "var(--takda-text-muted-1)" }}>No notes yet.</div>}
         {notes.slice().reverse().map((n) => (
-          <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm">
+          <div
+            key={n.id}
+            className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm"
+            style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+          >
             {editingNoteId === n.id ? (
               <div className="flex flex-col gap-2">
                 <textarea
@@ -3525,15 +3768,14 @@ function SubjectDetail({
                   onChange={(e) => setEditNoteText(e.target.value)}
                   rows={3}
                   autoFocus
-                  className="takda-focus-visible w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
+                  className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-sm outline-none resize-none"
                 />
                 <div className="flex flex-wrap justify-end gap-2">
-                  <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50">Cancel</button>
+                  <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-slate-50" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
                   <button
                     onClick={() => { if (editNoteText.trim()) { onEditNote(n.id, editNoteText.trim()); setEditingNoteId(null); setEditNoteText(""); } }}
                     disabled={!editNoteText.trim()}
-                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-50"
-                    style={{ background: "#3D2FE0" }}
+                    className="takda-focus-visible takda-interactive takda-cta-brand rounded-xl px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
                   >Save Changes</button>
                 </div>
               </div>
@@ -3541,8 +3783,8 @@ function SubjectDetail({
               <div className="flex items-start justify-between gap-2">
                 <span className="flex-1 min-w-0 break-words">{n.body}</span>
                 <div className="flex shrink-0 gap-1">
-                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
-                  <button onClick={() => onDeleteNote(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+                  <button onClick={() => onDeleteNote(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
                 </div>
               </div>
             )}
@@ -3550,7 +3792,7 @@ function SubjectDetail({
         ))}
       </div>
 
-      <h2 className="text-sm font-semibold text-slate-700 mb-2.5 mt-7">Lesson Materials</h2>
+      <h2 className="text-sm font-semibold mb-2.5 mt-7" style={{ color: "var(--takda-text-heading)" }}>Lesson Materials</h2>
       {materialsError && <div className="text-sm text-red-500 mb-2">{materialsError}</div>}
       {!materialsLoading && !materialsError && typeof materialUploadLimitBytes === "number" && (
         accountUploadUsageValid ? (
@@ -3563,25 +3805,25 @@ function SubjectDetail({
           // row whose fileSize could not be safely parsed — never show
           // a fabricated/corrupted number, and never surface the raw
           // value or any backend detail; a flat, neutral message only.
-          <p className="text-xs text-slate-400 mb-3">Storage usage is temporarily unavailable.</p>
+          <p className="text-xs mb-3" style={{ color: "var(--takda-text-muted-1)" }}>Storage usage is temporarily unavailable.</p>
         )
       )}
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-        <span className="text-xs text-slate-400">{materialsLoading ? "Loading…" : `${materials.length} material${materials.length === 1 ? "" : "s"}`}</span>
+        <span className="text-xs" style={{ color: "var(--takda-text-muted-1)" }}>{materialsLoading ? "Loading…" : `${materials.length} material${materials.length === 1 ? "" : "s"}`}</span>
         <div className="flex items-center gap-3 flex-wrap justify-end">
           <button
             onClick={onAddUpload}
             disabled={!canAddMaterials}
             title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
-            className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canAddMaterials ? "opacity-40" : ""}`}
-            style={{ color: "#3D2FE0" }}
+            className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canAddMaterials ? "opacity-40" : ""}`}
+            style={{ color: "var(--takda-brand)" }}
           ><Plus size={13} /> Upload File</button>
           <button
             onClick={onAddMaterial}
             disabled={!canAddMaterials}
             title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
-            className={`flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 ${!canAddMaterials ? "opacity-40" : ""}`}
-            style={{ color: "#3D2FE0" }}
+            className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canAddMaterials ? "opacity-40" : ""}`}
+            style={{ color: "var(--takda-brand)" }}
           ><Plus size={13} /> Add Link</button>
         </div>
       </div>
@@ -3666,11 +3908,11 @@ function SubjectDetail({
 function MaterialStorageUsageIndicator({ usageBytes, limitBytes }) {
   const display = getMaterialUploadUsageDisplay(usageBytes, limitBytes);
   const accessibleValue = getMaterialUploadUsageAccessibleValue(usageBytes, limitBytes);
-  const barColor = display.isOverLimit ? "#DC2626" : "#3D2FE0";
+  const barColor = display.isOverLimit ? "#DC2626" : "var(--takda-brand)";
 
   return (
     <div className="mb-3">
-      <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-1">
+      <div className="flex items-center justify-between gap-2 text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>
         <span>
           {display.usedMiBLabel} / {display.limitMiBLabel} used (account-wide)
         </span>
@@ -3715,17 +3957,17 @@ function materialHostname(externalUrl) {
 function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
   const hostname = materialHostname(material.externalUrl);
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
-      <span className="shrink-0 mt-0.5 text-slate-400"><Link2 size={16} /></span>
+    <div className="flex items-start gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
+      <span className="shrink-0 mt-0.5" style={{ color: "var(--takda-text-muted-1)" }}><Link2 size={16} /></span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{material.title}</div>
-        {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
+        {material.description && <div className="text-xs mt-0.5 break-words" style={{ color: "var(--takda-text-muted-2)" }}>{material.description}</div>}
         <a
           href={material.externalUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs mt-1 inline-block truncate max-w-full hover:underline"
-          style={{ color: "#3D2FE0" }}
+          className="takda-focus-visible text-xs mt-1 inline-block truncate max-w-full hover:underline"
+          style={{ color: "var(--takda-brand)" }}
         >
           {hostname || "Open link"}
         </a>
@@ -3736,14 +3978,14 @@ function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
           disabled={readOnly}
           aria-label="Edit lesson material"
           title={readOnly ? "Switch to your active semester to edit lesson materials." : "Edit"}
-          className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"
+          className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"
         ><Edit2 size={13} /></button>
         <button
           onClick={onDelete}
           disabled={readOnly || deleting}
           aria-label="Delete lesson material"
           title={readOnly ? "Switch to your active semester to delete lesson materials." : "Delete"}
-          className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
+          className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
         ><Trash2 size={13} /></button>
       </div>
     </div>
@@ -3805,8 +4047,7 @@ function MaterialLinkModal({ material, onClose, onSave }) {
       <button
         disabled={!trimmedTitle || !trimmedUrl || saving}
         onClick={handleSubmit}
-        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
-        style={{ background: "#3D2FE0" }}
+        className="takda-focus-visible takda-interactive takda-cta-brand w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
       >
         {saving ? "Saving..." : "Save Material"}
       </button>
@@ -3826,19 +4067,23 @@ function MaterialLinkModal({ material, onClose, onSave }) {
 // on each click, not embedded as a static href. Open is never disabled
 // by `readOnly` (opening a file is a read, not a mutation) — only by
 // its own in-flight `opening` state, unlike Delete below.
+// Phase 09C.8B: Balanced Premium card treatment, same rounded-2xl +
+// token + soft inset-highlight pattern used by the Dashboard/Subjects/
+// Activities/Grades redesign. No backdrop-filter — these can repeat
+// many times in one Lesson Materials list.
 function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, onOpen }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3">
-      <span className="shrink-0 mt-0.5 text-slate-400"><FileText size={16} /></span>
+    <div className="flex items-start gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
+      <span className="shrink-0 mt-0.5" style={{ color: "var(--takda-text-muted-1)" }}><FileText size={16} /></span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{material.title}</div>
-        {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
-        {material.fileName && <div className="text-xs text-slate-400 mt-1 truncate">{material.fileName}</div>}
+        {material.description && <div className="text-xs mt-0.5 break-words" style={{ color: "var(--takda-text-muted-2)" }}>{material.description}</div>}
+        {material.fileName && <div className="text-xs mt-1 truncate" style={{ color: "var(--takda-text-muted-1)" }}>{material.fileName}</div>}
         <button
           onClick={onOpen}
           disabled={opening}
-          className="text-xs mt-1 inline-flex items-center gap-1 hover:underline disabled:opacity-40"
-          style={{ color: "#3D2FE0" }}
+          className="takda-focus-visible text-xs mt-1 inline-flex items-center gap-1 hover:underline disabled:opacity-40"
+          style={{ color: "var(--takda-brand)" }}
         >
           <ExternalLink size={12} /> {opening ? "Opening..." : "Open"}
         </button>
@@ -3849,7 +4094,7 @@ function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, o
           disabled={readOnly || deleting}
           aria-label="Delete lesson material"
           title={readOnly ? "Switch to your active semester to delete lesson materials." : "Delete"}
-          className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
+          className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
         ><Trash2 size={13} /></button>
       </div>
     </div>
@@ -3862,10 +4107,10 @@ function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, o
 // silently mishandled as a link or trigger an accidental mutation.
 function UnknownMaterialCard({ material }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 opacity-70">
+    <div className="flex items-start gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 opacity-70">
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{material.title}</div>
-        {material.description && <div className="text-xs text-slate-500 mt-0.5 break-words">{material.description}</div>}
+        {material.description && <div className="text-xs mt-0.5 break-words" style={{ color: "var(--takda-text-muted-2)" }}>{material.description}</div>}
       </div>
     </div>
   );
@@ -3963,7 +4208,7 @@ function MaterialUploadModal({ onClose, onSave }) {
           className={inputCls}
         />
       </Field>
-      <p className="text-xs text-slate-400 -mt-2 mb-3">PDF, JPG, or PNG — up to 10 MB</p>
+      <p className="text-xs -mt-2 mb-3" style={{ color: "var(--takda-text-muted-1)" }}>PDF, JPG, or PNG — up to 10 MB</p>
       {fileError && <p className="text-xs text-red-500 -mt-2 mb-3">{fileError}</p>}
       <Field label="Title *">
         <input className={inputCls} value={title} onChange={handleTitleChange} placeholder="e.g. Lesson 1 — Skeletal System" />
@@ -3975,8 +4220,7 @@ function MaterialUploadModal({ onClose, onSave }) {
       <button
         disabled={!file || !trimmedTitle || !!fileError || saving}
         onClick={handleSubmit}
-        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
-        style={{ background: "#3D2FE0" }}
+        className="takda-focus-visible takda-interactive takda-cta-brand w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
       >
         {saving ? "Uploading..." : "Upload File"}
       </button>
@@ -4107,6 +4351,11 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
     setSelected(today);
   }
 
+  // Phase 09C.5: Balanced Premium redesign. Per performance rule #6
+  // ("avoid expensive visual effects inside calendar day cells"), the
+  // ~35-42 day-cell buttons below get token-based colors only — no
+  // box-shadow/glass highlight on any of them, unlike the agenda cards
+  // further down which are a short list, not a dense grid.
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-1">
@@ -4115,12 +4364,12 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           onClick={() => onAddActivity(formatLocalDate(selected))}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
+          className={`takda-focus-visible flex items-center gap-1.5 text-sm font-semibold text-white rounded-xl px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Activity
         </button>
       </div>
-      <p className="text-xs text-slate-500 mb-4">
+      <p className="text-xs mb-4" style={{ color: "var(--takda-text-muted-2)" }}>
         {monthSummary.total} {monthSummary.total === 1 ? "deadline" : "deadlines"} • {monthSummary.overdue} overdue • {monthSummary.completed} completed
       </p>
 
@@ -4128,7 +4377,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
         <button
           onClick={() => setCursor(new Date(year, month - 1, 1))}
           aria-label="Previous month"
-          className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+          className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] motion-safe:active:scale-95"
         >
           <ChevronLeft size={16} />
         </button>
@@ -4136,7 +4385,8 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           <span className="font-display text-lg font-semibold truncate">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
           <button
             onClick={goToToday}
-            className="shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[#E4E4F0] text-slate-500 transition-colors duration-150 hover:border-[#3D2FE0] hover:text-[#3D2FE0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+            className="takda-focus-visible shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-brand)] hover:text-[color:var(--takda-brand)]"
+            style={{ color: "var(--takda-text-muted-2)" }}
           >
             Today
           </button>
@@ -4144,13 +4394,13 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
         <button
           onClick={() => setCursor(new Date(year, month + 1, 1))}
           aria-label="Next month"
-          className="p-2.5 rounded-lg bg-white border border-[#E4E4F0] transition-colors duration-150 hover:border-slate-300 motion-safe:active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+          className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] motion-safe:active:scale-95"
         >
           <ChevronRight size={16} />
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-400 mb-1">
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] mb-1" style={{ color: "var(--takda-text-muted-1)" }}>
         {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i}>{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-1 mb-6">
@@ -4165,13 +4415,13 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           const hasActive = items.some((a) => a.computedStatus !== "completed");
           const hasOnlyCompleted = items.length > 0 && !hasActive;
 
-          let cellStyle = { background: "#FFFFFF", borderColor: "#E4E4F0", color: "#1B1B2F" };
-          if (hasOverdue) cellStyle = { background: CALENDAR_DAY_TONE.overdue.bg, borderColor: CALENDAR_DAY_TONE.overdue.border, color: "#1B1B2F" };
-          else if (hasOnlyCompleted) cellStyle = { background: CALENDAR_DAY_TONE.completed.bg, borderColor: CALENDAR_DAY_TONE.completed.border, color: "#1B1B2F" };
-          if (isToday && !isSelected) cellStyle.borderColor = "#3D2FE0";
+          let cellStyle = { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)", color: "var(--takda-text-primary)" };
+          if (hasOverdue) cellStyle = { background: CALENDAR_DAY_TONE.overdue.bg, borderColor: CALENDAR_DAY_TONE.overdue.border, color: "var(--takda-text-primary)" };
+          else if (hasOnlyCompleted) cellStyle = { background: CALENDAR_DAY_TONE.completed.bg, borderColor: CALENDAR_DAY_TONE.completed.border, color: "var(--takda-text-primary)" };
+          if (isToday && !isSelected) cellStyle.borderColor = "var(--takda-brand)";
           // Selected always wins outright rather than stacking with the
           // today/overdue/completed tint, so the two states never collide.
-          if (isSelected) cellStyle = { background: "#3D2FE0", borderColor: "#3D2FE0", color: "#FFFFFF" };
+          if (isSelected) cellStyle = { background: "var(--takda-brand)", borderColor: "var(--takda-brand)", color: "#FFFFFF" };
 
           const visibleDots = items.slice(0, items.length > CALENDAR_DOT_LIMIT ? CALENDAR_DOT_LIMIT - 1 : CALENDAR_DOT_LIMIT);
           const overflowCount = items.length > CALENDAR_DOT_LIMIT ? items.length - visibleDots.length : 0;
@@ -4193,7 +4443,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
               onClick={() => setSelected(startOfDay(d))}
               aria-label={`${dateLabel}${activityLabel}${classLabel}`}
               aria-pressed={isSelected}
-              className="aspect-square rounded-lg flex flex-col items-center justify-center relative text-xs border transition-colors duration-150 ease-out motion-safe:transition-transform motion-safe:hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+              className="takda-focus-visible aspect-square rounded-xl flex flex-col items-center justify-center relative text-xs border transition-colors duration-150 ease-out motion-safe:transition-transform motion-safe:hover:-translate-y-px"
               style={{ background: cellStyle.background, color: cellStyle.color, borderColor: cellStyle.borderColor, borderWidth: isToday && !isSelected ? 1.5 : 1 }}
             >
               {d.getDate()}
@@ -4203,11 +4453,11 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
                     <span
                       key={c.id || dotIndex}
                       className="w-1.5 h-1.5 rounded-full shrink-0 border"
-                      style={{ borderColor: isSelected ? "#FFFFFF" : (c.subject?.color || "#94A3B8"), background: "transparent" }}
+                      style={{ borderColor: isSelected ? "#FFFFFF" : (c.subject?.color || "var(--takda-text-muted-1)"), background: "transparent" }}
                     />
                   ))}
                   {classOverflowCount > 0 && (
-                    <span className="text-[7px] font-bold leading-none ml-0.5" style={{ color: isSelected ? "#FFFFFF" : "#64748B" }}>
+                    <span className="text-[7px] font-bold leading-none ml-0.5" style={{ color: isSelected ? "#FFFFFF" : "var(--takda-text-muted-2)" }}>
                       +{classOverflowCount}
                     </span>
                   )}
@@ -4219,11 +4469,11 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
                     <span
                       key={a.id || dotIndex}
                       className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ background: isSelected ? "#FFFFFF" : (a.subject?.color || "#94A3B8") }}
+                      style={{ background: isSelected ? "#FFFFFF" : (a.subject?.color || "var(--takda-text-muted-1)") }}
                     />
                   ))}
                   {overflowCount > 0 && (
-                    <span className="text-[8px] font-bold leading-none ml-0.5" style={{ color: isSelected ? "#FFFFFF" : "#64748B" }}>
+                    <span className="text-[8px] font-bold leading-none ml-0.5" style={{ color: isSelected ? "#FFFFFF" : "var(--takda-text-muted-2)" }}>
                       +{overflowCount}
                     </span>
                   )}
@@ -4235,27 +4485,28 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
       </div>
 
       <div className="flex items-baseline justify-between mb-2.5">
-        <h2 className="text-sm font-semibold text-slate-700">{fmtDateFull(selected)}</h2>
-        <span className="text-xs text-slate-400">{selectedList.length} {selectedList.length === 1 ? "activity" : "activities"}</span>
+        <h2 className="text-sm font-semibold" style={{ color: "var(--takda-text-heading)" }}>{fmtDateFull(selected)}</h2>
+        <span className="text-xs" style={{ color: "var(--takda-text-muted-1)" }}>{selectedList.length} {selectedList.length === 1 ? "activity" : "activities"}</span>
       </div>
 
       {selectedClasses.length > 0 && (
         <div className="mb-4">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Classes</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: "var(--takda-text-muted-1)" }}>Classes</h3>
           <div className="flex flex-col gap-2">
             {selectedClasses.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => c.subject && onOpenSubject(c.subjectId)}
-                className="w-full text-left flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-colors duration-150 hover:border-slate-300"
+                className="takda-focus-visible w-full text-left flex items-center gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)]"
+                style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
               >
-                <span className="w-2.5 h-2.5 rounded-full shrink-0 border-2" style={{ borderColor: c.subject?.color || "#94A3B8" }} />
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 border-2" style={{ borderColor: c.subject?.color || "var(--takda-text-muted-1)" }} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-semibold truncate">{c.subject?.name || "Untitled Subject"}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{formatScheduleTimeRange(c.startTime, c.endTime)}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--takda-text-muted-2)" }}>{formatScheduleTimeRange(c.startTime, c.endTime)}</div>
                   {c.location && (
-                    <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><MapPin size={11} />{c.location}</div>
+                    <div className="text-xs mt-0.5 flex items-center gap-1" style={{ color: "var(--takda-text-muted-1)" }}><MapPin size={11} />{c.location}</div>
                   )}
                 </div>
               </button>
@@ -4286,18 +4537,20 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
   return (
     <div className="p-5 md:p-8">
       <h1 className="font-display text-2xl font-semibold mb-5">Notes</h1>
-      <div className="rounded-xl bg-white border border-[#E4E4F0] p-3 mb-6 flex flex-col gap-2">
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="takda-focus-visible rounded-lg border border-[#E4E4F0] px-2 py-1.5 text-sm outline-none">
+      <div
+        className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 mb-6 flex flex-col gap-2"
+        style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+      >
+        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-2 py-1.5 text-sm outline-none">
           <option value="">General note</option>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="takda-focus-visible rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-sm outline-none resize-none" />
         <button
           onClick={() => { if (text.trim() && onAdd(subjectId || null, text.trim())) setText(""); }}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add a note." : undefined}
-          className={`self-end rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out motion-safe:active:scale-[0.98] ${!canCreate ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`takda-focus-visible takda-interactive takda-cta-brand self-end rounded-xl px-3 py-1.5 text-sm font-semibold text-white ${!canCreate ? "opacity-40" : ""}`}
         >Save note</button>
       </div>
       {notes.length === 0 ? (
@@ -4305,7 +4558,11 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
       ) : (
         <div className="flex flex-col gap-2">
           {notes.slice().reverse().map((n) => (
-            <div key={n.id} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm">
+            <div
+              key={n.id}
+              className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm"
+              style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+            >
               {editingId === n.id ? (
                 <div className="flex flex-col gap-2">
                   <textarea
@@ -4313,15 +4570,14 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
                     onChange={(e) => setEditText(e.target.value)}
                     rows={3}
                     autoFocus
-                    className="takda-focus-visible w-full rounded-lg border border-[#E4E4F0] px-3 py-2 text-sm outline-none resize-none"
+                    className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-sm outline-none resize-none"
                   />
                   <div className="flex flex-wrap justify-end gap-2">
-                    <button onClick={() => { setEditingId(null); setEditText(""); }} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 border border-[#E4E4F0] transition-colors duration-150 hover:bg-slate-50">Cancel</button>
+                    <button onClick={() => { setEditingId(null); setEditText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-slate-50" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
                     <button
                       onClick={() => { if (editText.trim()) { onEdit(n.id, editText.trim()); setEditingId(null); setEditText(""); } }}
                       disabled={!editText.trim()}
-                      className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition duration-150 ease-out hover:opacity-90 motion-safe:active:scale-[0.98] disabled:opacity-50"
-                      style={{ background: "#3D2FE0" }}
+                      className="takda-focus-visible takda-interactive takda-cta-brand rounded-xl px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
                     >Save Changes</button>
                   </div>
                 </div>
@@ -4330,14 +4586,14 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
                   <div className="flex items-start justify-between gap-2">
                     <span className="flex-1 min-w-0 break-words">{n.body}</span>
                     <div className="flex shrink-0 gap-1">
-                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={14} /></button>
-                      <button onClick={() => onDelete(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={14} /></button>
+                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={14} /></button>
                     </div>
                   </div>
                   {n.subjectId && subjectMap[n.subjectId] && (
                     <div className="flex items-center gap-1 mt-1.5 min-w-0">
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: subjectMap[n.subjectId].color }} />
-                      <span className="text-[11px] text-slate-500 truncate">{subjectMap[n.subjectId].name}</span>
+                      <span className="text-[11px] truncate" style={{ color: "var(--takda-text-muted-2)" }}>{subjectMap[n.subjectId].name}</span>
                     </div>
                   )}
                 </>
@@ -4467,25 +4723,25 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           onClick={onAdd}
           aria-disabled={!canCreate}
           title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
+          className={`takda-focus-visible flex items-center gap-1.5 text-sm font-semibold text-white rounded-xl px-3 py-2 shrink-0 takda-interactive takda-cta-brand ${!canCreate ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Activity
         </button>
       </div>
-      <p className="text-xs text-slate-500 mb-4">
+      <p className="text-xs mb-4" style={{ color: "var(--takda-text-muted-2)" }}>
         {filterCounts.overdue} Overdue • {filterCounts.today} Today • {filterCounts.upcoming} Upcoming
       </p>
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <div className="flex-1 min-w-[160px] flex items-center gap-2 rounded-lg border border-[#E4E4F0] bg-white px-3 py-2 transition-colors duration-150 focus-within:border-[#3D2FE0]">
-          <Search size={15} className="text-slate-400 shrink-0" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activities…" className="flex-1 min-w-0 outline-none text-sm" />
+        <div className="flex-1 min-w-[160px] flex items-center gap-2 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 transition-colors duration-150 focus-within:border-[var(--takda-brand)]">
+          <Search size={15} className="shrink-0" style={{ color: "var(--takda-text-muted-1)" }} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activities…" className="flex-1 min-w-0 outline-none text-sm bg-transparent" />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"
+              className="takda-focus-visible shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"
             >
               <X size={14} />
             </button>
@@ -4495,7 +4751,8 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
           aria-label="Sort activities"
-          className="shrink-0 rounded-lg border border-[#E4E4F0] bg-white px-2.5 py-2 text-xs font-medium text-slate-600 outline-none transition-colors duration-150 focus:border-[#3D2FE0]"
+          className="takda-focus-visible shrink-0 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-2.5 py-2 text-xs font-medium outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]"
+          style={{ color: "var(--takda-text-muted-3)" }}
         >
           {ACTIVITY_SORT_OPTIONS.map((opt) => (
             <option key={opt.key} value={opt.key}>{opt.label}</option>
@@ -4508,8 +4765,12 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
-            className="px-3 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
-            style={{ background: statusFilter === s ? "#3D2FE0" : "white", color: statusFilter === s ? "white" : "#475569", border: "1px solid #E4E4F0" }}
+            className="takda-focus-visible takda-interactive px-3 py-2 rounded-full text-xs font-semibold whitespace-nowrap"
+            style={{
+              background: statusFilter === s ? "var(--takda-brand)" : "var(--takda-bg-surface)",
+              color: statusFilter === s ? "#fff" : "var(--takda-text-muted-3)",
+              border: `1px solid ${statusFilter === s ? "var(--takda-brand)" : "var(--takda-border)"}`,
+            }}
           >
             {s.replace("_", " ")} {filterCounts[s]}
           </button>
@@ -4520,27 +4781,31 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((a) => (
-            <div key={a.id} className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px">
+            <div
+              key={a.id}
+              className="flex items-center gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-[var(--takda-border-neutral-2)] motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+              style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+            >
               <button
                 onClick={() => onToggle(a)}
                 disabled={readOnly}
-                className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-emerald-400 disabled:opacity-40"
-                style={{ borderColor: a.computedStatus === "completed" ? "#16A34A" : "#CBD5E1", background: a.computedStatus === "completed" ? "#16A34A" : "transparent" }}
+                className="takda-focus-visible shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-emerald-400 disabled:opacity-40"
+                style={{ borderColor: a.computedStatus === "completed" ? "var(--takda-status-week-dot)" : "var(--takda-border-neutral-2)", background: a.computedStatus === "completed" ? "var(--takda-status-week-dot)" : "transparent" }}
                 aria-label={a.computedStatus === "completed" ? "Reopen task" : "Mark complete"}
               >
                 <Check size={14} color="white" className={`transition-all duration-200 ease-out motion-reduce:transition-none ${a.computedStatus === "completed" ? "opacity-100 scale-100" : "opacity-0 scale-50"}`} />
               </button>
               <div className="flex-1 min-w-0">
-                <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through text-slate-400" : ""}`}>{a.title}</div>
-                <div className="text-[11px] text-slate-500 truncate mt-0.5">{a.subject?.name || "General"} · {a.type}</div>
+                <div className={`text-sm font-medium truncate transition-colors duration-200 ease-out ${a.computedStatus === "completed" ? "line-through" : ""}`} style={{ color: a.computedStatus === "completed" ? "var(--takda-text-muted-1)" : undefined }}>{a.title}</div>
+                <div className="text-[11px] truncate mt-0.5" style={{ color: "var(--takda-text-muted-2)" }}>{a.subject?.name || "General"} · {a.type}</div>
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                  <span className="text-[11px] text-slate-400">{fmtDate(a.deadline)}</span>
+                  <span className="text-[11px]" style={{ color: "var(--takda-text-muted-1)" }}>{fmtDate(a.deadline)}</span>
                   <PriorityTag priority={a.priority} />
                   <StatusBadge status={a.computedStatus} />
                 </div>
               </div>
-              <button onClick={() => onEdit(a)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit activity"><Edit2 size={13} /></button>
-              <button onClick={() => onDelete(a.id)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete activity"><Trash2 size={13} /></button>
+              <button onClick={() => onEdit(a)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit activity"><Edit2 size={13} /></button>
+              <button onClick={() => onDelete(a.id)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete activity"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
@@ -4553,21 +4818,24 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
 function GradeLockedView({ onUpgrade }) {
   return (
     <div className="p-5 md:p-8">
-      <div className="mx-auto max-w-md rounded-2xl border border-[#E4E4F0] bg-white p-8 text-center shadow-sm">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#F5F1E4]">
+      <div
+        className="mx-auto max-w-md rounded-2xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-8 text-center shadow-sm"
+        style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+      >
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full" style={{ background: "var(--takda-bg-grade-locked-icon)" }}>
           <Lock size={20} className="text-amber-700" />
         </div>
         <span className="takda-pro-badge inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide">
           <span aria-hidden="true">✦</span> PRO
         </span>
-        <h2 className="font-display mt-4 text-xl font-semibold text-[#1B1B2F]">Grade Tracker</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
+        <h2 className="font-display mt-4 text-xl font-semibold" style={{ color: "var(--takda-text-primary)" }}>Grade Tracker</h2>
+        <p className="mt-2 text-sm leading-6" style={{ color: "var(--takda-text-muted-2)" }}>
           Track your scores, percentages, and subject averages with Takda Pro.
         </p>
         <button
           type="button"
           onClick={(event) => onUpgrade(event.currentTarget)}
-          className="mt-6 w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-bold text-white"
+          className="takda-focus-visible takda-interactive takda-cta-brand mt-6 w-full rounded-xl py-3 text-sm font-bold text-white"
         >
           Upgrade to Pro
         </button>
@@ -4711,7 +4979,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
       <div className="flex items-start justify-between gap-3 mb-5">
         <div>
           <h1 className="font-display text-2xl font-semibold">My Grades</h1>
-          <p className="text-sm text-slate-500 mt-1">Track your recorded scores and subject performance.</p>
+          <p className="text-sm mt-1" style={{ color: "var(--takda-text-muted-2)" }}>Track your recorded scores and subject performance.</p>
         </div>
         <button
           onClick={() => {
@@ -4726,8 +4994,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
           disabled={subjects.length === 0}
           aria-disabled={subjects.length === 0 || !canCreate}
           title={!canCreate ? "Switch to your active semester to add a grade." : undefined}
-          className={`flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-40 shrink-0 transition duration-150 ease-out disabled:hover:opacity-40 motion-safe:active:scale-[0.98] disabled:active:scale-100 ${!canCreate && subjects.length > 0 ? "opacity-40" : "hover:opacity-90"}`}
-          style={{ background: "#3D2FE0" }}
+          className={`takda-focus-visible takda-interactive takda-cta-brand flex items-center gap-1.5 text-sm font-semibold text-white rounded-xl px-3 py-2 disabled:opacity-40 shrink-0 disabled:hover:opacity-40 disabled:active:scale-100 ${!canCreate && subjects.length > 0 ? "opacity-40" : ""}`}
         >
           <Plus size={15} /> Add Grade
         </button>
@@ -4743,16 +5010,16 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
         />
       ) : (
         <>
-          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Academic Overview</h2>
+          <h2 className="text-xs font-bold uppercase tracking-wide mb-2.5" style={{ color: "var(--takda-text-muted-1)" }}>Academic Overview</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-            <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
-              <div className="text-xs text-slate-500 mb-1">Overall Recorded Average</div>
+            <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
+              <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Overall Recorded Average</div>
               <div className="font-display text-2xl font-semibold">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
               {overallAverage !== null && (
                 <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
                   <div
                     className="h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
-                    style={{ width: `${clampPercent(overallAverage)}%`, background: "#3D2FE0" }}
+                    style={{ width: `${clampPercent(overallAverage)}%`, background: "var(--takda-brand)" }}
                     role="progressbar"
                     aria-valuenow={Math.round(overallAverage)}
                     aria-valuemin={0}
@@ -4761,24 +5028,28 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
                   />
                 </div>
               )}
-              <div className="text-[11px] text-slate-400 mt-1.5">Based on grades recorded in Takda</div>
+              <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Based on grades recorded in Takda</div>
             </div>
-            <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
-              <div className="text-xs text-slate-500 mb-1">Subjects With Grades</div>
+            <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
+              <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Subjects With Grades</div>
               <div className="font-display text-2xl font-semibold">{subjectsWithGrades.length}</div>
-              <div className="text-[11px] text-slate-400 mt-1.5">Out of {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}</div>
+              <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Out of {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}</div>
             </div>
-            <div className="rounded-xl bg-white border border-[#E4E4F0] p-4">
-              <div className="text-xs text-slate-500 mb-1">Total Grade Entries</div>
+            <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
+              <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Total Grade Entries</div>
               <div className="font-display text-2xl font-semibold">{grades.length}</div>
-              <div className="text-[11px] text-slate-400 mt-1.5">Recorded across all subjects</div>
+              <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Recorded across all subjects</div>
             </div>
           </div>
 
-          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Academic Insights</h2>
+          <h2 className="text-xs font-bold uppercase tracking-wide mb-2.5" style={{ color: "var(--takda-text-muted-1)" }}>Academic Insights</h2>
           <div className="flex flex-col gap-2 mb-6">
             {insights.map((text, i) => (
-              <div key={i} className="rounded-xl bg-white border border-[#E4E4F0] p-3 text-sm text-[#1B1B2F]">
+              <div
+                key={i}
+                className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm"
+                style={{ color: "var(--takda-text-primary)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+              >
                 {text}
               </div>
             ))}
@@ -4786,28 +5057,29 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
 
           {subjectPerformance.length > 0 && (
             <>
-              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Subject Performance</h2>
+              <h2 className="text-xs font-bold uppercase tracking-wide mb-2.5" style={{ color: "var(--takda-text-muted-1)" }}>Subject Performance</h2>
               <div className="flex flex-col gap-2 mb-6">
                 {subjectPerformance.map(({ subject, count, average }) => (
                   <button
                     key={subject.id}
                     onClick={() => setSubjectFilter(subject.id)}
-                    className="text-left rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+                    className="takda-focus-visible text-left rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-[var(--takda-border-neutral-2)] motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+                    style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
                   >
                     <div className="flex items-center justify-between gap-3 mb-1.5">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subject.color || "#94A3B8" }} />
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subject.color || "var(--takda-text-muted-1)" }} />
                         <span className="text-sm font-medium truncate">{subject.name}</span>
                       </div>
                       <div className="text-right shrink-0">
                         <div className="text-sm font-semibold">{average.toFixed(1)}%</div>
-                        <div className="text-[10px] text-slate-400">{count} {count === 1 ? "entry" : "entries"}</div>
+                        <div className="text-[10px]" style={{ color: "var(--takda-text-muted-1)" }}>{count} {count === 1 ? "entry" : "entries"}</div>
                       </div>
                     </div>
                     <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                       <div
                         className="h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
-                        style={{ width: `${clampPercent(average)}%`, background: subject.color || "#94A3B8" }}
+                        style={{ width: `${clampPercent(average)}%`, background: subject.color || "var(--takda-text-muted-1)" }}
                         role="progressbar"
                         aria-valuenow={Math.round(average)}
                         aria-valuemin={0}
@@ -4825,23 +5097,23 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="rounded-lg border border-[#E4E4F0] bg-white px-3 py-2 text-sm outline-none transition-colors duration-150 focus:border-[#3D2FE0]"
+              className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-sm outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]"
             >
               <option value="all">All Subjects</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             {subjectFilter !== "all" && (
-              <button onClick={() => setSubjectFilter("all")} className="text-xs font-medium text-[#3D2FE0] transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1">Clear filter</button>
+              <button onClick={() => setSubjectFilter("all")} className="takda-focus-visible text-xs font-medium transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1" style={{ color: "var(--takda-brand)" }}>Clear filter</button>
             )}
           </div>
 
           {categorySummary.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
               {categorySummary.map(({ category, average, count }) => (
-                <div key={category} className="rounded-lg border border-[#E4E4F0] bg-white px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{category}</div>
+                <div key={category} className="rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--takda-text-muted-1)" }}>{category}</div>
                   <div className="text-sm font-semibold mt-0.5">{average.toFixed(1)}%</div>
-                  <div className="text-[10px] text-slate-400">{count} {count === 1 ? "entry" : "entries"}</div>
+                  <div className="text-[10px]" style={{ color: "var(--takda-text-muted-1)" }}>{count} {count === 1 ? "entry" : "entries"}</div>
                 </div>
               ))}
             </div>
@@ -4856,19 +5128,20 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
                 return (
                   <div
                     key={g.id}
-                    className="flex items-center gap-3 rounded-xl bg-white border border-[#E4E4F0] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-slate-300 motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+                    className="flex items-center gap-3 rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm hover:border-[var(--takda-border-neutral-2)] motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px"
+                    style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
                   >
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subjectMap[g.subjectId]?.color || "#94A3B8" }} />
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: subjectMap[g.subjectId]?.color || "var(--takda-text-muted-1)" }} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{g.title}</div>
-                      <div className="text-[11px] text-slate-500 truncate mt-0.5">{subjectMap[g.subjectId]?.name || "Unknown Subject"} · {g.category}</div>
+                      <div className="text-[11px] truncate mt-0.5" style={{ color: "var(--takda-text-muted-2)" }}>{subjectMap[g.subjectId]?.name || "Unknown Subject"} · {g.category}</div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-sm font-semibold">{g.score}/{g.totalScore}</div>
-                      <div className="text-[11px] text-slate-500">{percent.toFixed(1)}%</div>
+                      <div className="text-[11px]" style={{ color: "var(--takda-text-muted-2)" }}>{percent.toFixed(1)}%</div>
                     </div>
-                    <button onClick={() => openEdit(g)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit grade"><Edit2 size={13} /></button>
-                    <button onClick={() => onDelete(g.id)} disabled={readOnly} className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete grade"><Trash2 size={13} /></button>
+                    <button onClick={() => openEdit(g)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit grade"><Edit2 size={13} /></button>
+                    <button onClick={() => onDelete(g.id)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete grade"><Trash2 size={13} /></button>
                   </div>
                 );
               })}
@@ -4915,7 +5188,7 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
         <select disabled={!!grade} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        {grade && <p className="text-[11px] text-slate-400 mt-1">Subject is fixed after creation.</p>}
+        {grade && <p className="text-[11px] mt-1" style={{ color: "var(--takda-text-muted-1)" }}>Subject is fixed after creation.</p>}
       </Field>
       <Field label="Category">
         <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
@@ -4931,15 +5204,17 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
         </Field>
       </div>
       {form.score !== "" && form.totalScore !== "" && (
-        <div className={`rounded-lg px-3 py-2 text-xs mb-3 ${validNumbers ? "bg-[#EEECFC] text-[#3D2FE0]" : "bg-red-50 text-red-600"}`}>
+        <div
+          className={`rounded-xl px-3 py-2 text-xs mb-3 ${validNumbers ? "" : "bg-red-50 text-red-600"}`}
+          style={validNumbers ? { background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" } : undefined}
+        >
           {validNumbers ? `Percentage: ${preview.toFixed(1)}%` : "Score must be between 0 and the total score."}
         </div>
       )}
       <button
         disabled={!canSave}
         onClick={() => onSave({ ...form, title: form.title.trim(), score, totalScore: total })}
-        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
-        style={{ background: "#3D2FE0" }}
+        className="takda-focus-visible takda-interactive takda-cta-brand w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
       >
         {grade ? "Save Changes" : "Add Grade"}
       </button>
@@ -5114,6 +5389,14 @@ function ModalShell({ title, onClose, onOpenerCapture, children }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  // Phase 09C.8A: Balanced Premium surface for every modal built on
+  // ModalShell (Reminders/Semester Manager/Material Link/Material
+  // Upload/Grade/Subject/Activity). No backdrop-filter here — the panel
+  // is fully opaque, so per this batch's performance rule a blur would
+  // be wasted; the "glass-inspired" look instead comes from the same
+  // plain inset-highlight technique already used elsewhere in this
+  // redesign. None of the focus-trap/escape/backdrop-click logic above
+  // this return statement was touched.
   return (
     <div
       className="absolute inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
@@ -5123,10 +5406,16 @@ function ModalShell({ title, onClose, onOpenerCapture, children }) {
       aria-modal="true"
       aria-label={title}
     >
-      <div ref={panelRef} tabIndex={-1} className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E4F0] sticky top-0 bg-white">
-          <h3 className="font-display text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="bg-[var(--takda-bg-surface)] w-full md:max-w-md rounded-t-2xl md:rounded-2xl max-h-[88vh] overflow-y-auto"
+        style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 12px 28px -8px rgba(15,23,42,0.18)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--takda-border)] sticky top-0 bg-[var(--takda-bg-surface)]">
+          <h3 className="font-display text-lg font-semibold" style={{ color: "var(--takda-text-heading)" }}>{title}</h3>
+          <button onClick={onClose} aria-label="Close" className="takda-focus-visible p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -5137,12 +5426,12 @@ function ModalShell({ title, onClose, onOpenerCapture, children }) {
 function Field({ label, children }) {
   return (
     <label className="flex flex-col gap-1.5 mb-3.5">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <span className="text-xs font-medium" style={{ color: "var(--takda-text-muted-2)" }}>{label}</span>
       {children}
     </label>
   );
 }
-const inputCls = "rounded-lg border border-[#E4E4F0] px-3 py-2.5 text-sm outline-none focus:border-[#3D2FE0]";
+const inputCls = "rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2.5 text-sm outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]";
 
 // Phase 9D Stage 9D-3: Class Schedule UI helpers. Legacy subjects.schedule
 // and subjects.room (the free-text fields above) are never read, written,
@@ -5412,10 +5701,10 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
   const invalidRange = !!group.startTime && !!group.endTime && group.startTime >= group.endTime;
 
   return (
-    <div className="rounded-xl border border-[#E4E4F0] p-3">
+    <div className="rounded-2xl border border-[var(--takda-border)] p-3" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
       <div className="flex items-center justify-between mb-2.5">
-        <span className="text-xs font-semibold text-slate-500">Schedule Group {index + 1}</span>
-        <button type="button" onClick={onRemove} aria-label="Remove schedule" className="p-1.5 -m-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150">
+        <span className="text-xs font-semibold" style={{ color: "var(--takda-text-muted-2)" }}>Schedule Group {index + 1}</span>
+        <button type="button" onClick={onRemove} aria-label="Remove schedule" className="takda-focus-visible p-1.5 -m-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150">
           <Trash2 size={13} />
         </button>
       </div>
@@ -5429,8 +5718,8 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
               type="button"
               onClick={() => onToggleDay(day.value)}
               aria-pressed={active}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors duration-150 ${active ? "text-white border-transparent" : "text-slate-500 border-[#E4E4F0] bg-white"}`}
-              style={active ? { background: "#3D2FE0" } : undefined}
+              className={`takda-focus-visible takda-interactive px-2.5 py-1.5 rounded-lg text-xs font-semibold border ${active ? "text-white border-transparent" : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"}`}
+              style={active ? { background: "var(--takda-brand)" } : { color: "var(--takda-text-muted-2)" }}
             >
               {day.label}
             </button>
@@ -5459,12 +5748,12 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
             {REMINDER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
         </Field>
-        <label className="flex items-center gap-2 mt-5 text-xs font-medium text-slate-600 select-none">
+        <label className="flex items-center gap-2 mt-5 text-xs font-medium select-none" style={{ color: "var(--takda-text-muted-3)" }}>
           <input
             type="checkbox"
             checked={group.notificationsEnabled}
             onChange={(e) => onChange({ notificationsEnabled: e.target.checked })}
-            className="w-4 h-4 rounded border-[#E4E4F0] accent-[#3D2FE0]"
+            className="takda-focus-visible w-4 h-4 rounded border-[var(--takda-border)] accent-[var(--takda-brand)]"
           />
           Class notification
         </label>
@@ -5527,29 +5816,29 @@ function SubjectModal({ subject, schedules = [], onClose, onSave, onOpenerCaptur
                 onClick={() => setForm({ ...form, color: c })}
                 aria-label={`Select ${colorName} subject color`}
                 aria-pressed={form.color === c}
-                className="w-7 h-7 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-2"
-                style={{ background: c, outline: form.color === c ? "2px solid #1B1B2F" : "none", outlineOffset: 2 }}
+                className="takda-focus-visible w-7 h-7 rounded-full"
+                style={{ background: c, outline: form.color === c ? "2px solid var(--takda-text-primary)" : "none", outlineOffset: 2 }}
               />
             );
           })}
         </div>
       </Field>
 
-      <div className="mt-1 mb-3.5 border-t border-[#E4E4F0] pt-3.5">
+      <div className="mt-1 mb-3.5 border-t border-[var(--takda-border)] pt-3.5">
         <div className="flex items-center justify-between mb-2.5">
-          <span className="text-sm font-semibold text-[#1B1B2F]">Class Schedule</span>
+          <span className="text-sm font-semibold" style={{ color: "var(--takda-text-primary)" }}>Class Schedule</span>
           <button
             type="button"
             onClick={() => setGroups((prev) => [...prev, newScheduleGroup()])}
-            className="flex items-center gap-1 text-xs font-semibold"
-            style={{ color: "#3D2FE0" }}
+            className="takda-focus-visible flex items-center gap-1 text-xs font-semibold"
+            style={{ color: "var(--takda-brand)" }}
           >
             <Plus size={13} /> Add Schedule
           </button>
         </div>
 
         {groups.length === 0 ? (
-          <p className="text-xs text-slate-400">No class times added yet. Optional — add one to get reminders before class.</p>
+          <p className="text-xs" style={{ color: "var(--takda-text-muted-1)" }}>No class times added yet. Optional — add one to get reminders before class.</p>
         ) : (
           <div className="flex flex-col gap-3">
             {groups.map((group, idx) => (
@@ -5572,8 +5861,7 @@ function SubjectModal({ subject, schedules = [], onClose, onSave, onOpenerCaptur
           { ...form, name: form.name.trim(), teacher: form.teacher.trim(), room: form.room.trim() },
           groups
         )}
-        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
-        style={{ background: "#3D2FE0" }}
+        className="takda-focus-visible takda-interactive takda-cta-brand w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
       >
         Save Subject
       </button>
@@ -5624,7 +5912,7 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
           <option value="">General</option>
           {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        {activity && <p className="text-[11px] text-slate-400 mt-1">Subject is fixed after creation.</p>}
+        {activity && <p className="text-[11px] mt-1" style={{ color: "var(--takda-text-muted-1)" }}>Subject is fixed after creation.</p>}
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Type">
@@ -5665,7 +5953,7 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
         <Field label="Repeat until *">
           <input type="date" className={inputCls} value={form.repeatUntil} onChange={(e) => setForm({ ...form, repeatUntil: e.target.value })} />
           {form.repeatUntil && repeatUntilInvalid && (
-            <p className="text-[11px] text-[#B91C1C] mt-1">Repeat until must be on or after the deadline.</p>
+            <p className="text-[11px] mt-1" style={{ color: "var(--takda-status-overdue-text)" }}>Repeat until must be on or after the deadline.</p>
           )}
         </Field>
       )}
@@ -5675,8 +5963,7 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
       <button
         disabled={!form.title.trim() || !form.deadline || repeatUntilInvalid}
         onClick={() => onSave({ ...form, title: form.title.trim(), description: form.description.trim() })}
-        className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
-        style={{ background: "#3D2FE0" }}
+        className="takda-focus-visible takda-interactive takda-cta-brand w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-40 mt-2"
       >
         Save Activity
       </button>
