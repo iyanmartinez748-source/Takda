@@ -3270,7 +3270,21 @@ function Dashboard({
           confirmed in a browser. Every widget below keeps its exact
           original props/handlers — only a col-span wrapper was added
           around the ones that need a non-default span. */}
-      <div className="lg:grid lg:grid-cols-2 xl:grid-cols-4 lg:gap-6 lg:items-start">
+      {/* 10A.9F: xl:grid-cols-4 removed — the app shell itself is capped
+          at md:max-w-5xl (1024px total, Sidebar included), so content
+          width never exceeds ~736px regardless of viewport; a 4-column
+          tier at that width gave each cell ~166px, too narrow for This
+          Week's 7 day-circles or readable Today's Classes text (see
+          10A.9E audit). The lg: 2-column arrangement is now the only
+          tier. lg:gap-6 → lg:gap-x-6 (vertical gap removed from the
+          grid itself) because every widget still carries its own
+          pre-existing bottom margin (mb-7/mb-4, left untouched here),
+          which was stacking additively with a vertical grid gap and
+          roughly doubling the visual space between rows; vertical
+          rhythm now comes from each widget's own margin alone, exactly
+          as it did before this grid existed. Not verified in a
+          browser. */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-x-6 lg:items-start">
         {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
             sections (Needs Attention/Due Today/Upcoming Deadlines) are
             replaced by one unified TodaysFocusPanel with filter tabs.
@@ -3312,7 +3326,7 @@ function Dashboard({
             count reuses the existing `stats.completed` value — no
             new calculation, no new query. */}
         <div
-          className="xl:col-span-2 rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4 lg:mb-0"
+          className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
           style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
         >
           <div className="flex items-center justify-between gap-2 mb-3">
@@ -3344,7 +3358,7 @@ function Dashboard({
 
         <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
 
-        <div className="xl:col-span-2">
+        <div>
           <SmartInsightsSection insights={smartInsights} />
         </div>
 
