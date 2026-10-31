@@ -495,3 +495,31 @@ body {
     transform: none;
   }
 }
+
+/* 10A.4H: Reminder category grid — container-query responsive layout.
+   The chip grid lives inside the Dashboard's ~40% "supporting" column
+   (see lg:grid-cols-[3fr_2fr] on Dashboard), so a viewport-width media
+   query (sm:/md:/lg:) can't tell this grid is narrow even on a wide
+   desktop screen — only the actual rendered width of its own parent
+   can. The base rule below (2 columns) is the safe default and the
+   fallback for any browser without container-query support; the
+   @container rule is a pure enhancement that upgrades to 4 columns
+   only once this grid's own container is actually wide enough for
+   every label ("Tomorrow", "Due Soon") to render on one line without
+   wrapping or clipping — never based on viewport size. */
+.takda-reminder-grid-container {
+  container-type: inline-size;
+  container-name: takda-reminder-grid;
+}
+
+.takda-reminder-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+@container takda-reminder-grid (min-width: 380px) {
+  .takda-reminder-chip-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

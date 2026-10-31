@@ -3595,7 +3595,7 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
 
   return (
     <div
-      className={hasGlassContent ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7" : "mb-7"}
+      className={`takda-reminder-grid-container ${hasGlassContent ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7" : "mb-7"}`}
       style={hasGlassContent ? { boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" } : undefined}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
@@ -3618,7 +3618,14 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
           {/* Each chip narrows the modal to its own urgency group; only
               "View all reminders" above and the global bell open it showing
               every group. */}
-          <div className="grid grid-cols-4 gap-2 mb-3">
+          {/* 10A.4H: container-query grid (defined in index.css) instead
+              of a fixed grid-cols-4 — this card sits in the Dashboard's
+              narrower ~40% supporting column, where 4 equal columns
+              left too little room for "Tomorrow"/"Due Soon" to render
+              on one line. Defaults to 2 columns and only widens to 4
+              once this grid's own rendered width actually allows it,
+              independent of viewport size. */}
+          <div className="takda-reminder-chip-grid mb-3">
             <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onOpenReminders("overdue")} />
             <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onOpenReminders("today")} />
             <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onOpenReminders("tomorrow")} />
