@@ -2932,11 +2932,11 @@ function CompactWeekCalendar({ focusLists }) {
 
   return (
     <div
-      className="rounded-2xl p-4 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
-      style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
+      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
+      style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
-      <h2 className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "var(--takda-text-muted-1)" }}>This Week</h2>
-      <div className="flex items-center justify-between gap-1">
+      <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--takda-text-primary)" }}>This Week</h2>
+      <div className="flex items-center justify-between gap-1 sm:gap-1.5">
         {weekDays.map(({ date, isToday, hasItems }) => {
           // The "has items due" dot is a color-only signal for sighted
           // users — this span carries the same information as real
@@ -2944,18 +2944,22 @@ function CompactWeekCalendar({ focusLists }) {
           // color alone) gets it too, not just a decorative dot.
           const dayLabel = date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
           return (
-            <div key={date.toDateString()} className="flex flex-col items-center gap-1">
-              <span className="text-[10px]" style={{ color: "var(--takda-text-muted-1)" }} aria-hidden="true">
+            <div key={date.toDateString()} className="flex flex-col items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--takda-text-muted-2)" }} aria-hidden="true">
                 {date.toLocaleDateString("en-US", { weekday: "narrow" })}
               </span>
               <span
-                className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold"
-                style={isToday ? { background: "var(--takda-brand)", color: "#fff" } : { color: "var(--takda-text-primary)" }}
+                className="flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold transition-colors duration-150"
+                style={
+                  isToday
+                    ? { background: "var(--takda-brand)", color: "#fff", boxShadow: "0 1px 4px rgba(61,47,224,0.35)" }
+                    : { color: "var(--takda-text-primary)" }
+                }
                 aria-hidden="true"
               >
                 {date.getDate()}
               </span>
-              <span className="w-1 h-1 rounded-full" style={{ background: hasItems ? "var(--takda-brand)" : "transparent" }} aria-hidden="true" />
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: hasItems ? "var(--takda-brand)" : "transparent" }} aria-hidden="true" />
               <span className="sr-only">
                 {dayLabel}{isToday ? " (today)" : ""}{hasItems ? " — has activities due" : ""}
               </span>
@@ -3585,9 +3589,12 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
   const hasGlassContent = totalUrgent > 0 || (hasSemesters && !hasActiveSemesterForReminders);
 
   return (
-    <div className={hasGlassContent ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-7" : "mb-7"}>
-      <div className="flex items-center justify-between gap-2 mb-2.5">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">{captionText}</h2>
+    <div
+      className={hasGlassContent ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7" : "mb-7"}
+      style={hasGlassContent ? { boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" } : undefined}
+    >
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-primary)" }}>{captionText}</h2>
         {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={() => onOpenReminders("all")} />}
       </div>
 
@@ -3630,14 +3637,14 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="rounded-xl border p-2.5 flex flex-col items-start gap-0.5 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+      className="rounded-2xl border p-3 flex flex-col items-start gap-1 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
       style={active ? { background: style.bg, borderColor: style.bg } : { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)" }}
       aria-label={`${label} — ${value}`}
     >
-      <span className="font-display text-xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+      <span className="font-display text-2xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
         {value}
       </span>
-      <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
+      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: active ? style.text : "#64748B" }}>
         {label}
       </span>
     </button>
@@ -3840,27 +3847,48 @@ function EmptyRow({ text }) {
 // TakdaApp's currentSemesterSchedules) — nothing here reads or writes
 // subjectSchedules, and nothing here handles notification delivery.
 function NextClassCard({ nextClass, onOpenSubject }) {
+  // 10A.4B: flat pastel amber surface (reusing the same
+  // --takda-status-tomorrow-* tokens OVERVIEW_ACCENTS.amber already
+  // uses) replaces the old .takda-glass-gold backdrop-filter card, per
+  // the 10A.4A audit's finding that Sunset Hero/Academic Overview/
+  // Today's Focus already moved to this flat-surface language while
+  // this card hadn't yet. No data/logic touched — nextClass/dayOffset/
+  // startTime/location are read exactly as before.
+  const dayLabel =
+    nextClass && (nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]);
   return (
     <div className="mb-7">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Next Class</h2>
+      <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Next Class</h2>
       {!nextClass ? (
         <DashboardEmptyState title="No upcoming classes." subtitle="Add a class schedule from Add/Edit Subject to see it here." />
       ) : (
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="takda-glass takda-glass-gold takda-focus-visible w-full text-left rounded-2xl p-4 flex items-center gap-3"
+          className="takda-focus-visible takda-interactive w-full text-left rounded-2xl p-4 md:p-5 flex items-center gap-3"
+          style={{
+            background: "var(--takda-status-tomorrow-bg)",
+            boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
+          }}
         >
-          <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/50" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
+          <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/60" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold truncate">{nextClass.subject?.name || "Untitled Subject"}</div>
-            <div className="text-xs text-[color:var(--takda-text-muted-2)] mt-0.5">
-              {nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]}
-              {" • "}
-              {formatScheduleTime(nextClass.startTime)}
+            <div className="text-sm font-semibold line-clamp-2 break-words" style={{ color: "var(--takda-text-primary)" }}>
+              {nextClass.subject?.name || "Untitled Subject"}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <span
+                className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+                style={{ background: "var(--takda-status-tomorrow-text)", color: "#fff" }}
+              >
+                {dayLabel}
+              </span>
+              <span className="text-xs font-medium" style={{ color: "var(--takda-text-muted-2)" }}>
+                {formatScheduleTime(nextClass.startTime)}
+              </span>
             </div>
             {nextClass.location && (
-              <div className="text-xs text-[color:var(--takda-text-muted-1)] mt-0.5 flex items-center gap-1"><MapPin size={11} />{nextClass.location}</div>
+              <div className="text-xs mt-1 flex items-center gap-1" style={{ color: "var(--takda-text-muted-1)" }}><MapPin size={11} />{nextClass.location}</div>
             )}
           </div>
         </button>
@@ -3869,31 +3897,56 @@ function NextClassCard({ nextClass, onOpenSubject }) {
   );
 }
 
+// 10A.4B: visual-only vertical timeline. `classes` is still the exact
+// same pre-sorted array Dashboard already computes (todaysClasses,
+// sorted by startTime) — nothing here re-sorts, re-filters, or detects
+// overlaps. The connecting line is purely decorative scaffolding
+// between already-adjacent list items; it does not claim or imply any
+// two classes have been checked against each other for a time conflict.
 function TodaysClassesSection({ classes, onOpenSubject }) {
   return (
-    <div className={classes.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-7" : "mb-7"}>
-      <h2 className="text-xs font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)] mb-2.5">Today's Classes</h2>
+    <div
+      className={classes.length > 0 ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7" : "mb-7"}
+      style={classes.length > 0 ? { boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" } : undefined}
+    >
+      <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--takda-text-primary)" }}>Today's Classes</h2>
       {classes.length === 0 ? (
         <DashboardEmptyState title="No classes scheduled for today." />
       ) : (
-        <div className="flex flex-col gap-2">
-          {classes.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => row.subject && onOpenSubject(row.subject.id)}
-              className="takda-focus-visible w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)]"
-            >
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: row.subject?.color || "var(--takda-brand)" }} />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold truncate">{row.subject?.name || "Untitled Subject"}</div>
-                <div className="text-xs text-[color:var(--takda-text-muted-2)] mt-0.5">{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
-                {row.location && (
-                  <div className="text-xs text-[color:var(--takda-text-muted-1)] mt-0.5 flex items-center gap-1"><MapPin size={11} />{row.location}</div>
-                )}
+        <div className="flex flex-col">
+          {classes.map((row, i) => {
+            const isLast = i === classes.length - 1;
+            return (
+              <div key={row.id} className="flex gap-3">
+                {/* Timeline rail: a dot per class, connected by a plain
+                    line to the next one. Decorative only (aria-hidden) —
+                    the button below already carries every bit of real
+                    information a screen reader needs. */}
+                <div className="flex flex-col items-center shrink-0 w-3" aria-hidden="true">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 mt-4 ring-2 ring-[var(--takda-bg-surface)]"
+                    style={{ background: row.subject?.color || "var(--takda-brand)" }}
+                  />
+                  {!isLast && <span className="flex-1 w-px my-1" style={{ background: "var(--takda-border)" }} />}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => row.subject && onOpenSubject(row.subject.id)}
+                  className={`takda-focus-visible takda-interactive flex-1 text-left rounded-xl bg-[var(--takda-bg-page)] border border-[var(--takda-border)] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] ${isLast ? "" : "mb-2"}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold" style={{ color: "var(--takda-brand)" }}>{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
+                    <div className="text-sm font-semibold mt-0.5 line-clamp-2 break-words" style={{ color: "var(--takda-text-primary)" }}>
+                      {row.subject?.name || "Untitled Subject"}
+                    </div>
+                    {row.location && (
+                      <div className="text-xs mt-0.5 flex items-center gap-1" style={{ color: "var(--takda-text-muted-1)" }}><MapPin size={11} />{row.location}</div>
+                    )}
+                  </div>
+                </button>
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
