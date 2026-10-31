@@ -3096,7 +3096,14 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
         </span>
       </div>
 
-      <div className="flex items-center gap-1.5 mb-3 mt-3 overflow-x-auto">
+      {/* 10A.3D fix: this row used to be a single nowrap line with
+          overflow-x-auto — on narrower desktop widths (the panel is now
+          ~60% of the grid, not 100%), "Upcoming" ran past the visible
+          edge with no obvious scroll affordance, i.e. clipped. Wrapping
+          instead of scrolling guarantees every tab is always visible —
+          worst case it drops to two rows — with no horizontal overflow
+          and no change to filter behavior/counts/keyboard order. */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-3 mt-3">
         {TODAYS_FOCUS_TABS.map((tab) => {
           const active = activeFilter === tab.key;
           const accent = TODAYS_FOCUS_TAB_ACCENT[tab.key];
@@ -3106,7 +3113,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               type="button"
               onClick={() => setActiveFilter(tab.key)}
               aria-pressed={active}
-              className="takda-focus-visible takda-interactive px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
+              className="takda-focus-visible takda-interactive px-2.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
               style={
                 active
                   ? { background: accent.bg, color: accent.text }
@@ -3145,6 +3152,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               onOpenSubject={onOpenSubject}
               compact={activeFilter === "all" || activeFilter === "upcoming"}
               highlight={activeFilter === "upcoming" && i === 0}
+              clampTitle
             />
           ))}
         </div>
@@ -3254,7 +3262,12 @@ function Dashboard({
 
       <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
 
-      <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+      {/* 10A.3D: 60/40 split (Today's Focus : supporting widgets) via a
+          fluid fr-unit grid-template instead of equal columns — fr
+          units share available space proportionally with no fixed
+          width, so this can't cause overflow and still collapses to a
+          single stacked column below lg exactly as before. */}
+      <div className="lg:grid lg:grid-cols-[3fr_2fr] lg:gap-6">
         <div>
           {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
               sections (Needs Attention/Due Today/Upcoming Deadlines) are
@@ -3896,7 +3909,13 @@ function TypeChip({ type }) {
   );
 }
 
-function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) {
+// 10A.3D: `clampTitle` is a new, opt-in, default-false prop — every
+// existing call site (AllActivities, SubjectDetail, Calendar, etc.)
+// keeps the original single-line `truncate` title exactly as before.
+// Only TodaysFocusPanel passes `clampTitle` (Today's Focus is the only
+// section this phase's brief covers), so this is additive and does not
+// redesign ActivityRow's appearance anywhere else it's used.
+function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight, clampTitle }) {
   const style = URGENCY_STYLE[activity.urgencyKey] || URGENCY_STYLE.later;
   const done = activity.computedStatus === "completed";
   return (
@@ -3923,7 +3942,7 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight }) 
             <TypeChip type={activity.type} />
             <PriorityTag priority={activity.priority} />
           </div>
-          <div className={`text-sm font-medium truncate mt-0.5 transition-colors duration-200 ease-out ${done ? "line-through text-[color:var(--takda-text-muted-1)]" : "text-[color:var(--takda-text-primary)]"}`}>{activity.title}</div>
+          <div className={`text-sm font-medium mt-0.5 transition-colors duration-200 ease-out ${clampTitle ? "line-clamp-2 break-words" : "truncate"} ${done ? "line-through text-[color:var(--takda-text-muted-1)]" : "text-[color:var(--takda-text-primary)]"}`}>{activity.title}</div>
         </button>
       </div>
       <div className="shrink-0 flex flex-col items-end gap-1">
