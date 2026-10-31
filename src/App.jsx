@@ -2819,8 +2819,8 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
 }
 
 // stats.pending/stats.subjects are the exact same already-computed
-// values StatsStrip displays elsewhere on this Dashboard — not
-// recalculated here. `classesToday` is `todaysClasses.length`, passed
+// values other Dashboard widgets reuse — not recalculated here.
+// `classesToday` is `todaysClasses.length`, passed
 // in by Dashboard — deliberately labeled "Classes Today" rather than
 // the mockup's literal "Upcoming Classes" wording, because that is
 // the actual, accurate meaning of the only count already available
@@ -3274,10 +3274,34 @@ function Dashboard({
             onOpenReminders={onOpenReminders}
           />
 
-          <div className={recentlyCompleted.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-4" : undefined}>
-            <SectionHeader title="Recently Completed" muted />
+          {/* 10A.8B: always one consistent flat card (previously bare
+              when empty, .takda-glass when populated — the last widget
+              in this grid still on the old treatment). SectionHeader's
+              own definition is left untouched (used elsewhere); this
+              is a local heading + badge, same approach already used
+              for TodaysFocusPanel/SmartInsightsSection. The completed
+              count reuses the existing `stats.completed` value — no
+              new calculation, no new query. */}
+          <div
+            className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
+            style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-muted-1)" }}>Recently Completed</h2>
+              <span
+                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+                aria-label={`${stats.completed} completed ${stats.completed === 1 ? "activity" : "activities"}`}
+              >
+                {stats.completed} completed
+              </span>
+            </div>
             {recentlyCompleted.length === 0 ? (
-              <DashboardEmptyState title="Completed tasks will show up here." />
+              <DashboardEmptyState
+                icon={CheckCircle2}
+                title="Complete an activity and it will appear here."
+                tone={{ bg: "transparent", border: "transparent", noMargin: true }}
+              />
             ) : (
               <div className="flex flex-col gap-2 opacity-80">
                 {recentlyCompleted.map((a) => (
@@ -3286,8 +3310,6 @@ function Dashboard({
               </div>
             )}
           </div>
-
-          <StatsStrip stats={stats} />
         </div>
 
         {/* Phase 10A.7B: right utility panel — compact calendar, today's
@@ -3711,25 +3733,6 @@ function SmartInsightsSection({ insights }) {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function StatsStrip({ stats }) {
-  const items = [
-    { label: "Subjects", value: stats.subjects },
-    { label: "Pending", value: stats.pending },
-    { label: "Completed", value: stats.completed },
-    { label: "Due Today", value: stats.dueToday },
-  ];
-  return (
-    <div className="flex items-stretch rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] divide-x divide-[var(--takda-border)] mb-7">
-      {items.map((it) => (
-        <div key={it.label} className="flex-1 px-2 py-2.5 text-center">
-          <div className="font-display text-lg font-semibold leading-none">{it.value}</div>
-          <div className="text-[10px] font-semibold text-[color:var(--takda-text-muted-2)] mt-1">{it.label}</div>
-        </div>
-      ))}
     </div>
   );
 }
