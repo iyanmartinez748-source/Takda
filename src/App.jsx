@@ -1593,7 +1593,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   return (
     <div
       style={{ fontFamily: "Inter, sans-serif", background: "#F5F6FA", color: "#1B1B2F" }}
-      className="w-full min-h-[640px] max-w-md mx-auto md:max-w-5xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[#E4E4F0] shadow-sm"
+      className="w-full min-h-[640px] max-w-md mx-auto md:max-w-7xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[#E4E4F0] shadow-sm"
     >
       <style>{`
         .font-display { font-family: 'Fraunces', serif; }

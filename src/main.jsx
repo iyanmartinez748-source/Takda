@@ -3899,7 +3899,7 @@ function Root() {
         sync with whichever modal is actually open.
       */}
       <div
-        className="mx-auto max-w-5xl"
+        className="mx-auto max-w-7xl"
         inert={showAppearance || showProfile || showPro ? true : undefined}
         aria-hidden={showAppearance || showProfile || showPro ? true : undefined}
       >
