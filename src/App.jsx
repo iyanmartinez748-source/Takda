@@ -3244,17 +3244,43 @@ function Dashboard({
           single-column mobile/tablet order (Today's Focus → Reminders
           → Recently Completed → Stats → This Week → Today's Classes →
           Smart Insights → Motivation) is explicitly approved. */}
-      <div className="lg:grid lg:grid-cols-[3fr_2fr] lg:gap-6 lg:items-start">
-        <div>
-          {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
-              sections (Needs Attention/Due Today/Upcoming Deadlines) are
-              replaced by one unified TodaysFocusPanel with filter tabs.
-              It receives the same focusLists/onToggle/onOpenSubject/
-              onFocusFilter/canCreate/onAddActivity Dashboard already
-              had in scope — no new data source, no new classification
-              logic (see the component's own comment above its
-              definition for the confirmed existing deadline-boundary
-              rules this reuses verbatim). */}
+      {/* 10A.9B: content-aware Bento Grid, replacing the prior 60/40
+          two-column layout. One flat grid with per-widget col-span
+          instead of two block-stacked column <div>s — a true 2D grid
+          is required so each card can take a different width rather
+          than being grouped into exactly two columns.
+            - Below lg (1024px): no grid classes apply at all, so this
+              is a plain stacked block — identical mechanism, and
+              identical resulting mobile/tablet order, to every prior
+              phase (Today's Focus, Reminders, Recently Completed,
+              This Week, Today's Classes, Smart Insights, Motivation —
+              exactly this JSX's authoring order, unchanged).
+            - lg (1024–1279px): 2 columns. Today's Focus and Smart
+              Reminders are each full-width (col-span-2) at this size —
+              Reminders explicitly to avoid a narrow chip grid at this
+              range (its own container-query threshold is 380px,
+              Phase 10A.4H), Today's Focus because it's the primary
+              widget and benefits from the same width.
+            - xl (>=1280px): 4 columns, matching the approved 50/50,
+              50/25/25, 50/50 row arrangement via col-span-2/1 values.
+          No row-span, no grid-auto-flow:dense, and no fixed/min height
+          anywhere — align-items:start (reused from 10A.6B) plus the
+          grid's own default row sizing means each row's height is
+          whatever its own content naturally needs; this has not been
+          confirmed in a browser. Every widget below keeps its exact
+          original props/handlers — only a col-span wrapper was added
+          around the ones that need a non-default span. */}
+      <div className="lg:grid lg:grid-cols-2 xl:grid-cols-4 lg:gap-6 lg:items-start">
+        {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
+            sections (Needs Attention/Due Today/Upcoming Deadlines) are
+            replaced by one unified TodaysFocusPanel with filter tabs.
+            It receives the same focusLists/onToggle/onOpenSubject/
+            onFocusFilter/canCreate/onAddActivity Dashboard already
+            had in scope — no new data source, no new classification
+            logic (see the component's own comment above its
+            definition for the confirmed existing deadline-boundary
+            rules this reuses verbatim). */}
+        <div className="lg:col-span-2">
           <TodaysFocusPanel
             focusLists={focusLists}
             onToggle={onToggle}
@@ -3263,7 +3289,9 @@ function Dashboard({
             canCreate={canCreate}
             onAddActivity={onAddActivity}
           />
+        </div>
 
+        <div className="lg:col-span-2">
           <SmartRemindersSection
             groups={reminderGroups}
             activeSemesterName={activeSemesterName}
@@ -3273,56 +3301,54 @@ function Dashboard({
             onOpenSubject={onOpenSubject}
             onOpenReminders={onOpenReminders}
           />
-
-          {/* 10A.8B: always one consistent flat card (previously bare
-              when empty, .takda-glass when populated — the last widget
-              in this grid still on the old treatment). SectionHeader's
-              own definition is left untouched (used elsewhere); this
-              is a local heading + badge, same approach already used
-              for TodaysFocusPanel/SmartInsightsSection. The completed
-              count reuses the existing `stats.completed` value — no
-              new calculation, no new query. */}
-          <div
-            className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
-            style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
-          >
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-muted-1)" }}>Recently Completed</h2>
-              <span
-                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
-                aria-label={`${stats.completed} completed ${stats.completed === 1 ? "activity" : "activities"}`}
-              >
-                {stats.completed} completed
-              </span>
-            </div>
-            {recentlyCompleted.length === 0 ? (
-              <DashboardEmptyState
-                icon={CheckCircle2}
-                title="Complete an activity and it will appear here."
-                tone={{ bg: "transparent", border: "transparent", noMargin: true }}
-              />
-            ) : (
-              <div className="flex flex-col gap-2 opacity-80">
-                {recentlyCompleted.map((a) => (
-                  <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Phase 10A.7B: right utility panel — compact calendar, today's
-            schedule, Smart Insights, and a purely decorative motivation
-            panel. Reminders/Stats moved out to the left column above;
-            everything remaining here keeps its exact original props. */}
-        <div>
-          <CompactWeekCalendar focusLists={focusLists} />
+        {/* 10A.8B: always one consistent flat card (previously bare
+            when empty, .takda-glass when populated — the last widget
+            in this grid still on the old treatment). SectionHeader's
+            own definition is left untouched (used elsewhere); this
+            is a local heading + badge, same approach already used
+            for TodaysFocusPanel/SmartInsightsSection. The completed
+            count reuses the existing `stats.completed` value — no
+            new calculation, no new query. */}
+        <div
+          className="xl:col-span-2 rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4 lg:mb-0"
+          style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+        >
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-muted-1)" }}>Recently Completed</h2>
+            <span
+              className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+              aria-label={`${stats.completed} completed ${stats.completed === 1 ? "activity" : "activities"}`}
+            >
+              {stats.completed} completed
+            </span>
+          </div>
+          {recentlyCompleted.length === 0 ? (
+            <DashboardEmptyState
+              icon={CheckCircle2}
+              title="Complete an activity and it will appear here."
+              tone={{ bg: "transparent", border: "transparent", noMargin: true }}
+            />
+          ) : (
+            <div className="flex flex-col gap-2 opacity-80">
+              {recentlyCompleted.map((a) => (
+                <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+              ))}
+            </div>
+          )}
+        </div>
 
-          <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
+        <CompactWeekCalendar focusLists={focusLists} />
 
+        <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
+
+        <div className="xl:col-span-2">
           <SmartInsightsSection insights={smartInsights} />
+        </div>
 
+        <div className="lg:col-span-2">
           <MotivationPanel />
         </div>
       </div>
