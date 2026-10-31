@@ -3230,7 +3230,11 @@ function Dashboard({
           units share available space proportionally with no fixed
           width, so this can't cause overflow and still collapses to a
           single stacked column below lg exactly as before. */}
-      <div className="lg:grid lg:grid-cols-[3fr_2fr] lg:gap-6">
+      {/* 10A.6B: lg:items-start stops the grid's default stretch from
+          forcing the shorter column to the taller one's height — it
+          does not, by itself, rebalance the unequal content volume
+          between the two columns (not verified in a browser). */}
+      <div className="lg:grid lg:grid-cols-[3fr_2fr] lg:gap-6 lg:items-start">
         <div>
           {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
               sections (Needs Attention/Due Today/Upcoming Deadlines) are
@@ -3674,7 +3678,12 @@ function SmartInsightsSection({ insights }) {
           const rowContent = (
             <>
               <Icon size={15} className="shrink-0 mt-0.5" style={{ color: "var(--takda-brand)" }} />
-              <span>{insight.message}</span>
+              {/* 10A.6B: flex-1 min-w-0 (same defensive pattern already
+                  used by ActivityRow's title block) lets this text wrap
+                  within whatever width the flex row actually has,
+                  instead of relying only on default flex sizing — same
+                  message/icon/handler, no behavior change. */}
+              <span className="flex-1 min-w-0">{insight.message}</span>
             </>
           );
           return insight.onActivate ? (
