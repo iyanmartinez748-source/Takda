@@ -3463,9 +3463,19 @@ function GreetingHero({ greeting, contextMessage, studentName }) {
     day: "numeric",
     year: "numeric",
   });
+  // 10A.12B: min-h reduced from 220/260px to 130/150px (desktop
+  // target: ~140-160px, per the 10A.12A audit) to recover vertical
+  // space for the rest of the Dashboard. min-h is a floor, not a cap
+  // — the box still grows taller automatically if real content (e.g.
+  // a longer contextMessage wrapping to 2 lines) needs more room,
+  // satisfying "allow growth" without any extra class. py-6→py-5
+  // gives a touch more breathing room relative to the smaller box.
+  // Greeting/contextMessage/studentName/date badge content, the
+  // sunset image asset, its gradient overlay, and HERO_TEXT_COLOR/
+  // HERO_SUBTLE_COLOR contrast are all unchanged.
   return (
     <div
-      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-6 mb-6 min-h-[220px] md:min-h-[260px] flex items-end"
+      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-5 mb-6 min-h-[130px] md:min-h-[150px] flex items-end"
       style={{
         backgroundImage:
           "linear-gradient(to right, rgba(10,8,30,0.62) 0%, rgba(10,8,30,0.28) 45%, rgba(10,8,30,0.05) 70%), url('/takda-hero-sunset.png')",
