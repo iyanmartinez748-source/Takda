@@ -3107,7 +3107,12 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
           instead of scrolling guarantees every tab is always visible —
           worst case it drops to two rows — with no horizontal overflow
           and no change to filter behavior/counts/keyboard order. */}
-      <div className="flex flex-wrap items-center gap-1.5 mb-3 mt-3">
+      {/* 10A.4E: slightly tighter gap/padding than 10A.3D's fix — lets
+          all four tabs fit on one row more often at typical desktop
+          widths. flex-wrap (the actual anti-clipping fix) is untouched,
+          as is py-1.5 (touch-target height) and text-xs (readable
+          floor) — only horizontal gap/padding were nudged in. */}
+      <div className="flex flex-wrap items-center gap-1 mb-3 mt-3">
         {TODAYS_FOCUS_TABS.map((tab) => {
           const active = activeFilter === tab.key;
           const accent = TODAYS_FOCUS_TAB_ACCENT[tab.key];
@@ -3117,7 +3122,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               type="button"
               onClick={() => setActiveFilter(tab.key)}
               aria-pressed={active}
-              className="takda-focus-visible takda-interactive px-2.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
+              className="takda-focus-visible takda-interactive px-2 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
               style={
                 active
                   ? { background: accent.bg, color: accent.text }
@@ -3621,7 +3626,7 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
           </div>
           <div className="flex flex-col gap-2">
             {previewItems.map((a) => (
-              <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact />
+              <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact clampTitle />
             ))}
           </div>
         </>
@@ -3803,10 +3808,25 @@ function ViewAllLink({ label, onClick }) {
   );
 }
 
-function DashboardEmptyState({ icon: Icon, title, subtitle }) {
+// 10A.4E: `tone` is a new, opt-in, default-undefined prop. Every one of
+// the 10 existing call sites omits it, so `tone?.x ?? <same literal
+// token as before>` resolves to the exact same background/border/icon
+// color they already rendered — this is purely additive. Only Next
+// Class/Today's Classes (below) pass a `tone`, to sit the empty state
+// directly on their own card's pastel surface instead of the default
+// neutral empty-state chip, without touching the shared default.
+function DashboardEmptyState({ icon: Icon, title, subtitle, tone }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg bg-[var(--takda-bg-empty-state)] border border-[var(--takda-border)] px-3 py-2.5 mb-7">
-      {Icon && <Icon size={14} className="text-[color:var(--takda-success-icon)] shrink-0 takda-emptystate-icon" />}
+    <div
+      className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 ${tone?.noMargin ? "" : "mb-7"}`}
+      style={{
+        background: tone?.bg ?? "var(--takda-bg-empty-state)",
+        borderColor: tone?.border ?? "var(--takda-border)",
+      }}
+    >
+      {Icon && (
+        <Icon size={14} className="shrink-0 takda-emptystate-icon" style={{ color: tone?.iconColor ?? "var(--takda-success-icon)" }} />
+      )}
       <p className="text-xs text-[color:var(--takda-text-muted-2)]">
         <span className="font-semibold text-[color:var(--takda-text-muted-3)]">{title}</span>
         {subtitle && <span> — {subtitle}</span>}
@@ -3860,7 +3880,25 @@ function NextClassCard({ nextClass, onOpenSubject }) {
     <div className="mb-7">
       <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Next Class</h2>
       {!nextClass ? (
-        <DashboardEmptyState title="No upcoming classes." subtitle="Add a class schedule from Add/Edit Subject to see it here." />
+        // 10A.4E: sits on the same amber surface/padding as the filled
+        // card below (via DashboardEmptyState's new opt-in `tone`) so
+        // the empty and populated states read as one consistent card,
+        // not a bare row that only gains a background once a class
+        // exists. Message/subtitle text unchanged.
+        <div
+          className="rounded-2xl p-4 md:p-5"
+          style={{
+            background: "var(--takda-status-tomorrow-bg)",
+            boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
+          }}
+        >
+          <DashboardEmptyState
+            icon={CalendarIcon}
+            title="No upcoming classes."
+            subtitle="Add a class schedule from Add/Edit Subject to see it here."
+            tone={{ bg: "transparent", border: "transparent", iconColor: "var(--takda-status-tomorrow-text)", noMargin: true }}
+          />
+        </div>
       ) : (
         <button
           type="button"
@@ -3904,14 +3942,23 @@ function NextClassCard({ nextClass, onOpenSubject }) {
 // between already-adjacent list items; it does not claim or imply any
 // two classes have been checked against each other for a time conflict.
 function TodaysClassesSection({ classes, onOpenSubject }) {
+  // 10A.4E: the card now wraps both states (previously only the
+  // populated list got the surface, and the empty state sat bare) so
+  // it visually matches Next Class's card-first treatment. `classes`
+  // itself — its contents, sort order, and semester scoping — is
+  // untouched.
   return (
     <div
-      className={classes.length > 0 ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7" : "mb-7"}
-      style={classes.length > 0 ? { boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" } : undefined}
+      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7"
+      style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--takda-text-primary)" }}>Today's Classes</h2>
       {classes.length === 0 ? (
-        <DashboardEmptyState title="No classes scheduled for today." />
+        <DashboardEmptyState
+          icon={Clock}
+          title="No classes scheduled for today."
+          tone={{ bg: "transparent", border: "transparent", iconColor: "var(--takda-text-muted-1)", noMargin: true }}
+        />
       ) : (
         <div className="flex flex-col">
           {classes.map((row, i) => {
