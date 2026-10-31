@@ -3234,6 +3234,16 @@ function Dashboard({
           forcing the shorter column to the taller one's height — it
           does not, by itself, rebalance the unequal content volume
           between the two columns (not verified in a browser). */}
+      {/* 10A.7B: Reminders and Stats relocated here from the right
+          column (per the 10A.7A audit) to rebalance the 60/40 split's
+          content volume — left column now has 4 widgets, right has 4,
+          down from 2-vs-6. Every prop/handler below is unchanged from
+          before the move; only each call's position in the tree moved,
+          since all of them already read from this same Dashboard
+          closure regardless of where they're rendered. The resulting
+          single-column mobile/tablet order (Today's Focus → Reminders
+          → Recently Completed → Stats → This Week → Today's Classes →
+          Smart Insights → Motivation) is explicitly approved. */}
       <div className="lg:grid lg:grid-cols-[3fr_2fr] lg:gap-6 lg:items-start">
         <div>
           {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
@@ -3254,6 +3264,16 @@ function Dashboard({
             onAddActivity={onAddActivity}
           />
 
+          <SmartRemindersSection
+            groups={reminderGroups}
+            activeSemesterName={activeSemesterName}
+            hasSemesters={hasSemesters}
+            hasActiveSemesterForReminders={hasActiveSemesterForReminders}
+            onToggle={onToggle}
+            onOpenSubject={onOpenSubject}
+            onOpenReminders={onOpenReminders}
+          />
+
           <div className={recentlyCompleted.length > 0 ? "takda-glass takda-glass-neutral rounded-2xl p-4 mb-4" : undefined}>
             <SectionHeader title="Recently Completed" muted />
             {recentlyCompleted.length === 0 ? (
@@ -3266,31 +3286,20 @@ function Dashboard({
               </div>
             )}
           </div>
+
+          <StatsStrip stats={stats} />
         </div>
 
-        {/* Phase 10A: right utility panel — compact calendar, today's
-            schedule (TodaysClassesSection, moved here unchanged from the
-            left column), the existing Reminders/Insights/Stats
-            components (untouched), and a purely decorative motivation
-            panel at the end. */}
+        {/* Phase 10A.7B: right utility panel — compact calendar, today's
+            schedule, Smart Insights, and a purely decorative motivation
+            panel. Reminders/Stats moved out to the left column above;
+            everything remaining here keeps its exact original props. */}
         <div>
           <CompactWeekCalendar focusLists={focusLists} />
 
           <TodaysClassesSection classes={todaysClasses} onOpenSubject={onOpenSubject} />
 
-          <SmartRemindersSection
-            groups={reminderGroups}
-            activeSemesterName={activeSemesterName}
-            hasSemesters={hasSemesters}
-            hasActiveSemesterForReminders={hasActiveSemesterForReminders}
-            onToggle={onToggle}
-            onOpenSubject={onOpenSubject}
-            onOpenReminders={onOpenReminders}
-          />
-
           <SmartInsightsSection insights={smartInsights} />
-
-          <StatsStrip stats={stats} />
 
           <MotivationPanel />
         </div>
