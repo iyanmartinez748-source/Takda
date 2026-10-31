@@ -65,50 +65,6 @@ const FREE_ACTIVITY_LIMIT = 20;
 
 const uid = () => crypto.randomUUID();
 
-// Small, self-contained count-up used only for the Focus for Today numbers.
-// Presentation only: it never feeds back into any count/state, always ends
-// on the exact `value` passed in, and does nothing (snaps instantly) for
-// prefers-reduced-motion or on first mount. Bounded steps + a single
-// interval cleared on every effect re-run/unmount — no RAF loop, no
-// long-running timer, no leak.
-function useCountUp(value, duration = 320) {
-  const [display, setDisplay] = useState(value);
-  const prevValue = useRef(value);
-
-  useEffect(() => {
-    const from = prevValue.current;
-    const to = value;
-    prevValue.current = value;
-
-    const reduceMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-    if (from === to || reduceMotion) {
-      setDisplay(to);
-      return;
-    }
-
-    const steps = 10;
-    const stepMs = duration / steps;
-    let step = 0;
-
-    const id = setInterval(() => {
-      step += 1;
-      if (step >= steps) {
-        setDisplay(to);
-        clearInterval(id);
-        return;
-      }
-      setDisplay(Math.round(from + (to - from) * (step / steps)));
-    }, stepMs);
-
-    return () => clearInterval(id);
-  }, [value, duration]);
-
-  return display;
-}
-
 function loadFont() {
   if (typeof document !== "undefined" && !document.getElementById("takda-font")) {
     const link = document.createElement("link");
@@ -3213,14 +3169,7 @@ function Dashboard({
   // overdueVisible/dueTodayVisible/upcomingVisible used to be computed
   // here for the old 3-stacked-sections render; that render is now
   // TodaysFocusPanel below, which recomputes the identical slices
-  // itself from this same `focusLists` prop. `focusCounts` stays — it's
-  // still used by FocusForToday just below.
-  const focusCounts = {
-    overdue: focusLists.overdue.length,
-    dueToday: focusLists.dueToday.length,
-    upcoming: focusLists.upcoming.length,
-  };
-
+  // itself from this same `focusLists` prop.
   return (
     <div className="relative p-5 md:p-8 takda-dashboard-enter">
       {/* Phase 09B.11: Dashboard-only background wash — purely decorative,
@@ -3269,7 +3218,12 @@ function Dashboard({
 
       <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
 
-      <FocusForToday counts={focusCounts} onSelect={onFocusFilter} />
+      {/* 10A.5B: FocusForToday (Overdue/Due Today/Upcoming count tiles)
+          removed from here — it duplicated the exact same counts
+          TodaysFocusPanel's own filter tabs already show just below,
+          per the 10A.5A audit finding. `onFocusFilter` is still passed
+          to TodaysFocusPanel unchanged; nothing about its navigation,
+          counts, or data was touched. */}
 
       {/* 10A.3D: 60/40 split (Today's Focus : supporting widgets) via a
           fluid fr-unit grid-template instead of equal columns — fr
@@ -3663,42 +3617,6 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
   );
 }
 
-const FOCUS_TILE_STYLE = {
-  overdue: { text: "var(--takda-status-overdue-text)", glass: "takda-glass-red" },
-  dueToday: { text: "var(--takda-status-tomorrow-text)", glass: "takda-glass-orange" },
-  upcoming: { text: "var(--takda-status-week-text)", glass: "takda-glass-lightgreen" },
-};
-
-const FOCUS_TILE_FILTER = { overdue: "overdue", dueToday: "today", upcoming: "upcoming" };
-
-function FocusTile({ tile, active, style, onSelect }) {
-  const displayValue = useCountUp(tile.value);
-  const baseClasses = "rounded-2xl p-3 flex flex-col items-start gap-1 text-left transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1";
-  // Active (count > 0) tiles get the premium colored glass treatment and
-  // rely on .takda-glass's own hover lift/shadow (defined in index.css,
-  // already reduced-motion safe) — no duplicate hover transform utility
-  // is added here to avoid two rules fighting over `transform`. Inactive
-  // (zero-count) tiles keep their original neutral surface and motion
-  // classes exactly as before this step.
-  const activeClasses = `takda-glass ${style.glass} ${baseClasses} motion-safe:transition-transform motion-safe:duration-200 motion-safe:active:scale-[0.98]`;
-  const inactiveClasses = `bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] ${baseClasses}`;
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(FOCUS_TILE_FILTER[tile.key])}
-      className={active ? activeClasses : inactiveClasses}
-      aria-label={`View ${tile.label.toLowerCase()} activities — ${tile.value}`}
-    >
-      <span className="font-display text-2xl font-bold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
-        {displayValue}
-      </span>
-      <span className="text-[11px] font-semibold" style={{ color: active ? style.text : "#64748B" }}>
-        {tile.label}
-      </span>
-    </button>
-  );
-}
-
 /* ---------------- Smart Insights (Phase 10A — planningEngine.js) ---------------- */
 // Purely presentational: `insights` already comes fully computed from
 // TakdaApp's computeSmartInsights(reminderRelevantActivities) call above —
@@ -3714,13 +3632,27 @@ function FocusTile({ tile, active, style, onSelect }) {
 // types are actionable, never knows about ACTIVITY_FILTER_KEYS,
 // selectedSemesterId/activeSemesterId, or goToActivities; it only checks
 // whether the field is present.
+// 10A.5B: `INSIGHT_ICON` is a pure type→icon lookup for presentation
+// only — it reads `insight.type`, a field `computeSmartInsights`
+// already returns, and invents no new data/classification. Falls back
+// to AlertCircle for any unrecognized future type rather than crashing.
+const INSIGHT_ICON = { overdue: AlertCircle, near_term_deadlines: Clock, busiest_upcoming_day: CalendarIcon };
+
 function SmartInsightsSection({ insights }) {
   const list = Array.isArray(insights) ? insights : [];
 
   if (list.length === 0) {
+    // 10A.5B: this "all caught up"-style empty state stays bare (no
+    // card), matching the same established convention Reminders' own
+    // "You're all caught up" empty state already uses — unlike Next
+    // Class/Today's Classes (a different semantic category: "nothing
+    // scheduled", not "nothing left to do"). SectionHeader intentionally
+    // not used here — this component now renders its own heading
+    // locally, matching every other migrated widget, without touching
+    // the shared SectionHeader component used elsewhere.
     return (
       <>
-        <SectionHeader title="Smart Insights" />
+        <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Smart Insights</h2>
         <DashboardEmptyState
           icon={CheckCircle2}
           title="No workload alerts right now"
@@ -3731,43 +3663,35 @@ function SmartInsightsSection({ insights }) {
   }
 
   return (
-    <div className="takda-glass takda-glass-neutral rounded-2xl p-4 mb-7">
-      <SectionHeader title="Smart Insights" />
+    <div
+      className="rounded-2xl p-4 md:p-5 mb-7"
+      style={{ background: "var(--takda-brand-tint-1)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+    >
+      <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--takda-text-primary)" }}>Smart Insights</h2>
       <div className="flex flex-col gap-2">
-        {list.map((insight) =>
-          insight.onActivate ? (
+        {list.map((insight) => {
+          const Icon = INSIGHT_ICON[insight.type] || AlertCircle;
+          const rowContent = (
+            <>
+              <Icon size={15} className="shrink-0 mt-0.5" style={{ color: "var(--takda-brand)" }} />
+              <span>{insight.message}</span>
+            </>
+          );
+          return insight.onActivate ? (
             <button
               key={insight.type}
               type="button"
               onClick={insight.onActivate}
-              className="w-full text-left rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
+              className="takda-focus-visible takda-interactive w-full text-left rounded-xl bg-[var(--takda-bg-page)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] flex items-start gap-2 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
             >
-              {insight.message}
+              {rowContent}
             </button>
           ) : (
-            <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)]">
-              {insight.message}
+            <div key={insight.type} className="rounded-xl bg-[var(--takda-bg-page)] border border-[var(--takda-border)] p-3 text-sm text-[color:var(--takda-text-primary)] flex items-start gap-2">
+              {rowContent}
             </div>
-          )
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FocusForToday({ counts, onSelect }) {
-  const tiles = [
-    { key: "overdue", label: "Overdue", value: counts.overdue },
-    { key: "dueToday", label: "Due Today", value: counts.dueToday },
-    { key: "upcoming", label: "Upcoming", value: counts.upcoming },
-  ];
-  return (
-    <div className="mb-7">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2.5">Focus for Today</h2>
-      <div className="grid grid-cols-3 gap-2.5">
-        {tiles.map((tile) => (
-          <FocusTile key={tile.key} tile={tile} active={tile.value > 0} style={FOCUS_TILE_STYLE[tile.key]} onSelect={onSelect} />
-        ))}
+          );
+        })}
       </div>
     </div>
   );
