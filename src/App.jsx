@@ -2978,7 +2978,10 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
                 truncating at 320px for the same width-arithmetic
                 reason. */}
             {/* 10A.20B: shorter copy fits within line-clamp-2 at 320px. */}
-            <div className="text-[11px] mt-0.5 leading-tight line-clamp-2" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Unlock your average</div>
+            {/* 10A.21B: hidden below sm — the ~64px text column is too
+                narrow for this phrase even at 2 lines; the title/icon/
+                PRO badge alone carry the upsell at mobile widths. */}
+            <div className="hidden sm:block text-[11px] mt-0.5 leading-tight line-clamp-2" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Unlock your average</div>
           </div>
         </button>
       )}
