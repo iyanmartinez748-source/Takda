@@ -2369,23 +2369,56 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
 
   const current = options.find((o) => o.id === selectedSemesterId) || options[options.length - 1];
 
+  // 10A.16C: adaptive mobile layout. The outer row becomes flex-col
+  // below md (two stacked rows) and stays flex-row at md+ (the exact
+  // original single row — md:items-center/md:justify-between/md:gap-3
+  // reproduce the original row's alignment byte-for-byte once the
+  // column direction is undone at that breakpoint).
+  //
+  // The Active/Archived badge is the one piece that must visually
+  // belong to a *different* group depending on breakpoint (inside the
+  // name trigger on desktop, exactly as before; alongside the bell/
+  // manage group on mobile, per this phase's spec) — that can't be
+  // expressed by repositioning a single element with pure CSS without
+  // either reordering the desktop trigger's existing icon/name/badge/
+  // chevron sequence (explicitly disallowed this phase) or duplicating
+  // it. So the badge is rendered twice, each copy's visibility gated
+  // by hidden/md:hidden pairs (Tailwind's `hidden` removes an element
+  // from layout *and* the accessibility tree, so only one copy is ever
+  // present to assistive tech at a given breakpoint — not a real
+  // double-announcement). ReminderBell and the Manage Semesters button
+  // are NOT duplicated: they already form one group that simply
+  // becomes "row 2" once the outer container goes flex-col, with no
+  // need to exist in two places.
   return (
-    <div className="relative takda-glass takda-glass-silver flex items-center justify-between gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
+    <div className="relative takda-glass takda-glass-silver flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 -mx-2 hover:bg-white/40 transition-colors duration-150"
+        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 min-h-11 md:min-h-0 -mx-2 hover:bg-white/40 transition-colors duration-150"
       >
         <CalendarIcon size={15} className="text-[color:var(--takda-brand)] shrink-0" />
-        <span className="text-[15px] font-semibold truncate">{current.label}</span>
-        {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
-        {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
+        <span className="text-[15px] font-semibold md:truncate">{current.label}</span>
+        {/* Desktop-only badge copy — exact original markup/position
+            (between name and chevron), hidden below md. */}
+        {current.isActive && <span className="hidden md:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
+        {current.isArchived && <span className="hidden md:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
         <ChevronDown size={14} className="text-slate-400 shrink-0" />
       </button>
-      <div className="flex items-center gap-3 shrink-0">
-        <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-        <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
-          Manage Semesters
-        </button>
+      <div className="flex items-center justify-between gap-3">
+        {/* Mobile-only badge copy — row 2, alongside the bell/manage
+            group. An empty wrapper when neither flag applies still
+            lets justify-between push the bell/manage group fully
+            right, matching how the row reads with no badge present. */}
+        <div className="flex items-center gap-2 md:hidden">
+          {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
+          {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
+          <button onClick={onManage} className="takda-focus-visible flex items-center min-h-11 md:min-h-0 text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
+            Manage Semesters
+          </button>
+        </div>
       </div>
 
       {open && (
