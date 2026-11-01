@@ -1603,15 +1603,23 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
            authenticated scroll area must reserve on mobile so its last
            content can clear MobileNav. Traced from MobileNav's own
            markup, not guessed: pt-2(8px) + NavBtn content (py-1.5
-           12px + icon 32px + gap-0.5 2px + text-[10px] label line
-           ~12px = 58px) + baseline pb 8px = 74px row height, plus the
-           center FAB's own -mt-6 (24px) visual protrusion above the
-           row = 98px traced minimum, rounded up to 6.5rem (104px) for
-           a small safety margin. env(safe-area-inset-bottom) is added
-           on top of this at the point of use, matching MobileNav's own
-           safe-area handling, so a real device's home-indicator inset
-           is reserved for too. */
-        :root { --mobile-nav-clearance: 6.5rem; }
+           12px + icon 32px + gap-0.5 2px + label line ~12px = 58px) +
+           baseline pb 8px = 74px row height, plus the center FAB's own
+           -mt-6 (24px) visual protrusion above the row = 98px traced
+           minimum — this was the basis for the original 6.5rem(104px),
+           a ~6px margin over 98px.
+           10A.22B: NavBtn's label can now wrap to a 2nd ~12px line
+           (break-words, for "Subjects"/"Calendar" at 320px) instead of
+           always being exactly 1 line. Re-tracing with a 2-line label:
+           NavBtn content becomes 12+32+2+24=70px (+12px), row becomes
+           8+70+8=86px (+12px), traced minimum becomes 86+24=110px
+           (+12px). 7rem(112px) would leave only a 2px margin — not
+           enough to match the original's ~6px cushion — so the
+           constant is raised to 7.25rem(116px), a ~6px margin over
+           the new 110px minimum, the same margin the original value
+           used. env(safe-area-inset-bottom) is still added on top of
+           this at the point of use, unchanged. */
+        :root { --mobile-nav-clearance: 7.25rem; }
       `}</style>
 
       <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} canCreate={canCreateInSelectedSemester} />
@@ -2789,7 +2797,15 @@ function NavBtn({ it, active, onClick }) {
       >
         <Icon size={19} />
       </span>
-      <span className="text-[10px] font-semibold truncate max-w-full">{it.label}</span>
+      {/* 10A.22B: truncate -> break-words + text-center. "Subjects"/
+          "Calendar" are single unbreakable words that still don't fit
+          the ~52px label width even after the 10A.21C px-1.5 trim;
+          break-words lets them hard-wrap to a 2nd line instead of
+          ellipsis-clipping, and text-center keeps each wrapped line
+          centered (parent's items-center alone only centers the
+          span's box, not multi-line text inside it). font-size/weight
+          unchanged. */}
+      <span className="text-[10px] font-semibold text-center break-words">{it.label}</span>
     </button>
   );
 }
@@ -3639,7 +3655,13 @@ function GreetingHero({ greeting, contextMessage, studentName }) {
       }}
     >
       <div className="relative max-w-[70%] md:max-w-[60%]">
-        <h1 className="font-display text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
+        {/* 10A.22B: text-xl below sm only — the heading column's
+            position/width/gradient coverage are unchanged (zero
+            contrast impact, per the 10A.22A audit's gradient-stop
+            math); a smaller phone-only size needs less line-width,
+            reducing unnecessary wrap at 320-414px. sm:text-2xl
+            md:text-3xl exactly reproduce the prior sizing at 640px+. */}
+        <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
           {greeting}{studentName ? `, ${studentName}` : ""} 👋
         </h1>
         <p className="text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
