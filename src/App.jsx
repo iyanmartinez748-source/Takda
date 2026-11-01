@@ -1634,7 +1634,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
           reminderBadgeCount={reminderBadgeCount}
           onOpenReminders={() => openReminders("all")}
         />
-        <div className="flex-1 overflow-y-auto pb-[calc(var(--mobile-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6">
+        <div className="flex-1 overflow-y-auto pb-[calc(var(--mobile-nav-clearance)+env(safe-area-inset-bottom))] lg:pb-6">
           {saveError && (
             <div className="mx-5 mt-4 md:mx-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-2">
               Your changes couldn't be saved just now — they may not be here after a refresh.
@@ -2710,7 +2710,7 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
   // elevation shadow — both pure box-shadow, zero blur cost.
   return (
     <div
-      className="hidden md:flex md:flex-col w-56 shrink-0 bg-[var(--takda-bg-surface)] border-r border-[var(--takda-border)] p-5"
+      className="hidden lg:flex lg:flex-col w-56 shrink-0 bg-[var(--takda-bg-surface)] border-r border-[var(--takda-border)] p-5"
       style={{ boxShadow: "inset -1px 0 0 var(--takda-glass-highlight), 1px 0 3px rgba(15,23,42,0.04)" }}
     >
       <div className="flex items-center gap-2 mb-8 px-1">
@@ -2765,7 +2765,7 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
   const rightItems = [{ key: "calendar", label: "Calendar", icon: CalendarIcon }];
   const moreActive = ["notes", "activities", "grades"].includes(view);
   return (
-    <div className="md:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto takda-glass takda-glass-neutral rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
+    <div className="lg:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto takda-glass takda-glass-neutral rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
@@ -2828,7 +2828,7 @@ function MoreSheet({ view, onClose, onNavigate }) {
 
   return (
     <div
-      className="md:hidden absolute inset-0 bg-black/40 flex items-end justify-center z-50"
+      className="lg:hidden absolute inset-0 bg-black/40 flex items-end justify-center z-50"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
