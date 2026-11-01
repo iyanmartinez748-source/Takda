@@ -512,14 +512,75 @@ body {
   container-name: takda-reminder-grid;
 }
 
-.takda-reminder-chip-grid {
+/* 10A.13B: .takda-reminder-chip-grid (the original 4-separate-chips
+   layout this container-query threshold was first built for) was
+   removed here — confirmed via grep to have zero remaining references
+   in App.jsx after the Reminders redesign below replaced it with
+   .takda-reminder-bar. The container itself (above) and its 380px
+   threshold are unchanged and still govern the bar's own responsive
+   breakpoint. */
+
+/* 10A.13B/10A.13C: Reminder summary BAR — reuses the exact same
+   container (takda-reminder-grid-container, same container-name/
+   threshold above) instead of introducing a second container-query
+   setup.
+
+   10A.13C fix: dividers are now explicit, grid-position-aware
+   nth-child border rules instead of Tailwind's `divide-x` utility.
+   `divide-x` draws its border purely from DOM sibling order (every
+   item after the first gets a border-left) — correct for a single
+   row, but wrong once the grid wraps: in the 2x2 state, item 3 (row
+   2, col 1) is the 3rd DOM sibling, so divide-x gave it a left
+   border as if it sat beside item 2, when visually it sits below
+   item 1 with nothing to its left. nth-child selectors pin each
+   border to its actual grid cell instead of sibling order, so this
+   can't happen at either column count.
+
+   2-column (2x2) state: border-right on items 1 and 3 (both column 1)
+   draws the one vertical divider between column 1 and column 2 in
+   both rows; border-top on items 3 and 4 draws the one horizontal
+   divider between row 1 and row 2. Item 2 and item 4 (column 2, the
+   last column in each row) get no border-right, so there's no stray
+   line past the bar's own edge; item 3 gets no border-left, so there
+   is no diagonal/incorrect border toward item 2.
+
+   4-column state: the 2-column rules are reset, then border-right on
+   items 1, 2, and 3 only (not 4) gives exactly 3 vertical dividers in
+   the single row, and no row divider exists since there is only one
+   row. */
+.takda-reminder-bar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
+}
+
+.takda-reminder-bar > *:nth-child(1),
+.takda-reminder-bar > *:nth-child(3) {
+  border-right: 1px solid var(--takda-border);
+}
+
+.takda-reminder-bar > *:nth-child(3),
+.takda-reminder-bar > *:nth-child(4) {
+  border-top: 1px solid var(--takda-border);
 }
 
 @container takda-reminder-grid (min-width: 380px) {
-  .takda-reminder-chip-grid {
+  .takda-reminder-bar {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .takda-reminder-bar > *:nth-child(1),
+  .takda-reminder-bar > *:nth-child(3) {
+    border-right: none;
+  }
+
+  .takda-reminder-bar > *:nth-child(3),
+  .takda-reminder-bar > *:nth-child(4) {
+    border-top: none;
+  }
+
+  .takda-reminder-bar > *:nth-child(1),
+  .takda-reminder-bar > *:nth-child(2),
+  .takda-reminder-bar > *:nth-child(3) {
+    border-right: 1px solid var(--takda-border);
   }
 }

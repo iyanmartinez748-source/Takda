@@ -2802,18 +2802,27 @@ const OVERVIEW_ACCENTS = {
 // accent color — an abstract shape, never a line/bar/sparkline, so it
 // can never be read as a real trend graphic (explicitly required this
 // phase: "do not imply fabricated academic trends").
+// 10A.13B: horizontal compact layout (icon beside text, not above it)
+// — the prior vertical stack (icon, mb-2, value, label) was the main
+// height driver (~124-128px); this targets ~75-85px via p-3.5 (28px
+// padding) + a row whose height is set by the text block (~20px value
+// line + 2px margin + ~16px label line ≈ 46px). Values/icons/accent
+// colors/the decorative corner circle are all unchanged — only the
+// arrangement and type scale changed.
 function OverviewCard({ icon: Icon, label, value, bg, accent }) {
   return (
     <div
-      className="relative overflow-hidden rounded-2xl p-4 border border-[var(--takda-border)]"
+      className="relative overflow-hidden rounded-2xl p-3.5 border border-[var(--takda-border)] flex items-center gap-2.5"
       style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       <span className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full pointer-events-none" aria-hidden="true" style={{ background: accent, opacity: 0.1 }} />
-      <span className="relative flex items-center justify-center w-9 h-9 rounded-xl mb-2" style={{ background: "rgba(255,255,255,0.6)" }}>
-        <Icon size={16} color={accent} />
+      <span className="relative flex items-center justify-center w-8 h-8 rounded-xl shrink-0" style={{ background: "rgba(255,255,255,0.6)" }}>
+        <Icon size={15} color={accent} />
       </span>
-      <div className="relative font-display text-2xl font-semibold" style={{ color: accent }}>{value}</div>
-      <div className="relative text-xs mt-0.5 font-medium" style={{ color: accent }}>{label}</div>
+      <div className="relative min-w-0">
+        <div className="font-display text-xl font-semibold leading-tight" style={{ color: accent }}>{value}</div>
+        <div className="text-xs mt-0.5 font-medium leading-tight truncate" style={{ color: accent }}>{label}</div>
+      </div>
     </div>
   );
 }
@@ -2845,17 +2854,37 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
           accent={OVERVIEW_ACCENTS.amber.accent}
         />
       ) : (
+        // 10A.13B: matched to the other 3 cards' new compact horizontal
+        // height (~75-85px via p-3.5 + icon-left/text-right). The PRO
+        // badge moves to an absolute top-right corner (freeing the
+        // vertical room its old `mb-2` used) instead of being removed
+        // — isPro/onOpenGrades/the upsell copy/behavior are unchanged.
         <button
           type="button"
           onClick={onOpenGrades}
-          className="takda-focus-visible takda-interactive relative overflow-hidden rounded-2xl p-4 text-left border border-[var(--takda-border)]"
+          className="takda-focus-visible takda-interactive relative overflow-hidden rounded-2xl p-3.5 text-left border border-[var(--takda-border)] flex items-center gap-2.5"
           style={{ background: OVERVIEW_ACCENTS.amber.bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
         >
-          <span className="takda-pro-badge inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide mb-2">
+          {/* 10A.13B: .takda-pro-badge itself sets `position: relative`
+              (index.css, needed for its own ::after shine overlay) and
+              is authored after @tailwind utilities in that file, so a
+              plain Tailwind `absolute` class here would lose the
+              cascade tie and be overridden back to relative. An inline
+              style always wins regardless of stylesheet order, so the
+              corner position is set that way instead. */}
+          <span
+            className="takda-pro-badge inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide"
+            style={{ position: "absolute", top: "8px", right: "8px" }}
+          >
             <span aria-hidden="true">✦</span> PRO
           </span>
-          <div className="text-sm font-semibold" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Academic Performance</div>
-          <div className="text-[11px] mt-0.5" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Upgrade to see your average</div>
+          <span className="relative flex items-center justify-center w-8 h-8 rounded-xl shrink-0" style={{ background: "rgba(255,255,255,0.6)" }}>
+            <Lock size={15} color={OVERVIEW_ACCENTS.amber.accent} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold leading-tight" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Academic Performance</div>
+            <div className="text-[11px] mt-0.5 leading-tight truncate" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Upgrade to see your average</div>
+          </div>
         </button>
       )}
     </div>
@@ -3654,21 +3683,29 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
         <DashboardEmptyState icon={CheckCircle2} title="You're all caught up." />
       ) : (
         <>
-          {/* Each chip narrows the modal to its own urgency group; only
-              "View all reminders" above and the global bell open it showing
-              every group. */}
-          {/* 10A.4H: container-query grid (defined in index.css) instead
-              of a fixed grid-cols-4 — this card sits in the Dashboard's
-              narrower ~40% supporting column, where 4 equal columns
-              left too little room for "Tomorrow"/"Due Soon" to render
-              on one line. Defaults to 2 columns and only widens to 4
-              once this grid's own rendered width actually allows it,
-              independent of viewport size. */}
-          <div className="takda-reminder-chip-grid mb-3">
-            <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onOpenReminders("overdue")} />
-            <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onOpenReminders("today")} />
-            <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onOpenReminders("tomorrow")} />
-            <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={() => onOpenReminders("soon")} />
+          {/* Each segment narrows the modal to its own urgency group;
+              only "View all reminders" above and the global bell open
+              it showing every group — unchanged from before. */}
+          {/* 10A.13B/10A.13C: single unified bar (was 4 separately-
+              bordered chips) — same container-query mechanism as
+              before (.takda-reminder-bar reuses the existing
+              takda-reminder-grid-container/threshold, index.css), so
+              narrow-width safety is unchanged: 2x2 by default, 4-across
+              only once the card is actually wide enough. The outer div
+              supplies the one shared border/rounded corners; the
+              internal dividers (both vertical and horizontal) are
+              explicit grid-position-aware nth-child border rules in
+              index.css, not Tailwind's divide-x (which drew a border
+              from DOM sibling order alone and placed an incorrect
+              divider in the 2x2 state — see that CSS block's own
+              comment for the exact bug and fix). */}
+          <div className="rounded-2xl border border-[var(--takda-border)] overflow-hidden mb-3">
+            <div className="takda-reminder-bar">
+              <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onOpenReminders("overdue")} />
+              <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onOpenReminders("today")} />
+              <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onOpenReminders("tomorrow")} />
+              <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={() => onOpenReminders("soon")} />
+            </div>
           </div>
           <div className="flex flex-col gap-2">
             {previewItems.map((a) => (
@@ -3681,6 +3718,14 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
   );
 }
 
+// 10A.13B: now a compact segment of the shared Reminders bar (the
+// outer wrapper supplies the border/rounded-corners/dividers) instead
+// of its own separately-bordered, color-filled card. Color now lives
+// on the text only (not the segment's background) — this is what
+// keeps an overdue count "visibly red" without the whole bar reading
+// as visually heavy when several categories are active at once.
+// min-h-11 (44px) keeps the touch target comfortable even though the
+// segment itself is visually short.
 function ReminderChip({ label, value, urgencyKey, onClick }) {
   const style = URGENCY_STYLE[urgencyKey];
   const active = value > 0;
@@ -3688,14 +3733,13 @@ function ReminderChip({ label, value, urgencyKey, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="rounded-2xl border p-3 flex flex-col items-start gap-1 text-left transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
-      style={active ? { background: style.bg, borderColor: style.bg } : { background: "var(--takda-bg-surface)", borderColor: "var(--takda-border)" }}
+      className="takda-focus-visible takda-interactive flex flex-col items-center justify-center gap-0.5 min-h-11 py-2 px-2 text-center bg-[var(--takda-bg-surface)] hover:bg-[var(--takda-bg-page)] transition-colors duration-150"
       aria-label={`${label} — ${value}`}
     >
-      <span className="font-display text-2xl font-semibold leading-none" style={{ color: active ? style.text : "#1B1B2F" }}>
+      <span className="font-display text-lg font-semibold leading-none" style={{ color: active ? style.text : "var(--takda-text-primary)" }}>
         {value}
       </span>
-      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: active ? style.text : "#64748B" }}>
+      <span className="text-[11px] font-semibold uppercase tracking-wide leading-none" style={{ color: active ? style.text : "var(--takda-text-muted-2)" }}>
         {label}
       </span>
     </button>
