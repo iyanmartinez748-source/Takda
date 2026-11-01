@@ -2839,9 +2839,12 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
 // based formula (see TakdaApp's dashboardOverallAverage), and is only
 // ever shown when `isPro` — Free users see a locked, Pro-upsell card
 // instead, exactly mirroring GradeLockedView's own existing gating.
+// 10A.14B: mb-7 (28px) -> mb-4 (16px), the one spacing change
+// authorized for AcademicOverview in this phase — its own card
+// styling (OverviewCard) is untouched.
 function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGrades }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-7">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
       <OverviewCard icon={CheckCircle2} label="Pending Activities" value={stats.pending} bg={OVERVIEW_ACCENTS.rose.bg} accent={OVERVIEW_ACCENTS.rose.accent} />
       <OverviewCard icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
       <OverviewCard icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
@@ -3067,9 +3070,13 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
   const showViewAll = activeList.length < counts[activeFilter];
   const emptyCopy = TODAYS_FOCUS_EMPTY_COPY[activeFilter];
 
+  // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to the next
+  // Dashboard section (Smart Reminders). Internal spacing (header,
+  // tab row) is addressed separately below; filtering/counts/
+  // ActivityRow are untouched.
   return (
     <div
-      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7"
+      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
       style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       <div className="flex items-start justify-between gap-3 mb-1">
@@ -3097,7 +3104,11 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
           widths. flex-wrap (the actual anti-clipping fix) is untouched,
           as is py-1.5 (touch-target height) and text-xs (readable
           floor) — only horizontal gap/padding were nudged in. */}
-      <div className="flex flex-wrap items-center gap-1 mb-3 mt-3">
+      {/* 10A.14B: mb-3/mt-3 (12px each) -> mb-2/mt-2 (8px each), saving
+          8px total around the tab row. flex-wrap, py-1.5, and text-xs
+          (the actual anti-clipping/touch-target/readability floors)
+          are untouched. */}
+      <div className="flex flex-wrap items-center gap-1 mb-2 mt-2">
         {TODAYS_FOCUS_TABS.map((tab) => {
           const active = activeFilter === tab.key;
           const accent = TODAYS_FOCUS_TAB_ACCENT[tab.key];
@@ -3552,6 +3563,19 @@ const QUICK_ACTION_ACCENTS = {
   amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
 };
 
+// 10A.14B: horizontal compact layout (icon beside label, not above
+// it) — the prior vertical stack (icon, gap-1.5, label, py-4) was
+// ~72px tall; this targets ~48-56px via py-4 on a row whose height is
+// set by the taller of icon(18px)/label line, with min-h-11 (44px) as
+// an explicit touch-target floor. Same icon size/accent colors/PRO
+// badge position/border/shadow/hover-lift — only the arrangement and
+// label size changed (text-[11px] -> text-xs, consistent with the
+// already-compacted OverviewCard labels).
+// 10A.14C: py-4 (32px) -> py-3 (24px). Row content height (icon 18px)
+// + 24px padding = 42px, so min-h-11 (44px, unchanged) is now the
+// value actually setting the rendered height — a small, deliberate
+// floor rather than padding alone, keeping the 44px touch target
+// exact instead of just "at least."
 function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, bg, accent }) {
   return (
     <button
@@ -3559,7 +3583,7 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className="takda-focus-visible takda-interactive flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 px-2 text-center relative border border-[var(--takda-border)] transition-shadow duration-200 hover:shadow-md motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
+      className="takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative border border-[var(--takda-border)] transition-shadow duration-200 hover:shadow-md motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
       style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       {showProBadge && (
@@ -3570,8 +3594,8 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
           PRO
         </span>
       )}
-      <Icon size={18} color={accent} />
-      <span className="text-[11px] font-semibold" style={{ color: accent }}>{label}</span>
+      <Icon size={18} color={accent} className="shrink-0" />
+      <span className="text-xs font-semibold truncate min-w-0" style={{ color: accent }}>{label}</span>
     </button>
   );
 }
@@ -3589,8 +3613,11 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
 // `disabled`/`title` gating, and keyboard focus (`takda-focus-visible`)
 // are unchanged from before this color pass.
 function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenNotes, canCreate = true }) {
+  // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to Next
+  // Class. grid-cols-2 sm:grid-cols-4 and every handler/gating prop
+  // below are unchanged.
   return (
-    <div className="mb-7">
+    <div className="mb-4">
       {/* Visible "Quick Actions" heading removed per Phase 09B.6 — kept
           in the DOM as sr-only so screen-reader heading navigation and
           grouping context are preserved. */}
@@ -3650,10 +3677,6 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
     ? (activeSemesterName ? `Reminders for ${activeSemesterName}` : "Reminders")
     : "Reminders";
 
-  // Most urgent first, capped to keep the Dashboard from turning into a
-  // second Activities list.
-  const previewItems = [...groups.overdue, ...groups.dueToday, ...groups.dueTomorrow, ...groups.dueSoon].slice(0, 3);
-
   // Phase 09B.8: one neutral glass surface for the whole section, but
   // only when there's real content to show — the "no active semester"
   // prompt and the urgent-chips/preview-rows case both count; the plain
@@ -3661,9 +3684,12 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
   // same convention used by every other Dashboard section this phase.
   const hasGlassContent = totalUrgent > 0 || (hasSemesters && !hasActiveSemesterForReminders);
 
+  // 10A.14B: mb-7 (28px) -> mb-4 (16px) on both branches, reducing the
+  // gap to the next Dashboard section. Nothing else about this
+  // wrapper (hasGlassContent/the card chrome it toggles) changed.
   return (
     <div
-      className={`takda-reminder-grid-container ${hasGlassContent ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7" : "mb-7"}`}
+      className={`takda-reminder-grid-container ${hasGlassContent ? "rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4" : "mb-4"}`}
       style={hasGlassContent ? { boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" } : undefined}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
@@ -3699,18 +3725,25 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
               from DOM sibling order alone and placed an incorrect
               divider in the 2x2 state — see that CSS block's own
               comment for the exact bug and fix). */}
-          <div className="rounded-2xl border border-[var(--takda-border)] overflow-hidden mb-3">
+          {/* 10A.14B: the ActivityRow preview list (up to 3 items) that
+              used to sit below this bar was removed — per the 10A.14A
+              audit, it duplicated activities Today's Focus already
+              shows more fully (filter tabs, clampTitle, more visible
+              rows), since both widgets draw from the same activities
+              whenever the browsed semester is the active one. The bar
+              itself, its 4 segments, their onOpenReminders(key)
+              handlers, and the conditional structure around it
+              (totalUrgent === 0 -> empty state, otherwise -> this bar)
+              are unchanged — removing the preview rows doesn't affect
+              when the bar itself is shown, so no conditional-rendering
+              change was needed to keep it visible. */}
+          <div className="rounded-2xl border border-[var(--takda-border)] overflow-hidden">
             <div className="takda-reminder-bar">
               <ReminderChip label="Overdue" value={counts.overdue} urgencyKey="overdue" onClick={() => onOpenReminders("overdue")} />
               <ReminderChip label="Today" value={counts.dueToday} urgencyKey="today" onClick={() => onOpenReminders("today")} />
               <ReminderChip label="Tomorrow" value={counts.dueTomorrow} urgencyKey="tomorrow" onClick={() => onOpenReminders("tomorrow")} />
               <ReminderChip label="Due Soon" value={counts.dueSoon} urgencyKey="week" onClick={() => onOpenReminders("soon")} />
             </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            {previewItems.map((a) => (
-              <ActivityRow key={a.id} activity={a} onToggle={onToggle} onOpenSubject={onOpenSubject} compact clampTitle />
-            ))}
           </div>
         </>
       )}
@@ -3922,8 +3955,10 @@ function NextClassCard({ nextClass, onOpenSubject }) {
   // startTime/location are read exactly as before.
   const dayLabel =
     nextClass && (nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]);
+  // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to Today's
+  // Focus. No change to the card itself (nextClass/location/colors).
   return (
-    <div className="mb-7">
+    <div className="mb-4">
       <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Next Class</h2>
       {!nextClass ? (
         // 10A.4E: sits on the same amber surface/padding as the filled
