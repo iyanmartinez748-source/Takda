@@ -3812,6 +3812,13 @@ function SmartInsightsSection({ insights }) {
     // not used here — this component now renders its own heading
     // locally, matching every other migrated widget, without touching
     // the shared SectionHeader component used elsewhere.
+    // 10A.15B: this call never passed a `tone` prop at all, so it was
+    // falling back to DashboardEmptyState's own default `mb-7` —
+    // unlike every sibling empty state (Next Class/Today's Classes/
+    // Recently Completed), which all explicitly opt into
+    // `noMargin: true`. Adding it here only removes that one
+    // unintentional extra margin; message/icon/conditional rendering
+    // are unchanged.
     return (
       <>
         <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Smart Insights</h2>
@@ -3819,6 +3826,7 @@ function SmartInsightsSection({ insights }) {
           icon={CheckCircle2}
           title="No workload alerts right now"
           subtitle="Your current academic workload looks clear."
+          tone={{ noMargin: true }}
         />
       </>
     );
@@ -3961,13 +3969,14 @@ function NextClassCard({ nextClass, onOpenSubject }) {
     <div className="mb-4">
       <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Next Class</h2>
       {!nextClass ? (
-        // 10A.4E: sits on the same amber surface/padding as the filled
-        // card below (via DashboardEmptyState's new opt-in `tone`) so
-        // the empty and populated states read as one consistent card,
-        // not a bare row that only gains a background once a class
-        // exists. Message/subtitle text unchanged.
+        // 10A.15B: compacted to one concise line (title only, no
+        // subtitle, no action/handler) — still the same amber surface
+        // via DashboardEmptyState's existing `tone` prop, just with
+        // tighter padding (p-3 instead of p-4 md:p-5) now that there's
+        // only one line of content. No navigation was added; this
+        // remains purely informational, same as before.
         <div
-          className="rounded-2xl p-4 md:p-5"
+          className="rounded-2xl p-3"
           style={{
             background: "var(--takda-status-tomorrow-bg)",
             boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
@@ -3975,8 +3984,7 @@ function NextClassCard({ nextClass, onOpenSubject }) {
         >
           <DashboardEmptyState
             icon={CalendarIcon}
-            title="No upcoming classes."
-            subtitle="Add a class schedule from Add/Edit Subject to see it here."
+            title="No upcoming classes scheduled."
             tone={{ bg: "transparent", border: "transparent", iconColor: "var(--takda-status-tomorrow-text)", noMargin: true }}
           />
         </div>
@@ -4028,9 +4036,14 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
   // it visually matches Next Class's card-first treatment. `classes`
   // itself — its contents, sort order, and semester scoping — is
   // untouched.
+  // 10A.15B: mb-7 (28px) -> mb-4 (16px), matching the margin value
+  // every sibling Dashboard section already uses since Phase 10A.14B
+  // (this one was never named in that phase's scope, so it kept the
+  // old value until now). Heading/empty-state/class-list content
+  // unchanged.
   return (
     <div
-      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-7"
+      className="rounded-2xl p-4 md:p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] mb-4"
       style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--takda-text-primary)" }}>Today's Classes</h2>
