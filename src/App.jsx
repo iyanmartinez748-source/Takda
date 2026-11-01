@@ -2899,7 +2899,16 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
       </span>
       <div className="relative min-w-0">
         <div className="font-display text-xl font-semibold leading-tight" style={{ color: accent }}>{value}</div>
-        <div className="text-xs mt-0.5 font-medium leading-tight truncate" style={{ color: accent }}>{label}</div>
+        {/* 10A.19B: truncate -> line-clamp-2. At 320px this column is
+            only ~64px wide (see the 10A.19A audit's arithmetic), too
+            narrow for any of the 4 labels on one line at text-xs —
+            wrapping to 2 lines (same clamp pattern already used by
+            NextClassCard/TodaysClassesSection) fixes the truncation
+            without touching padding/icon/grid. The grid's default
+            align-items:stretch (no override on AcademicOverview's own
+            grid) keeps a row-mate card's height matched automatically
+            if only one of the two wraps. */}
+        <div className="text-xs mt-0.5 font-medium leading-tight line-clamp-2" style={{ color: accent }}>{label}</div>
       </div>
     </div>
   );
@@ -2964,7 +2973,11 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
           </span>
           <div className="min-w-0">
             <div className="text-xs font-semibold leading-tight" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Academic Performance</div>
-            <div className="text-[11px] mt-0.5 leading-tight truncate" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Upgrade to see your average</div>
+            {/* 10A.19B: truncate -> line-clamp-2, same fix as the
+                sibling OverviewCard label above — this subtitle was
+                truncating at 320px for the same width-arithmetic
+                reason. */}
+            <div className="text-[11px] mt-0.5 leading-tight line-clamp-2" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Upgrade to see your average</div>
           </div>
         </button>
       )}
@@ -3186,7 +3199,15 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
           8px total around the tab row. flex-wrap, py-1.5, and text-xs
           (the actual anti-clipping/touch-target/readability floors)
           are untouched. */}
-      <div className="flex flex-wrap items-center gap-1 mb-2 mt-2">
+      {/* 10A.19B: below sm, content-driven flex-wrap was producing an
+          uneven 3-tabs-then-1 split at 320-414px ("Upcoming (N)", the
+          longest label, was the one that didn't fit the row — see the
+          10A.19A audit). Switching to a plain 2x2 grid below sm gives
+          every tab an equal, predictable cell instead; sm:flex
+          sm:flex-wrap restores the exact prior behavior (and prior
+          classes) unchanged at sm and up, where the row is wide enough
+          that this was never a problem. */}
+      <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-1 mb-2 mt-2">
         {TODAYS_FOCUS_TABS.map((tab) => {
           const active = activeFilter === tab.key;
           const accent = TODAYS_FOCUS_TAB_ACCENT[tab.key];
@@ -3202,7 +3223,10 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               // py-1.5 (still the padding value, just no longer the
               // sole height driver) — flex-wrap on the parent row is
               // unchanged and remains the only overflow safeguard.
-              className="takda-focus-visible takda-interactive min-h-11 flex items-center justify-center px-2 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
+              // 10A.19B: w-full fills the 2x2 grid cell evenly below
+              // sm; sm:w-auto reverts to the original content-sized
+              // width once the parent is back to flex-wrap at sm+.
+              className="takda-focus-visible takda-interactive min-h-11 w-full sm:w-auto flex items-center justify-center px-2 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
               style={
                 active
                   ? { background: accent.bg, color: accent.text }
@@ -3679,7 +3703,16 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
         </span>
       )}
       <Icon size={18} color={accent} className="shrink-0" />
-      <span className="text-xs font-semibold truncate min-w-0" style={{ color: accent }}>{label}</span>
+      {/* 10A.19B: truncate -> line-clamp-2 (min-w-0 kept — still needed
+          for the clamp to actually constrain width next to the
+          shrink-0 icon). At 320px this label has only ~85px available
+          (10A.19A audit), too narrow for "View Calendar" on one line;
+          wrapping to 2 lines fixes it with no font-size change. The
+          utility's own `display: -webkit-box` makes it work the same
+          on this inline <span> as it does elsewhere on a <div>. The
+          parent grid's default align-items:stretch keeps a row-mate
+          tile's height matched if only one tile wraps. */}
+      <span className="text-xs font-semibold line-clamp-2 min-w-0" style={{ color: accent }}>{label}</span>
     </button>
   );
 }
