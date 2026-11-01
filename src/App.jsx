@@ -2437,15 +2437,36 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
       </div>
 
       {open && (
-        <div className="absolute left-5 md:left-8 top-full mt-1 z-40 w-64 max-h-72 overflow-y-auto rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-lg py-1.5">
+        // 10A.17B: mobile width now tracks the bar's own available
+        // space (left-5 right-5, both matching the bar's px-5 padding
+        // for equal gutters) instead of a fixed w-64 that left most of
+        // a mobile-width bar unused. At md+, md:right-auto resets
+        // `right` and md:w-64 restores the exact original fixed-width,
+        // left-anchored desktop dropdown — zero visual change there.
+        // top-full/z-40/max-h-72/overflow-y-auto/border/shadow/radius
+        // are all unchanged.
+        <div className="absolute left-5 right-5 md:left-8 md:right-auto top-full mt-1 z-40 w-auto md:w-64 max-h-72 overflow-y-auto rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-lg py-1.5">
           {options.map((o) => (
             <button
               key={o.id ?? "unassigned"}
               onClick={() => { onSelect(o.id); setOpen(false); }}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors duration-150"
+              className="takda-focus-visible w-full min-h-11 flex items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors duration-150"
               style={o.id === selectedSemesterId ? { color: "var(--takda-brand)", fontWeight: 600 } : undefined}
             >
-              <span className="truncate">{o.label}</span>
+              {/* 10A.17B: flex-1 min-w-0 lets this span actually shrink
+                  within the row (the same Flexbox requirement already
+                  fixed elsewhere in this file, e.g. SmartInsightsSection's
+                  message span, Phase 10A.6B) — without it, truncate/wrap
+                  can't correctly constrain the span when a shrink-0
+                  sibling (the badge) is present. md:truncate preserves
+                  the exact original desktop single-line behavior;
+                  below md it wraps naturally instead (break-words
+                  covers the rare exceptionally-long unbroken-string
+                  case). items-start (on the button, above) keeps a
+                  wrapped multi-line name from vertically centering
+                  against the badge, which stays shrink-0 and aligns
+                  near the top-right instead of overlapping the text. */}
+              <span className="flex-1 min-w-0 md:truncate break-words">{o.label}</span>
               <span className="flex items-center gap-1 shrink-0">
                 {o.isActive && <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-600">Active</span>}
                 {o.isArchived && <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Archived</span>}
