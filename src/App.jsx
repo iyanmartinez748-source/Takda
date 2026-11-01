@@ -2390,8 +2390,23 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
   // are NOT duplicated: they already form one group that simply
   // becomes "row 2" once the outer container goes flex-col, with no
   // need to exist in two places.
+  //
+  // 10A.16F: added `z-10` on this root. `.takda-glass` applies
+  // backdrop-filter unconditionally (index.css), and backdrop-filter
+  // forces an element into its own stacking context even at
+  // z-index:auto. GreetingHero is also `.takda-glass` and sits later
+  // in the DOM (inside the sibling scroll container that follows this
+  // bar, App.jsx's TakdaApp render) — with both roots at an equal,
+  // unset stacking level, DOM order decides, so GreetingHero's box
+  // paints above this bar's, trapping the dropdown's own z-40
+  // underneath it regardless of that value (a descendant's z-index can
+  // never escape the stacking-context comparison its own ancestor
+  // already lost). An explicit, low z-index here only needs to beat
+  // GreetingHero's/Dashboard's unset level — it stays well under this
+  // bar's own z-40 dropdown, the mobile MoreSheet's z-50, and every
+  // modal's z-[130], so it cannot incorrectly cover any of those.
   return (
-    <div className="relative takda-glass takda-glass-silver flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
+    <div className="relative z-10 takda-glass takda-glass-silver flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
         className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 min-h-11 md:min-h-0 -mx-2 hover:bg-white/40 transition-colors duration-150"
