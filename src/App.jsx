@@ -2405,8 +2405,17 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
   // GreetingHero's/Dashboard's unset level — it stays well under this
   // bar's own z-40 dropdown, the mobile MoreSheet's z-50, and every
   // modal's z-[130], so it cannot incorrectly cover any of those.
+  // 10A.18B: mobile-only alignment fix. m-3 (12px) previously inset
+  // this bar's own card edge less than Dashboard's p-5 (20px) insets
+  // GreetingHero/AcademicOverview's card edges from the same shared
+  // parent, so the bar visibly stuck out ~8px further toward the
+  // viewport edge than the cards below it. mx-5 (20px) replaces the
+  // horizontal component only, matching Dashboard's p-5 exactly;
+  // my-3 keeps the original vertical spacing/rhythm untouched.
+  // md:m-4 (desktop) is completely unchanged — this phase's Step 5
+  // explicitly scopes the fix to mobile only.
   return (
-    <div className="relative z-10 takda-glass takda-glass-silver flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 rounded-2xl px-5 md:px-8 py-3.5 m-3 md:m-4 shrink-0" ref={ref}>
+    <div className="relative z-10 takda-glass takda-glass-silver flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 rounded-2xl px-5 md:px-8 py-3.5 mx-5 my-3 md:m-4 shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
         className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 min-h-11 md:min-h-0 -mx-2 hover:bg-white/40 transition-colors duration-150"
@@ -3187,7 +3196,13 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               type="button"
               onClick={() => setActiveFilter(tab.key)}
               aria-pressed={active}
-              className="takda-focus-visible takda-interactive px-2 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
+              // 10A.18B: min-h-11 + flex items-center/justify-center
+              // raises the tap height to 44px without touching px-2
+              // (horizontal size, hence wrap behavior at 320px) or
+              // py-1.5 (still the padding value, just no longer the
+              // sole height driver) — flex-wrap on the parent row is
+              // unchanged and remains the only overflow safeguard.
+              className="takda-focus-visible takda-interactive min-h-11 flex items-center justify-center px-2 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors duration-150"
               style={
                 active
                   ? { background: accent.bg, color: accent.text }
@@ -3901,9 +3916,15 @@ function SmartInsightsSection({ insights }) {
     );
   }
 
+  // 10A.18B: mb-7 (28px) -> mb-4 (16px), matching every sibling
+  // Dashboard widget since Phase 10A.14B/10A.15B — this populated-state
+  // branch was never named in either phase's scope, so it kept the old
+  // value while its own empty-state branch above (and every other
+  // widget) already moved to mb-4. Insight data/messages/card styling
+  // otherwise unchanged.
   return (
     <div
-      className="rounded-2xl p-4 md:p-5 mb-7"
+      className="rounded-2xl p-4 md:p-5 mb-4"
       style={{ background: "var(--takda-brand-tint-1)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
     >
       <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--takda-text-primary)" }}>Smart Insights</h2>
@@ -4185,20 +4206,33 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight, cl
     <div
       className={`flex items-center gap-3 rounded-xl bg-[var(--takda-bg-surface)] border p-3 transition-shadow transition-colors duration-200 ease-out hover:shadow-sm motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-px ${highlight ? "border-[var(--takda-brand)]" : "border-[var(--takda-border)] hover:border-[var(--takda-border-neutral-2)]"}`}
     >
+      {/* 10A.18B: the button is now a 44px transparent hit area (w-11
+          h-11) with the actual 24px circle moved to an inner
+          aria-hidden span — the visible checkbox graphic is unchanged
+          pixel-for-pixel, only the tappable area around it grew. No
+          absolute positioning/negative margins were needed: the row
+          already uses items-center, so a larger shrink-0 box just
+          centers against the (already taller) title block without
+          shifting anything. */}
       <button
         onClick={() => onToggle(activity)}
-        className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out"
-        style={{ borderColor: done ? "var(--takda-status-week-dot)" : "var(--takda-border-neutral-2)", background: done ? "var(--takda-status-week-dot)" : "transparent" }}
+        className="takda-focus-visible shrink-0 w-11 h-11 rounded-full flex items-center justify-center"
         aria-label={done ? "Reopen task" : "Mark complete"}
       >
-        <Check
-          size={14}
-          color="white"
-          className={`transition-all duration-200 ease-out motion-reduce:transition-none ${done ? "opacity-100 scale-100" : "opacity-0 scale-50"}`}
-        />
+        <span
+          className="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out"
+          style={{ borderColor: done ? "var(--takda-status-week-dot)" : "var(--takda-border-neutral-2)", background: done ? "var(--takda-status-week-dot)" : "transparent" }}
+          aria-hidden="true"
+        >
+          <Check
+            size={14}
+            color="white"
+            className={`transition-all duration-200 ease-out motion-reduce:transition-none ${done ? "opacity-100 scale-100" : "opacity-0 scale-50"}`}
+          />
+        </span>
       </button>
       <div className="flex-1 min-w-0">
-        <button className="text-left w-full" onClick={() => activity.subjectId && onOpenSubject(activity.subjectId)}>
+        <button className="takda-focus-visible text-left w-full" onClick={() => activity.subjectId && onOpenSubject(activity.subjectId)}>
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activity.subject?.color || "#94A3B8" }} />
             <span className="text-[11px] font-medium text-[color:var(--takda-text-muted-2)] truncate">{activity.subject?.name || "General"}</span>
