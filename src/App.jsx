@@ -2780,7 +2780,7 @@ function NavBtn({ it, active, onClick }) {
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className="flex flex-col items-center gap-0.5 px-2 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 rounded-lg"
+      className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 rounded-lg"
       style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
     >
       <span
@@ -2977,7 +2977,8 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
                 sibling OverviewCard label above — this subtitle was
                 truncating at 320px for the same width-arithmetic
                 reason. */}
-            <div className="text-[11px] mt-0.5 leading-tight line-clamp-2" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Upgrade to see your average</div>
+            {/* 10A.20B: shorter copy fits within line-clamp-2 at 320px. */}
+            <div className="text-[11px] mt-0.5 leading-tight line-clamp-2" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Unlock your average</div>
           </div>
         </button>
       )}
@@ -3810,7 +3811,11 @@ function SmartRemindersSection({ groups, activeSemesterName, hasSemesters, hasAc
       style={hasGlassContent ? { boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" } : undefined}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
-        <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-primary)" }}>{captionText}</h2>
+        {/* 10A.20B: mobile shows the short "Reminders" heading; sm+ shows
+            the full captionText. hidden/sm:* keeps only one in the a11y
+            tree at a time (same pattern as SemesterBar's badge, 10A.16C). */}
+        <h2 className="sm:hidden font-display text-sm font-semibold" style={{ color: "var(--takda-text-primary)" }}>Reminders</h2>
+        <h2 className="hidden sm:block font-display text-sm font-semibold" style={{ color: "var(--takda-text-primary)" }}>{captionText}</h2>
         {totalUrgent > 0 && <ViewAllLink label="View all reminders" onClick={() => onOpenReminders("all")} />}
       </div>
 
