@@ -424,6 +424,23 @@ body {
   }
 }
 
+/* 10A.28F: Academic Performance upsell shadow.
+   Uses the existing .takda-interactive transition system. */
+.takda-academic-performance-shadow {
+  box-shadow:
+    inset 0 1px 0 var(--takda-glass-highlight),
+    0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .takda-academic-performance-shadow:hover {
+    box-shadow:
+      inset 0 1px 0 var(--takda-glass-highlight),
+      0 4px 6px -1px rgba(15, 23, 42, 0.1),
+      0 2px 4px -2px rgba(15, 23, 42, 0.1);
+  }
+}
+
 /* Rule 7: graceful fallback when backdrop-filter is unavailable — swap
    the translucent gradient for a near-opaque solid so the surface still
    reads clearly without the blur. */
