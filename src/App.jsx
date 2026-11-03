@@ -2968,7 +2968,7 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
         <button
           type="button"
           onClick={onOpenGrades}
-          className="takda-focus-visible takda-interactive relative overflow-hidden rounded-2xl p-3.5 text-left border border-[var(--takda-border)] flex items-center gap-2.5"
+          className="takda-focus-visible takda-interactive relative overflow-hidden rounded-2xl p-3.5 text-left border border-[var(--takda-border)] flex items-center motion-safe:hover:shadow-md"
           style={{ background: OVERVIEW_ACCENTS.amber.bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
         >
           {/* 10A.13B: .takda-pro-badge itself sets `position: relative`
