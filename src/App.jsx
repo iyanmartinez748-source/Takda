@@ -2984,9 +2984,6 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
           >
             <span aria-hidden="true">✦</span> PRO
           </span>
-          <span className="relative flex items-center justify-center w-8 h-8 rounded-xl shrink-0" style={{ background: "rgba(255,255,255,0.6)" }}>
-            <Lock size={15} color={OVERVIEW_ACCENTS.amber.accent} />
-          </span>
           <div className="min-w-0 sm:pr-5">
             <div className="text-xs font-semibold leading-tight line-clamp-2" style={{ color: OVERVIEW_ACCENTS.amber.accent }}>Academic Performance</div>
             {/* 10A.19B: truncate -> line-clamp-2, same fix as the
