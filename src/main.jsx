@@ -1730,24 +1730,24 @@ function ProfileSetup({ user, onComplete }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-2xl border border-[#E4E4F0] bg-white p-6 shadow-sm">
+    <div className="min-h-screen bg-[var(--takda-bg-page)] flex items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--takda-border)] bg-white p-6 shadow-sm">
 
         <div className="mb-6 text-center">
 
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#3D2FE0] text-xl font-bold text-white">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--takda-brand)] text-xl font-bold text-white">
             T
           </div>
 
-          <h1 className="text-2xl font-bold text-[#1B1B2F]">
+          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Welcome to Takda! 👋
           </h1>
 
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-[color:var(--takda-text-muted-2)]">
             Tell us a little about yourself to personalize your experience.
           </p>
 
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-[color:var(--takda-text-muted-1)]">
             {user.email}
           </p>
 
@@ -1756,7 +1756,7 @@ function ProfileSetup({ user, onComplete }) {
         <form onSubmit={saveProfile} className="space-y-4">
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+            <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
               Full Name <span className="text-red-500">*</span>
             </label>
 
@@ -1766,12 +1766,12 @@ function ProfileSetup({ user, onComplete }) {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="e.g. Juan Dela Cruz"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+            <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
               School
             </label>
 
@@ -1780,12 +1780,12 @@ function ProfileSetup({ user, onComplete }) {
               value={school}
               onChange={(e) => setSchool(e.target.value)}
               placeholder="e.g. University of the Philippines"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+            <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
               Program / Track <span className="text-red-500">*</span>
             </label>
 
@@ -1795,12 +1795,12 @@ function ProfileSetup({ user, onComplete }) {
               value={course}
               onChange={(e) => setCourse(e.target.value)}
               placeholder="e.g. BS Information Technology"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+            <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
               Year / Grade Level <span className="text-red-500">*</span>
             </label>
 
@@ -1810,7 +1810,7 @@ function ProfileSetup({ user, onComplete }) {
               value={yearLevel}
               onChange={(e) => setYearLevel(e.target.value)}
               placeholder="e.g. 2nd Year or Grade 12"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
@@ -1823,7 +1823,7 @@ function ProfileSetup({ user, onComplete }) {
           <button
             type="submit"
             disabled={saving}
-            className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+            className="w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
             {saving ? "Saving profile..." : "Save & Continue"}
           </button>
