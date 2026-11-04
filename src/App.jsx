@@ -3714,8 +3714,8 @@ function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProB
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className="takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative border border-[var(--takda-border)] transition-shadow duration-200 hover:shadow-md motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
-      style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+      className="takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative border border-[var(--takda-border)] takda-quick-action-shadow motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
+      style={{ background: bg }}
     >
       {showProBadge && (
         <span
