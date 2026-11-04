@@ -129,7 +129,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
   ];
 
   return (
-    <div className="min-h-screen bg-[#F7F8FC] text-[#1B1B2F]" style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}>
+    <div className="min-h-screen bg-[var(--takda-bg-page-landing)] text-[color:var(--takda-text-primary)]" style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');`}</style>
 
       {legalPage && (
@@ -138,21 +138,21 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
             <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-xl sm:p-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-[#3D2FE0]">Takda</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[color:var(--takda-brand)]">Takda</p>
                   <h2 className="mt-1 text-2xl font-extrabold">{legalContent[legalPage].title}</h2>
                 </div>
-                <button type="button" onClick={() => setLegalPage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-[#F5F6FA] text-xl text-slate-500" aria-label="Close">×</button>
+                <button type="button" onClick={() => setLegalPage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-xl text-slate-500" aria-label="Close">×</button>
               </div>
               <div className="mt-6 space-y-4 text-sm leading-7 text-slate-600">
                 {legalContent[legalPage].body.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
               </div>
               <p className="mt-6 text-xs text-slate-400">Last updated: September 2026</p>
-              <button type="button" onClick={() => setLegalPage(null)} className="mt-6 w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-bold text-white sm:w-auto sm:px-6">Close</button>
+              <button type="button" onClick={() => setLegalPage(null)} className="mt-6 w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-bold text-white sm:w-auto sm:px-6">Close</button>
             </div>
           </div>
         </div>
       )}
-      <header className="sticky top-0 z-40 border-b border-[#E4E4F0] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-[var(--takda-border)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5">
             <img src="/takda-icon.png" alt="Takda" className="h-10 w-10 rounded-xl object-cover" />
@@ -160,10 +160,10 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
           </div>
 
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[#3D2FE0] sm:px-4">
+            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-brand)] sm:px-4">
               Log in
             </button>
-            <button type="button" onClick={onSignup} className="rounded-xl bg-[#3D2FE0] px-3 py-2 text-sm font-semibold text-white shadow-sm sm:px-4">
+            <button type="button" onClick={onSignup} className="rounded-xl bg-[var(--takda-brand)] px-3 py-2 text-sm font-semibold text-white shadow-sm sm:px-4">
               Get Started Free
             </button>
           </div>
@@ -173,27 +173,27 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
       <main>
         <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 md:grid-cols-2 md:py-24">
           <div>
-            <div className="mb-4 inline-flex rounded-full border border-[#DCD9FF] bg-[#F0EEFF] px-3 py-1 text-xs font-semibold text-[#3D2FE0]">
+            <div className="mb-4 inline-flex rounded-full border border-[var(--takda-brand-border-tint)] bg-[var(--takda-brand-tint-2)] px-3 py-1 text-xs font-semibold text-[color:var(--takda-brand)]">
               Your student workspace
             </div>
             <h1 className="text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
-              Stay on top of school with <span className="text-[#3D2FE0]">Takda.</span>
+              Stay on top of school with <span className="text-[color:var(--takda-brand)]">Takda.</span>
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
               Manage your subjects, activities, deadlines, grades, calendar, and notes — all in one simple student workspace.
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <button type="button" onClick={onSignup} className="rounded-xl bg-[#3D2FE0] px-6 py-3.5 text-sm font-semibold text-white shadow-sm">
+              <button type="button" onClick={onSignup} className="rounded-xl bg-[var(--takda-brand)] px-6 py-3.5 text-sm font-semibold text-white shadow-sm">
                 Get Started Free →
               </button>
-              <button type="button" onClick={onLogin} className="rounded-xl border border-[#E4E4F0] bg-white px-6 py-3.5 text-sm font-semibold text-[#1B1B2F]">
+              <button type="button" onClick={onLogin} className="rounded-xl border border-[var(--takda-border)] bg-white px-6 py-3.5 text-sm font-semibold text-[color:var(--takda-text-primary)]">
                 I already have an account
               </button>
             </div>
             <p className="mt-4 text-xs text-slate-400">Free to get started • Built for students</p>
           </div>
 
-          <div className="rounded-3xl border border-[#E4E4F0] bg-white p-5 shadow-xl shadow-slate-200/50 sm:p-7">
+          <div className="rounded-3xl border border-[var(--takda-border)] bg-white p-5 shadow-xl shadow-slate-200/50 sm:p-7">
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-400">Good day 👋</p>
@@ -203,36 +203,36 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
             </div>
             <div className="grid grid-cols-2 gap-3">
               {[["📚", "Subjects", "6"], ["⏳", "Pending", "4"], ["✅", "Completed", "12"], ["📅", "Due Today", "2"]].map(([icon, label, value]) => (
-                <div key={label} className="rounded-2xl border border-[#E4E4F0] p-4">
+                <div key={label} className="rounded-2xl border border-[var(--takda-border)] p-4">
                   <span>{icon}</span>
                   <p className="mt-2 text-2xl font-bold">{value}</p>
                   <p className="text-xs text-slate-500">{label}</p>
                 </div>
               ))}
             </div>
-            <div className="mt-4 rounded-2xl bg-[#F5F6FA] p-4">
+            <div className="mt-4 rounded-2xl bg-[var(--takda-bg-page)] p-4">
               <p className="text-xs font-semibold text-slate-500">UPCOMING DEADLINE</p>
               <div className="mt-2 flex items-center justify-between gap-3">
                 <div>
                   <p className="font-semibold">Research Paper</p>
                   <p className="text-xs text-slate-400">Contemporary Issues</p>
                 </div>
-                <span className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-[#3D2FE0]">Tomorrow</span>
+                <span className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--takda-brand)]">Tomorrow</span>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="border-y border-[#E4E4F0] bg-white py-16 sm:py-20">
+        <section className="border-y border-[var(--takda-border)] bg-white py-16 sm:py-20">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
             <div className="mx-auto mb-10 max-w-2xl text-center">
-              <p className="text-sm font-semibold text-[#3D2FE0]">EVERYTHING IN ONE PLACE</p>
+              <p className="text-sm font-semibold text-[color:var(--takda-brand)]">EVERYTHING IN ONE PLACE</p>
               <h2 className="mt-2 text-3xl font-bold sm:text-4xl">Less school chaos. More focus.</h2>
               <p className="mt-3 text-slate-500">Takda gives students the essentials for organizing academic life without making things complicated.</p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {features.map(([icon, title, description]) => (
-                <div key={title} className="rounded-2xl border border-[#E4E4F0] p-5">
+                <div key={title} className="rounded-2xl border border-[var(--takda-border)] p-5">
                   <div className="mb-3 text-2xl">{icon}</div>
                   <h3 className="font-bold">{title}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
@@ -246,32 +246,32 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
           <div className="rounded-3xl bg-[#1B1B2F] px-6 py-10 text-white sm:px-10">
             <h2 className="text-3xl font-bold">Ready to organize your school life?</h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">Create your Takda account and start managing your academic work from one place.</p>
-            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[#3D2FE0]">
+            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[color:var(--takda-brand)]">
               Create Free Account
             </button>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-[#E4E4F0] bg-white">
+      <footer className="border-t border-[var(--takda-border)] bg-white">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <img src="/takda-icon.png" alt="Takda" className="h-9 w-9 rounded-xl object-cover" />
               <div>
-                <p className="text-sm font-extrabold text-[#1B1B2F]">Takda</p>
+                <p className="text-sm font-extrabold text-[color:var(--takda-text-primary)]">Takda</p>
                 <p className="text-xs text-slate-400">Plan • Track • Finish</p>
               </div>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
-              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[#3D2FE0]">About</a>
-              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[#3D2FE0]">Privacy Policy</a>
-              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[#3D2FE0]">Terms of Service</a>
-              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[#3D2FE0]">Help / FAQ</a>
-              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">Contact / Support</a>
+              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[color:var(--takda-brand)]">About</a>
+              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[color:var(--takda-brand)]">Privacy Policy</a>
+              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[color:var(--takda-brand)]">Terms of Service</a>
+              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[color:var(--takda-brand)]">Help / FAQ</a>
+              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[color:var(--takda-brand)]">Contact / Support</a>
             </div>
           </div>
-          <div className="mt-6 border-t border-[#E4E4F0] pt-5 text-xs text-slate-400">
+          <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-slate-400">
             © {new Date().getFullYear()} Takda. Built for students.
           </div>
         </div>
