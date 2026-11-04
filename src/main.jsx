@@ -1493,15 +1493,15 @@ function ResetPasswordScreen({ onDone }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-[#E4E4F0] bg-white p-6 shadow-sm">
+    <div className="min-h-screen bg-[var(--takda-bg-page)] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--takda-border)] bg-white p-6 shadow-sm">
 
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#3D2FE0] text-lg font-bold text-white">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--takda-brand)] text-lg font-bold text-white">
             T
           </div>
 
-          <h1 className="text-2xl font-bold text-[#1B1B2F]">
+          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Create new password
           </h1>
 
@@ -1521,7 +1521,7 @@ function ResetPasswordScreen({ onDone }) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="New password"
               autoComplete="new-password"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
 
             <button
@@ -1529,7 +1529,7 @@ function ResetPasswordScreen({ onDone }) {
               onClick={() =>
                 setShowPassword((current) => !current)
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
             >
               {showPassword ? "Hide" : "Show"}
             </button>
@@ -1546,7 +1546,7 @@ function ResetPasswordScreen({ onDone }) {
               }
               placeholder="Confirm new password"
               autoComplete="new-password"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
 
             <button
@@ -1554,7 +1554,7 @@ function ResetPasswordScreen({ onDone }) {
               onClick={() =>
                 setShowConfirmPassword((current) => !current)
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
             >
               {showConfirmPassword ? "Hide" : "Show"}
             </button>
@@ -1563,7 +1563,7 @@ function ResetPasswordScreen({ onDone }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+            className="w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
             {loading ? "Updating..." : "Update password"}
           </button>
