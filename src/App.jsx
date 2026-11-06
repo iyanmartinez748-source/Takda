@@ -4451,7 +4451,7 @@ function SubjectDetail({
 
       <h2 className="text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-heading)" }}>Notes</h2>
       <div className="flex gap-2 mb-3">
-        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-sm outline-none" />
+        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-base outline-none" />
         <button
           onClick={() => { if (noteText.trim() && onAddNote(noteText.trim())) setNoteText(""); }}
           aria-disabled={!canCreate}
@@ -4474,7 +4474,7 @@ function SubjectDetail({
                   onChange={(e) => setEditNoteText(e.target.value)}
                   rows={3}
                   autoFocus
-                  className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-sm outline-none resize-none"
+                  className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-base outline-none resize-none"
                 />
                 <div className="flex flex-wrap justify-end gap-2">
                   <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-slate-50" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
@@ -5247,11 +5247,11 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
         className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-3 mb-6 flex flex-col gap-2"
         style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
       >
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-2 py-1.5 text-sm outline-none">
+        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-2 py-1.5 text-base outline-none">
           <option value="">General note</option>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-sm outline-none resize-none" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write something down…" className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-base outline-none resize-none" />
         <button
           onClick={() => { if (text.trim() && onAdd(subjectId || null, text.trim())) setText(""); }}
           aria-disabled={!canCreate}
@@ -5276,7 +5276,7 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
                     onChange={(e) => setEditText(e.target.value)}
                     rows={3}
                     autoFocus
-                    className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-sm outline-none resize-none"
+                    className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-base outline-none resize-none"
                   />
                   <div className="flex flex-wrap justify-end gap-2">
                     <button onClick={() => { setEditingId(null); setEditText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-slate-50" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
@@ -5441,7 +5441,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="flex-1 min-w-[160px] flex items-center gap-2 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 transition-colors duration-150 focus-within:border-[var(--takda-brand)]">
           <Search size={15} className="shrink-0" style={{ color: "var(--takda-text-muted-1)" }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activities…" className="flex-1 min-w-0 outline-none text-sm bg-transparent" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activities…" className="flex-1 min-w-0 outline-none text-base bg-transparent" />
           {query && (
             <button
               type="button"
@@ -5457,7 +5457,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
           aria-label="Sort activities"
-          className="takda-focus-visible shrink-0 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-2.5 py-2 text-xs font-medium outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]"
+          className="takda-focus-visible shrink-0 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-2.5 py-2 text-base font-medium outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]"
           style={{ color: "var(--takda-text-muted-3)" }}
         >
           {ACTIVITY_SORT_OPTIONS.map((opt) => (
@@ -5803,7 +5803,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-sm outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]"
+              className="takda-focus-visible rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-base outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]"
             >
               <option value="all">All Subjects</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -6137,7 +6137,7 @@ function Field({ label, children }) {
     </label>
   );
 }
-const inputCls = "rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2.5 text-sm outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]";
+const inputCls = "rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2.5 text-base outline-none transition-colors duration-150 focus:border-[var(--takda-brand)]";
 
 // Phase 9D Stage 9D-3: Class Schedule UI helpers. Legacy subjects.schedule
 // and subjects.room (the free-text fields above) are never read, written,

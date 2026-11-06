@@ -1080,7 +1080,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                 onChange={(e) => setSignupFullName(e.target.value)}
                 placeholder="Full name"
                 autoComplete="name"
-                className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
               />
             )}
 
@@ -1091,7 +1091,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               autoComplete="email"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
             />
 
             {mode === "signup" && (
@@ -1101,7 +1101,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={signupSchool}
                   onChange={(e) => setSignupSchool(e.target.value)}
                   placeholder="School (optional)"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1110,7 +1110,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={signupCourse}
                   onChange={(e) => setSignupCourse(e.target.value)}
                   placeholder="Program / Track"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1119,7 +1119,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={signupYearLevel}
                   onChange={(e) => setSignupYearLevel(e.target.value)}
                   placeholder="Year / Grade level"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
               </>
             )}
@@ -1137,7 +1137,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                     ? "current-password"
                     : "new-password"
                 }
-                className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-sm outline-none focus:border-[var(--takda-focus)]"
+                className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-base outline-none focus:border-[var(--takda-focus)]"
               />
 
               <button
@@ -1254,7 +1254,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               autoComplete="email"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
             />
 
             {/* Step 51G.26B: collected here, in the initial OTP
@@ -1272,7 +1272,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   onChange={(e) => setOtpFullName(e.target.value)}
                   placeholder="Full name"
                   autoComplete="name"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1280,7 +1280,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={otpSchool}
                   onChange={(e) => setOtpSchool(e.target.value)}
                   placeholder="School (optional)"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1289,7 +1289,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={otpCourse}
                   onChange={(e) => setOtpCourse(e.target.value)}
                   placeholder="Program / Track"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1298,7 +1298,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={otpYearLevel}
                   onChange={(e) => setOtpYearLevel(e.target.value)}
                   placeholder="Year / Grade level"
-                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
               </>
             )}
@@ -1521,7 +1521,7 @@ function ResetPasswordScreen({ onDone }) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="New password"
               autoComplete="new-password"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-base outline-none focus:border-[var(--takda-focus)]"
             />
 
             <button
@@ -1546,7 +1546,7 @@ function ResetPasswordScreen({ onDone }) {
               }
               placeholder="Confirm new password"
               autoComplete="new-password"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-base outline-none focus:border-[var(--takda-focus)]"
             />
 
             <button
@@ -1766,7 +1766,7 @@ function ProfileSetup({ user, onComplete }) {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="e.g. Juan Dela Cruz"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
@@ -1780,7 +1780,7 @@ function ProfileSetup({ user, onComplete }) {
               value={school}
               onChange={(e) => setSchool(e.target.value)}
               placeholder="e.g. University of the Philippines"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
@@ -1795,7 +1795,7 @@ function ProfileSetup({ user, onComplete }) {
               value={course}
               onChange={(e) => setCourse(e.target.value)}
               placeholder="e.g. BS Information Technology"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
@@ -1810,7 +1810,7 @@ function ProfileSetup({ user, onComplete }) {
               value={yearLevel}
               onChange={(e) => setYearLevel(e.target.value)}
               placeholder="e.g. 2nd Year or Grade 12"
-              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
             />
           </div>
 
@@ -2859,7 +2859,7 @@ function MyProfile({
                   type="email"
                   value={user.email || ""}
                   disabled
-                  className="w-full rounded-xl border border-[#E4E4F0] bg-[#F5F6FA] px-3 py-3 text-sm text-slate-400"
+                  className="w-full rounded-xl border border-[#E4E4F0] bg-[#F5F6FA] px-3 py-3 text-base text-slate-400"
                 />
               </div>
 
@@ -2877,7 +2877,7 @@ function MyProfile({
                     setFullName(e.target.value)
                   }
                   placeholder="Full name"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
                 />
               </div>
 
@@ -2893,7 +2893,7 @@ function MyProfile({
                     setSchool(e.target.value)
                   }
                   placeholder="School"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
                 />
               </div>
 
@@ -2909,7 +2909,7 @@ function MyProfile({
                     setCourse(e.target.value)
                   }
                   placeholder="Program / Track"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
                 />
               </div>
 
@@ -2925,7 +2925,7 @@ function MyProfile({
                     setYearLevel(e.target.value)
                   }
                   placeholder="Year / Grade Level"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
                 />
               </div>
 
