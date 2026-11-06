@@ -1031,14 +1031,14 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-[#E4E4F0] bg-white p-6 shadow-sm">
+    <div className="min-h-screen bg-[var(--takda-bg-page)] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--takda-border)] bg-white p-6 shadow-sm">
 
         {onBack && (
           <button
             type="button"
             onClick={onBack}
-            className="mb-4 text-sm font-semibold text-[#3D2FE0]"
+            className="mb-4 text-sm font-semibold text-[color:var(--takda-brand)]"
           >
             ← Back to Takda
           </button>
@@ -1051,11 +1051,11 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
             className="mx-auto mb-3 h-14 w-14 rounded-2xl object-cover shadow-sm"
           />
 
-          <h1 className="text-2xl font-bold text-[#1B1B2F]">
+          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Takda
           </h1>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]">
             Your academic task manager
           </p>
         </div>
@@ -1080,7 +1080,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                 onChange={(e) => setSignupFullName(e.target.value)}
                 placeholder="Full name"
                 autoComplete="name"
-                className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
               />
             )}
 
@@ -1091,7 +1091,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               autoComplete="email"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
 
             {mode === "signup" && (
@@ -1101,7 +1101,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={signupSchool}
                   onChange={(e) => setSignupSchool(e.target.value)}
                   placeholder="School (optional)"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1110,7 +1110,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={signupCourse}
                   onChange={(e) => setSignupCourse(e.target.value)}
                   placeholder="Program / Track"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1119,7 +1119,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={signupYearLevel}
                   onChange={(e) => setSignupYearLevel(e.target.value)}
                   placeholder="Year / Grade level"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
               </>
             )}
@@ -1137,13 +1137,13 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                     ? "current-password"
                     : "new-password"
                 }
-                className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 pr-16 text-sm outline-none focus:border-[#3D2FE0]"
+                className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 pr-16 text-sm outline-none focus:border-[var(--takda-focus)]"
               />
 
               <button
                 type="button"
                 onClick={() => setShowPassword((current) => !current)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#3D2FE0]"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
@@ -1157,7 +1157,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   loading ||
                   (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
                 }
-                className="w-full text-right text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+                className="w-full text-right text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
               >
                 Forgot password?
               </button>
@@ -1174,7 +1174,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                     !signupYearLevel.trim() ||
                     password.length < 6))
               }
-              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {loading
                 ? "Please wait..."
@@ -1385,7 +1385,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
         )}
 
         {message && (
-          <p className="mt-3 text-center text-xs text-slate-600">
+          <p className="mt-3 text-center text-xs text-[color:var(--takda-text-muted-3)]">
             {message}
           </p>
         )}
@@ -1427,7 +1427,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               pendingOtpProfileRef.current = null;
             }
           }}
-          className="mt-5 w-full text-center text-sm font-medium text-[#3D2FE0]"
+          className="mt-5 w-full text-center text-sm font-medium text-[color:var(--takda-brand)]"
         >
           {mode === "login"
             ? "New to Takda? Create an account"
