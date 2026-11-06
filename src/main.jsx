@@ -1216,7 +1216,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               setOtpStage("email");
               setMessage("");
             }}
-            className="mt-3 w-full text-center text-xs font-medium text-[#3D2FE0]"
+            className="mt-3 w-full text-center text-xs font-medium text-[color:var(--takda-brand)]"
           >
             Use a one-time email code instead
           </button>
@@ -1254,7 +1254,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               autoComplete="email"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
             />
 
             {/* Step 51G.26B: collected here, in the initial OTP
@@ -1272,7 +1272,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   onChange={(e) => setOtpFullName(e.target.value)}
                   placeholder="Full name"
                   autoComplete="name"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1280,7 +1280,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={otpSchool}
                   onChange={(e) => setOtpSchool(e.target.value)}
                   placeholder="School (optional)"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1289,7 +1289,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={otpCourse}
                   onChange={(e) => setOtpCourse(e.target.value)}
                   placeholder="Program / Track"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
 
                 <input
@@ -1298,7 +1298,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   value={otpYearLevel}
                   onChange={(e) => setOtpYearLevel(e.target.value)}
                   placeholder="Year / Grade level"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-sm outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-sm outline-none focus:border-[var(--takda-focus)]"
                 />
               </>
             )}
@@ -1315,7 +1315,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                     !otpCourse.trim() ||
                     !otpYearLevel.trim()))
               }
-              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {loading ? "Sending code..." : "Send code"}
             </button>
@@ -1324,7 +1324,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={resetOtpFlow}
               disabled={loading}
-              className="w-full text-center text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
             >
               Use password instead
             </button>
@@ -1333,7 +1333,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
 
         {OTP_AUTH_ENABLED && authMethod === "otp" && otpStage === "code" && (
           <form onSubmit={verifyOtpCode} className="space-y-3">
-            <label className="block text-center text-xs text-slate-500">
+            <label className="block text-center text-xs text-[color:var(--takda-text-muted-2)]">
               Enter the 6-digit code sent to {email}
             </label>
 
@@ -1349,13 +1349,13 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               }
               placeholder="000000"
               autoComplete="one-time-code"
-              className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-center text-lg tracking-widest outline-none focus:border-[#3D2FE0]"
+              className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-center text-lg tracking-widest outline-none focus:border-[var(--takda-focus)]"
             />
 
             <button
               type="submit"
               disabled={loading || otpCode.length !== 6}
-              className="w-full rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {loading ? "Verifying..." : "Verify"}
             </button>
@@ -1364,7 +1364,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={sendOtpCode}
               disabled={loading || resendCooldown > 0 || !captchaToken}
-              className="w-full text-center text-xs font-medium text-[#3D2FE0] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
             >
               {resendCooldown > 0
                 ? `Resend code in ${resendCooldown}s`
@@ -1377,7 +1377,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={goBackToOtpEmailStage}
               disabled={loading}
-              className="w-full text-center text-xs font-medium text-slate-400"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-text-muted-1)]"
             >
               Change email
             </button>
