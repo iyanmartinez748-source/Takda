@@ -2767,7 +2767,7 @@ function MobileNav({ view, setView, onFab, onMore, canCreate = true }) {
   const rightItems = [{ key: "calendar", label: "Calendar", icon: CalendarIcon }];
   const moreActive = ["notes", "activities", "grades"].includes(view);
   return (
-    <div className="lg:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto takda-glass takda-glass-neutral rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
+    <div style={{ position: "fixed" }} className="lg:hidden fixed inset-x-0 bottom-0 max-w-md mx-auto takda-glass takda-glass-neutral rounded-t-2xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between">
       {leftItems.map((it) => <NavBtn key={it.key} it={it} active={view === it.key || (it.key === "subjects" && view === "subject-detail")} onClick={() => setView(it.key)} />)}
       <button
         onClick={onFab}
