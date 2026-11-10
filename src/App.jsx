@@ -1593,7 +1593,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   return (
     <div
       style={{ fontFamily: "Inter, sans-serif", background: "var(--takda-bg-page)", color: "var(--takda-text-primary)" }}
-      className="w-full min-h-[640px] max-w-md sm:max-w-full mx-auto md:max-w-7xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[var(--takda-border)] shadow-sm"
+      className="w-full md:min-h-[640px] max-w-md sm:max-w-full mx-auto md:max-w-7xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[var(--takda-border)] shadow-sm"
     >
       <style>{`
         .font-display { font-family: 'Fraunces', serif; }
@@ -1624,7 +1624,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
 
       <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} canCreate={canCreateInSelectedSemester} />
 
-      <div className="flex-1 flex flex-col min-h-[640px] md:max-h-[720px] overflow-hidden">
+      <div className="flex-1 flex flex-col md:min-h-[640px] md:max-h-[720px] overflow-hidden">
         <SemesterBar
           semesters={semesters}
           selectedSemesterId={selectedSemesterId}
