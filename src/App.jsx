@@ -1591,6 +1591,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   }
 
   return (
+    <>
     <div
       style={{ fontFamily: "Inter, sans-serif", background: "var(--takda-bg-page)", color: "var(--takda-text-primary)" }}
       className="w-full md:min-h-[640px] max-w-md sm:max-w-full mx-auto md:max-w-7xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[var(--takda-border)] shadow-sm"
@@ -1785,8 +1786,6 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
             )
           )}
         </div>
-
-        <MobileNav view={view} setView={setView} onFab={() => requestAddActivity()} onMore={() => setShowMore(true)} canCreate={canCreateInSelectedSemester} />
       </div>
 
       {showMore && (
@@ -1880,6 +1879,9 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
         />
       )}
     </div>
+
+    <MobileNav view={view} setView={setView} onFab={() => requestAddActivity()} onMore={() => setShowMore(true)} canCreate={canCreateInSelectedSemester} />
+    </>
   );
 }
 
