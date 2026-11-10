@@ -1624,7 +1624,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
 
       <Sidebar view={view} setView={setView} onAddSubject={requestAddSubject} canCreate={canCreateInSelectedSemester} />
 
-      <div className="flex-1 flex flex-col min-h-[640px] max-h-[85vh] md:max-h-[720px] overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-[640px] md:max-h-[720px] overflow-hidden">
         <SemesterBar
           semesters={semesters}
           selectedSemesterId={selectedSemesterId}
