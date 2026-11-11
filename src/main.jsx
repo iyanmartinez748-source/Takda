@@ -3800,11 +3800,11 @@ function Root() {
 
   if (loading || profileLoading) {
     return (
-      <div className="min-h-screen bg-[#F5F6FA] grid place-items-center">
+      <div className="min-h-screen bg-[var(--takda-bg-page)] grid place-items-center">
 
         <div className="text-center">
 
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#3D2FE0] text-lg font-bold text-white">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--takda-brand)] text-lg font-bold text-white">
             T
           </div>
 
