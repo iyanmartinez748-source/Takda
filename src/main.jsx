@@ -2120,7 +2120,7 @@ function ProModal({ onClose, returnFocusRef }) {
           aria-labelledby={titleId}
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-3xl border border-[#E4E4F0] bg-white shadow-2xl"
+          className="w-full max-w-md overflow-hidden rounded-3xl border border-[var(--takda-border)] bg-white shadow-2xl"
         >
           <div className="relative bg-[#1B1B2F] px-6 pb-7 pt-6 text-white">
             <button
@@ -2147,7 +2147,7 @@ function ProModal({ onClose, returnFocusRef }) {
           </div>
 
           <div className="p-6">
-            <div className="space-y-3 text-sm text-[#1B1B2F]">
+            <div className="space-y-3 text-sm text-[color:var(--takda-text-primary)]">
               {[
                 "Advanced academic insights",
                 "More powerful grade tracking",
@@ -2155,7 +2155,7 @@ function ProModal({ onClose, returnFocusRef }) {
                 "Future Pro features included",
               ].map((feature) => (
                 <div key={feature} className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#F0EEFF] text-xs font-bold text-[#3D2FE0]">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--takda-brand-tint-2)] text-xs font-bold text-[color:var(--takda-brand)]">
                     ✓
                   </span>
                   <span className="font-medium">{feature}</span>
@@ -2170,12 +2170,12 @@ function ProModal({ onClose, returnFocusRef }) {
                 onClick={() => setBilling("monthly")}
                 className={`rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "monthly"
-                    ? "border-[#3D2FE0] bg-[#F7F6FF] ring-1 ring-[#3D2FE0]"
-                    : "border-[#E4E4F0] bg-white"
+                    ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)] ring-1 ring-[var(--takda-brand)]"
+                    : "border-[var(--takda-border)] bg-white"
                 }`}
               >
                 <p className="text-xs font-bold text-slate-500">MONTHLY</p>
-                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">₱29</p>
+                <p className="mt-1 text-2xl font-extrabold text-[color:var(--takda-text-primary)]">₱29</p>
                 <p className="text-xs text-slate-400">per month</p>
               </button>
 
@@ -2185,15 +2185,15 @@ function ProModal({ onClose, returnFocusRef }) {
                 onClick={() => setBilling("yearly")}
                 className={`relative rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "yearly"
-                    ? "border-[#3D2FE0] bg-[#F7F6FF] ring-1 ring-[#3D2FE0]"
-                    : "border-[#E4E4F0] bg-white"
+                    ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)] ring-1 ring-[var(--takda-brand)]"
+                    : "border-[var(--takda-border)] bg-white"
                 }`}
               >
-                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[#1B1B2F]">
+                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[color:var(--takda-text-primary)]">
                   BEST VALUE
                 </span>
                 <p className="text-xs font-bold text-slate-500">YEARLY</p>
-                <p className="mt-1 text-2xl font-extrabold text-[#1B1B2F]">₱299</p>
+                <p className="mt-1 text-2xl font-extrabold text-[color:var(--takda-text-primary)]">₱299</p>
                 <p className="text-xs text-slate-400">per year</p>
               </button>
             </div>
@@ -2208,7 +2208,7 @@ function ProModal({ onClose, returnFocusRef }) {
               type="button"
               onClick={startCheckout}
               disabled={loading}
-              className="mt-5 w-full rounded-xl bg-[#3D2FE0] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-5 w-full rounded-xl bg-[var(--takda-brand)] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading
                 ? "Opening secure checkout..."
@@ -2766,10 +2766,10 @@ function MyProfile({
           className="w-full max-w-lg rounded-3xl bg-white shadow-xl"
         >
 
-          <div className="flex items-center justify-between border-b border-[#E4E4F0] px-5 py-4">
+          <div className="flex items-center justify-between border-b border-[var(--takda-border)] px-5 py-4">
 
             <div>
-              <h2 id={titleId} className="text-lg font-bold text-[#1B1B2F]">
+              <h2 id={titleId} className="text-lg font-bold text-[color:var(--takda-text-primary)]">
                 My Profile
               </h2>
 
@@ -2781,7 +2781,7 @@ function MyProfile({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#F5F6FA] text-lg text-slate-500"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-lg text-slate-500"
               aria-label="Close profile"
             >
               ×
@@ -2809,7 +2809,7 @@ function MyProfile({
                     fileInputRef.current?.click()
                   }
                   disabled={uploading}
-                  className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-[#3D2FE0] text-white shadow disabled:opacity-50"
+                  className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-[var(--takda-brand)] text-white shadow disabled:opacity-50"
                   title="Change profile picture"
                 >
                   {uploading ? "…" : "📷"}
@@ -2831,7 +2831,7 @@ function MyProfile({
                   fileInputRef.current?.click()
                 }
                 disabled={uploading}
-                className="mt-3 text-sm font-semibold text-[#3D2FE0] disabled:opacity-50"
+                className="mt-3 text-sm font-semibold text-[color:var(--takda-brand)] disabled:opacity-50"
               >
                 {uploading
                   ? "Uploading..."
@@ -2851,7 +2851,7 @@ function MyProfile({
             <form onSubmit={saveChanges} className="space-y-4">
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+                <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
                   Email
                 </label>
 
@@ -2859,12 +2859,12 @@ function MyProfile({
                   type="email"
                   value={user.email || ""}
                   disabled
-                  className="w-full rounded-xl border border-[#E4E4F0] bg-[#F5F6FA] px-3 py-3 text-base text-slate-400"
+                  className="w-full rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-page)] px-3 py-3 text-base text-slate-400"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+                <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
                   Full Name{" "}
                   <span className="text-red-500">*</span>
                 </label>
@@ -2877,12 +2877,12 @@ function MyProfile({
                     setFullName(e.target.value)
                   }
                   placeholder="Full name"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+                <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
                   School
                 </label>
 
@@ -2893,12 +2893,12 @@ function MyProfile({
                     setSchool(e.target.value)
                   }
                   placeholder="School"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+                <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
                   Program / Track
                 </label>
 
@@ -2909,12 +2909,12 @@ function MyProfile({
                     setCourse(e.target.value)
                   }
                   placeholder="Program / Track"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-[#1B1B2F]">
+                <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
                   Year / Grade Level
                 </label>
 
@@ -2925,7 +2925,7 @@ function MyProfile({
                     setYearLevel(e.target.value)
                   }
                   placeholder="Year / Grade Level"
-                  className="w-full rounded-xl border border-[#E4E4F0] px-3 py-3 text-base outline-none focus:border-[#3D2FE0]"
+                  className="w-full rounded-xl border border-[var(--takda-border)] px-3 py-3 text-base outline-none focus:border-[var(--takda-focus)]"
                 />
               </div>
 
@@ -2946,7 +2946,7 @@ function MyProfile({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 rounded-xl border border-[#E4E4F0] bg-white py-3 text-sm font-semibold text-slate-600"
+                  className="flex-1 rounded-xl border border-[var(--takda-border)] bg-white py-3 text-sm font-semibold text-slate-600"
                 >
                   Cancel
                 </button>
@@ -2954,7 +2954,7 @@ function MyProfile({
                 <button
                   type="submit"
                   disabled={saving || uploading}
-                  className="flex-1 rounded-xl bg-[#3D2FE0] py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {saving
                     ? "Saving..."

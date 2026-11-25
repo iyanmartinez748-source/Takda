@@ -20,7 +20,7 @@ export default function PrivacyPage({ isAuthenticated, onNavigateHome, onNavigat
       onSignup={onSignup}
     >
       <article className="pt-4 sm:pt-0">
-        <p className="mb-3 text-sm font-semibold text-[#3D2FE0]">TAKDA</p>
+        <p className="mb-3 text-sm font-semibold text-[color:var(--takda-brand)]">TAKDA</p>
         <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{privacyPolicyContent.title}</h1>
 
         <div className="mt-6 space-y-4 text-sm leading-7 text-slate-600">
