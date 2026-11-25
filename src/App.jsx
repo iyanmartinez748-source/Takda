@@ -2923,7 +2923,7 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
         <Icon size={15} color={accent} />
       </span>
       <div className="relative min-w-0">
-        <div className="font-display text-xl font-semibold leading-tight" style={{ color: accent }}>{value}</div>
+        <div className="font-display text-xl font-semibold leading-tight tracking-tight tabular-nums" style={{ color: accent }}>{value}</div>
         {/* 10A.19B: truncate -> line-clamp-2. At 320px this column is
             only ~64px wide (see the 10A.19A audit's arithmetic), too
             narrow for any of the 4 labels on one line at text-xs —
@@ -2968,7 +2968,7 @@ function AcademicProgressCard({ value, bg, accent }) {
         />
       </svg>
       <div className="relative min-w-0">
-        <div className="font-display text-xl font-semibold leading-tight" style={{ color: accent }}>
+        <div className="font-display text-xl font-semibold leading-tight tracking-tight tabular-nums" style={{ color: accent }}>
           {hasValue ? `${value.toFixed(1)}%` : "—"}
         </div>
         <div className="text-xs mt-0.5 font-medium leading-tight line-clamp-2" style={{ color: accent }}>Academic Performance</div>
@@ -3821,7 +3821,7 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
 
       <div className="relative z-[2] flex min-h-[150px] md:min-h-[170px] items-end px-5 py-5">
         <div className="relative max-w-[70%] md:max-w-[60%]">
-          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
+          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight" style={{ color: HERO_TEXT_COLOR }}>
             {isLateNight
               ? <>{greeting}{studentName ? `, ${studentName}` : ""}?</>
               : <>{greeting}{studentName ? `, ${studentName}` : ""} 👋</>}
@@ -4591,7 +4591,7 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between mb-5">
-        <h1 className="font-display text-2xl font-semibold">My Subjects</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">My Subjects</h1>
         <button
           onClick={onAdd}
           aria-disabled={!canCreate}
@@ -5349,7 +5349,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-1">
-        <h1 className="font-display text-2xl font-semibold">Calendar</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Calendar</h1>
         <button
           onClick={() => onAddActivity(formatLocalDate(selected))}
           aria-disabled={!canCreate}
@@ -5708,7 +5708,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-1.5">
-        <h1 className="font-display text-2xl font-semibold">All Activities</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">All Activities</h1>
         <button
           onClick={onAdd}
           aria-disabled={!canCreate}
@@ -5968,7 +5968,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
     <div className="p-5 md:p-8">
       <div className="flex items-start justify-between gap-3 mb-5">
         <div>
-          <h1 className="font-display text-2xl font-semibold">My Grades</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">My Grades</h1>
           <p className="text-sm mt-1" style={{ color: "var(--takda-text-muted-2)" }}>Track your recorded scores and subject performance.</p>
         </div>
         <button
@@ -6004,7 +6004,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
               <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Overall Recorded Average</div>
-              <div className="font-display text-2xl font-semibold">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
+              <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
               {overallAverage !== null && (
                 <div className="mt-2 h-1.5 rounded-full bg-[var(--takda-border)] overflow-hidden">
                   <div
@@ -6022,12 +6022,12 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
             </div>
             <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
               <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Subjects With Grades</div>
-              <div className="font-display text-2xl font-semibold">{subjectsWithGrades.length}</div>
+              <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{subjectsWithGrades.length}</div>
               <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Out of {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}</div>
             </div>
             <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
               <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Total Grade Entries</div>
-              <div className="font-display text-2xl font-semibold">{grades.length}</div>
+              <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{grades.length}</div>
               <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Recorded across all subjects</div>
             </div>
           </div>
