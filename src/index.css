@@ -33,6 +33,27 @@
   --takda-brand-tint-3: #EEECFC;
   --takda-brand-border-tint: #DCD9FF;
   --takda-brand-border-dashed: #C7C7E8;
+  /* Design Excellence Category B: the brand-text / brand-solid split.
+     --takda-brand-solid is for FILLED elements (button backgrounds,
+     checkboxes, focus rings, progress rings) where white sits ON it —
+     identical to --takda-brand in every theme, since that pairing
+     already passes (Classic 7.83:1, Twilight 5.33:1, both computed via
+     WCAG relative luminance in an earlier phase). --takda-brand-text is
+     for brand-colored TEXT/icons on a neutral or tinted surface — in
+     Classic/Matcha this is also identical to --takda-brand (already
+     7.83:1 / ~5.6:1 against their own surfaces, no change needed); only
+     Twilight's block below redefines it, because Twilight's own
+     --takda-brand as text measured only ~2.7–3.1:1 against its own
+     surfaces and tinted cards (computed by hand) — a real, previously
+     disclosed-but-unresolved failure, now fixed. */
+  --takda-brand-solid: var(--takda-brand);
+  --takda-brand-text: var(--takda-brand);
+  /* Design Excellence Category B: AcademicOverview's "lavender" tile
+     background. Classic/Matcha both already sit at ~97-99% lightness
+     across all 4 status tiles regardless of source, so this simply
+     aliases the existing tint scale — only Twilight's block below
+     needs a dedicated, darker value. See that block's comment. */
+  --takda-overview-lavender-bg: var(--takda-brand-tint-2);
 
   /* Backgrounds / surfaces */
   --takda-bg-page: #F5F6FA;
@@ -225,22 +246,36 @@
      above) rely on brand being dark/saturated enough for white CTA
      text, which a "light mode" violet tuned to read well against a
      dark PAGE does not automatically satisfy once it's also used as a
-     button FILL. #6655E0 measures ~5.33:1 for white text (passes AA),
-     while still reading clearly as an accent against the dark page/
-     surface (~3.4:1, the WCAG floor for large text/UI components —
-     below the 4.5:1 ideal for small brand-colored text/links, a
-     real, documented remaining gap rather than a fixed one; a future
-     dedicated --takda-brand-text vs --takda-brand-solid split would
-     resolve both roles independently, but is out of this stage's
-     scope). Hover stays darker than the base, same convention as
-     Classic/Matcha's existing hover treatment. */
+     button FILL. #6655E0 measures ~5.33:1 for white text (passes AA)
+     — kept as --takda-brand-solid for exactly that FILL role.
+     Design Excellence Category B: the previously-disclosed gap for
+     brand-as-TEXT (~3.1:1 against the page/surface, below the 4.5:1
+     small-text minimum) is now resolved by --takda-brand-text below,
+     a lighter periwinkle in the same hue family (#9B8FFF, ~249°,
+     matching --takda-brand's own ~249° hue) — computed by hand:
+     ~6.06:1 against --takda-bg-surface, ~6.18:1 against the new
+     --takda-overview-lavender-bg below, ~6.70:1 against --takda-bg-page.
+     Hover stays darker than the base, same convention as Classic/
+     Matcha's existing hover treatment. */
   --takda-brand: #6655E0;
   --takda-brand-hover: #5547C2;
+  --takda-brand-solid: #6655E0;
+  --takda-brand-text: #9B8FFF;
   --takda-brand-tint-1: #211C3F;
   --takda-brand-tint-2: #2A2550;
   --takda-brand-tint-3: #332C63;
   --takda-brand-border-tint: #4B4280;
   --takda-brand-border-dashed: #433C70;
+
+  /* Design Excellence Category B: this theme's own OverviewCard
+     "lavender" tile background — darkened off the brand TINT SCALE
+     (which jumps to ~22.9% HSL-lightness here, visibly lighter than
+     the other 3 status tiles' own ~13.7-16.5%, the literal
+     "disconnected card" the directive names) down to ~16.1%,
+     matching its siblings. Same hue (~247°, matches --takda-brand),
+     just darker — paired with --takda-brand-text (not raw --takda-
+     brand) for the tile's own accent/text, computed ~6.18:1. */
+  --takda-overview-lavender-bg: #1D1A38;
 
   --takda-bg-page: #15132A;
   --takda-bg-page-landing: #15132A;
@@ -248,9 +283,17 @@
   --takda-bg-reminder-chip: #332B1A;
   --takda-bg-grade-locked-icon: #2E2A1E;
 
+  /* Design Excellence Category E: muted-1/-2 previously measured only
+     ~3.3-3.65:1 and ~4.22:1 against these dark surfaces (computed by
+     hand) — both below the 4.5:1 small-text minimum. Lightened within
+     the same lavender-grey hue family (not recolored) to clear it with
+     a safety margin: muted-1 ~4.68:1, muted-2 ~6.40:1 against
+     --takda-bg-surface (the harder, lighter of the two dark
+     backgrounds) — still clearly ordered below muted-3 (~7.89:1) so
+     the 3-tier hierarchy stays visually distinct, not collapsed. */
   --takda-text-primary: #EFECFA;
-  --takda-text-muted-1: #716B94;
-  --takda-text-muted-2: #938CBD;
+  --takda-text-muted-1: #8B84AD;
+  --takda-text-muted-2: #A49DC4;
   --takda-text-muted-3: #B5AFDA;
 
   --takda-border: #312A4F;

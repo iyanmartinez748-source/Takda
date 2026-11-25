@@ -2248,7 +2248,7 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             onClick={handleLocalTestClick}
             disabled={localTestState.status === "sending"}
             className="takda-focus-visible text-[11px] font-semibold hover:underline disabled:opacity-50"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             {localTestState.status === "sending" ? "Sending…" : "Send test notification"}
           </button>
@@ -2262,7 +2262,7 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             onClick={handleBackgroundPushTestClick}
             disabled={pushTestState.status === "sending"}
             className="takda-focus-visible text-[11px] font-semibold hover:underline disabled:opacity-50"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             {pushTestState.status === "sending" ? "Sending…" : "Send background push test"}
           </button>
@@ -2347,7 +2347,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         <span className="text-xs text-[color:var(--takda-text-muted-2)]">No semesters set up yet.</span>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand-text)] hover:underline">
             + Set up semesters
           </button>
         </div>
@@ -2419,7 +2419,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         onClick={() => setOpen((o) => !o)}
         className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 min-h-11 md:min-h-0 -mx-2 hover:bg-[var(--takda-glass-hover-overlay)] transition-colors duration-150"
       >
-        <CalendarIcon size={15} className="text-[color:var(--takda-brand)] shrink-0" />
+        <CalendarIcon size={15} className="text-[color:var(--takda-brand-text)] shrink-0" />
         <span className="text-[15px] font-semibold md:truncate">{current.label}</span>
         {/* Desktop-only badge copy — exact original markup/position
             (between name and chevron), hidden below md. */}
@@ -2438,7 +2438,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-          <button onClick={onManage} className="takda-focus-visible flex items-center min-h-11 md:min-h-0 text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible flex items-center min-h-11 md:min-h-0 text-xs font-semibold text-[color:var(--takda-brand-text)] hover:underline">
             Manage Semesters
           </button>
         </div>
@@ -2459,7 +2459,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
               key={o.id ?? "unassigned"}
               onClick={() => { onSelect(o.id); setOpen(false); }}
               className="takda-focus-visible w-full min-h-11 flex items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--takda-bg-hover)] transition-colors duration-150"
-              style={o.id === selectedSemesterId ? { color: "var(--takda-brand)", fontWeight: 600 } : undefined}
+              style={o.id === selectedSemesterId ? { color: "var(--takda-brand-text)", fontWeight: 600 } : undefined}
             >
               {/* 10A.17B: flex-1 min-w-0 lets this span actually shrink
                   within the row (the same Flexbox requirement already
@@ -2586,7 +2586,7 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
           <button
             onClick={openCreateForm}
             className="takda-focus-visible w-full mb-4 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] py-2.5 text-sm font-semibold"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             <Plus size={15} /> New Semester
           </button>
@@ -2854,7 +2854,7 @@ function MoreSheet({ view, onClose, onNavigate }) {
                 className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ease-out hover:border-[var(--takda-border-neutral-2)] motion-safe:active:scale-[0.99] ${active ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]" : "border-[var(--takda-border)]"}`}
               >
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--takda-brand-tint-3)" }}>
-                  <Icon size={16} color="var(--takda-brand)" />
+                  <Icon size={16} color="var(--takda-brand-text)" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{it.label}</div>
@@ -2888,9 +2888,15 @@ const DASHBOARD_UPCOMING_VISIBLE = 6;
 // re-verified by hand via the WCAG relative-luminance formula:
 // #92400E on #FFFBEB -> ~6.84:1, comfortably clear of the 4.5:1 AA
 // minimum.
+// Design Excellence Category B: "lavender" now draws from its own
+// dedicated --takda-overview-lavender-bg (not the brand tint scale
+// directly) and --takda-brand-text (not raw --takda-brand) — see both
+// tokens' own comments in index.css for the computed contrast/harmony
+// reasoning. Classic/Matcha are visually unchanged (both tokens alias
+// to the originals there); only Twilight's rendering changes.
 const OVERVIEW_ACCENTS = {
   rose: { bg: "var(--takda-status-overdue-bg)", accent: "var(--takda-status-overdue-text)" },
-  lavender: { bg: "var(--takda-brand-tint-2)", accent: "var(--takda-brand)" },
+  lavender: { bg: "var(--takda-overview-lavender-bg)", accent: "var(--takda-brand-text)" },
   mint: { bg: "var(--takda-status-week-bg)", accent: "var(--takda-status-week-text)" },
   amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
 };
@@ -3127,7 +3133,7 @@ function MotivationPanel() {
         boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)",
       }}
     >
-      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--takda-brand)" }}>✨ Daily Motivation</span>
+      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--takda-brand-text)" }}>✨ Daily Motivation</span>
       <p className="text-sm mt-1.5 italic" style={{ color: "var(--takda-text-muted-3)" }}>{quote}</p>
     </div>
   );
@@ -3233,7 +3239,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
         </div>
         <span
           className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-          style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+          style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand-text)" }}
         >
           {counts.all} pending
         </span>
@@ -3305,7 +3311,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               aria-disabled={!canCreate}
               title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
               className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold -mt-4 ${!canCreate ? "opacity-40" : ""}`}
-              style={{ color: "var(--takda-brand)" }}
+              style={{ color: "var(--takda-brand-text)" }}
             >
               <Plus size={13} /> Add Activity
             </button>
@@ -3537,7 +3543,7 @@ function Dashboard({
             <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-muted-1)" }}>Recently Completed</h2>
             <span
               className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-              style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+              style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand-text)" }}
               aria-label={`${stats.completed} completed ${stats.completed === 1 ? "activity" : "activities"}`}
             >
               {stats.completed} completed
@@ -3847,8 +3853,12 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
 // `motion-safe:`-gated Tailwind utilities (respects prefers-reduced-
 // motion automatically) plus the existing `.takda-interactive` press
 // scale (already reduced-motion-safe in index.css, untouched).
+// Design Excellence Category B: same "lavender" fix as OVERVIEW_ACCENTS
+// above — this 4-tile grid has the identical disconnected-card/
+// contrast issue in Twilight (brand-tint-2 lighter than its 3
+// siblings, raw brand failing as text) for the same reason.
 const QUICK_ACTION_ACCENTS = {
-  lavender: { bg: "var(--takda-brand-tint-2)", accent: "var(--takda-brand)" },
+  lavender: { bg: "var(--takda-overview-lavender-bg)", accent: "var(--takda-brand-text)" },
   mint: { bg: "var(--takda-status-week-bg)", accent: "var(--takda-status-week-text)" },
   blue: { bg: "var(--takda-label-inprogress-bg)", accent: "var(--takda-label-inprogress)" },
   amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
@@ -4153,7 +4163,7 @@ function SmartInsightsSection({ insights }) {
           const Icon = INSIGHT_ICON[insight.type] || AlertCircle;
           const rowContent = (
             <>
-              <Icon size={15} className="shrink-0 mt-0.5" style={{ color: "var(--takda-brand)" }} />
+              <Icon size={15} className="shrink-0 mt-0.5" style={{ color: "var(--takda-brand-text)" }} />
               {/* 10A.6B: flex-1 min-w-0 (same defensive pattern already
                   used by ActivityRow's title block) lets this text wrap
                   within whatever width the flex row actually has,
@@ -4198,7 +4208,7 @@ function ViewAllLink({ label, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[color:var(--takda-brand)] hover:underline focus:outline-none focus-visible:underline"
+      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[color:var(--takda-brand-text)] hover:underline focus:outline-none focus-visible:underline"
     >
       {label} →
     </button>
@@ -4431,7 +4441,7 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
                   className={`takda-focus-visible takda-interactive flex-1 text-left rounded-xl bg-[var(--takda-bg-page)] border border-[var(--takda-border)] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] ${isLast ? "" : "mb-2"}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold" style={{ color: "var(--takda-brand)" }}>{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
+                    <div className="text-xs font-semibold" style={{ color: "var(--takda-brand-text)" }}>{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
                     <div className="text-sm font-semibold mt-0.5 line-clamp-2 break-words" style={{ color: "var(--takda-text-primary)" }}>
                       {row.subject?.name || "Untitled Subject"}
                     </div>
@@ -4674,7 +4684,7 @@ function SubjectDetail({
 
       <div className="flex items-center justify-between mb-2.5">
         <h2 className="font-display text-sm font-semibold min-w-0 truncate" style={{ color: "var(--takda-text-heading)" }}>Activities ({pending.length} pending, {completed.length} completed)</h2>
-        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canCreate ? "opacity-40" : ""}`} style={{ color: "var(--takda-brand)" }}><Plus size={13} /> Add</button>
+        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canCreate ? "opacity-40" : ""}`} style={{ color: "var(--takda-brand-text)" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
         <EmptyRow text="No activities for this subject yet." />
@@ -4777,14 +4787,14 @@ function SubjectDetail({
             disabled={!canAddMaterials}
             title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
             className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canAddMaterials ? "opacity-40" : ""}`}
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           ><Plus size={13} /> Upload File</button>
           <button
             onClick={onAddMaterial}
             disabled={!canAddMaterials}
             title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
             className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canAddMaterials ? "opacity-40" : ""}`}
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           ><Plus size={13} /> Add Link</button>
         </div>
       </div>
@@ -4947,7 +4957,7 @@ function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
           target="_blank"
           rel="noopener noreferrer"
           className="takda-focus-visible text-xs mt-1 inline-block truncate max-w-full hover:underline"
-          style={{ color: "var(--takda-brand)" }}
+          style={{ color: "var(--takda-brand-text)" }}
         >
           {hostname || "Open link"}
         </a>
@@ -5063,7 +5073,7 @@ function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, o
           onClick={onOpen}
           disabled={opening}
           className="takda-focus-visible text-xs mt-1 inline-flex items-center gap-1 hover:underline disabled:opacity-40"
-          style={{ color: "var(--takda-brand)" }}
+          style={{ color: "var(--takda-brand-text)" }}
         >
           <ExternalLink size={12} /> {opening ? "Opening..." : "Open"}
         </button>
@@ -5365,7 +5375,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           <span className="font-display text-lg font-semibold truncate">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
           <button
             onClick={goToToday}
-            className="takda-focus-visible shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-brand)] hover:text-[color:var(--takda-brand)]"
+            className="takda-focus-visible shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-brand)] hover:text-[color:var(--takda-brand-text)]"
             style={{ color: "var(--takda-text-muted-2)" }}
           >
             Today
@@ -6083,7 +6093,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             {subjectFilter !== "all" && (
-              <button onClick={() => setSubjectFilter("all")} className="takda-focus-visible text-xs font-medium transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1" style={{ color: "var(--takda-brand)" }}>Clear filter</button>
+              <button onClick={() => setSubjectFilter("all")} className="takda-focus-visible text-xs font-medium transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1" style={{ color: "var(--takda-brand-text)" }}>Clear filter</button>
             )}
           </div>
 
@@ -6186,7 +6196,7 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
       {form.score !== "" && form.totalScore !== "" && (
         <div
           className={`rounded-xl px-3 py-2 text-xs mb-3 ${validNumbers ? "" : "bg-[var(--takda-feedback-error-bg)] text-[color:var(--takda-feedback-error-text)]"}`}
-          style={validNumbers ? { background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" } : undefined}
+          style={validNumbers ? { background: "var(--takda-brand-tint-2)", color: "var(--takda-brand-text)" } : undefined}
         >
           {validNumbers ? `Percentage: ${preview.toFixed(1)}%` : "Score must be between 0 and the total score."}
         </div>
@@ -6811,7 +6821,7 @@ function SubjectModal({ subject, schedules = [], onClose, onSave, onOpenerCaptur
             type="button"
             onClick={() => setGroups((prev) => [...prev, newScheduleGroup()])}
             className="takda-focus-visible flex items-center gap-1 text-xs font-semibold"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             <Plus size={13} /> Add Schedule
           </button>

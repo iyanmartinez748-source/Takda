@@ -172,7 +172,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
             <div className="w-full max-w-2xl rounded-3xl bg-[var(--takda-bg-surface)] p-6 shadow-xl sm:p-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-[color:var(--takda-brand)]">Takda</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[color:var(--takda-brand-text)]">Takda</p>
                   <h2 className="mt-1 text-2xl font-extrabold">{legalContent[legalPage].title}</h2>
                 </div>
                 <button type="button" onClick={() => setLegalPage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-xl text-[color:var(--takda-text-muted-2)]" aria-label="Close">×</button>
@@ -194,7 +194,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
           </div>
 
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-brand)] sm:px-4">
+            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-brand-text)] sm:px-4">
               Log in
             </button>
             <button type="button" onClick={onSignup} className="rounded-xl bg-[var(--takda-brand)] px-3 py-2 text-sm font-semibold text-white shadow-sm sm:px-4">
@@ -207,11 +207,11 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
       <main>
         <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 md:grid-cols-2 md:py-24">
           <div>
-            <div className="mb-4 inline-flex rounded-full border border-[var(--takda-brand-border-tint)] bg-[var(--takda-brand-tint-2)] px-3 py-1 text-xs font-semibold text-[color:var(--takda-brand)]">
+            <div className="mb-4 inline-flex rounded-full border border-[var(--takda-brand-border-tint)] bg-[var(--takda-brand-tint-2)] px-3 py-1 text-xs font-semibold text-[color:var(--takda-brand-text)]">
               Your student workspace
             </div>
             <h1 className="font-display text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
-              Stay on top of school with <span className="text-[color:var(--takda-brand)]">Takda.</span>
+              Stay on top of school with <span className="text-[color:var(--takda-brand-text)]">Takda.</span>
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-[color:var(--takda-text-muted-3)] sm:text-lg">
               Manage your subjects, activities, deadlines, grades, calendar, and notes — all in one simple student workspace.
@@ -251,7 +251,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
                   <p className="font-semibold">Research Paper</p>
                   <p className="text-xs text-[color:var(--takda-text-muted-1)]">Contemporary Issues</p>
                 </div>
-                <span className="rounded-lg bg-[var(--takda-bg-surface)] px-3 py-1.5 text-xs font-semibold text-[color:var(--takda-brand)]">Tomorrow</span>
+                <span className="rounded-lg bg-[var(--takda-bg-surface)] px-3 py-1.5 text-xs font-semibold text-[color:var(--takda-brand-text)]">Tomorrow</span>
               </div>
             </div>
           </div>
@@ -260,7 +260,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
         <section className="border-y border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-16 sm:py-20">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
             <div className="mx-auto mb-10 max-w-2xl text-center">
-              <p className="text-sm font-semibold text-[color:var(--takda-brand)]">EVERYTHING IN ONE PLACE</p>
+              <p className="text-sm font-semibold text-[color:var(--takda-brand-text)]">EVERYTHING IN ONE PLACE</p>
               <h2 className="mt-2 text-3xl font-bold sm:text-4xl">Less school chaos. More focus.</h2>
               <p className="mt-3 text-[color:var(--takda-text-muted-2)]">Takda gives students the essentials for organizing academic life without making things complicated.</p>
             </div>
@@ -280,7 +280,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
           <div className="rounded-3xl bg-[var(--takda-ink-surface)] px-6 py-10 text-white sm:px-10">
             <h2 className="text-3xl font-bold">Ready to organize your school life?</h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-[color:var(--takda-ink-surface-text-muted)]">Create your Takda account and start managing your academic work from one place.</p>
-            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[color:var(--takda-brand)]">
+            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[color:var(--takda-brand-text)]">
               Create Free Account
             </button>
           </div>
@@ -298,11 +298,11 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
               </div>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-[color:var(--takda-text-muted-2)]">
-              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[color:var(--takda-brand)]">About</a>
-              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[color:var(--takda-brand)]">Privacy Policy</a>
-              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[color:var(--takda-brand)]">Terms of Service</a>
-              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[color:var(--takda-brand)]">Help / FAQ</a>
-              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[color:var(--takda-brand)]">Contact / Support</a>
+              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[color:var(--takda-brand-text)]">About</a>
+              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[color:var(--takda-brand-text)]">Privacy Policy</a>
+              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[color:var(--takda-brand-text)]">Terms of Service</a>
+              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[color:var(--takda-brand-text)]">Help / FAQ</a>
+              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[color:var(--takda-brand-text)]">Contact / Support</a>
             </div>
           </div>
           <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-[color:var(--takda-text-muted-1)]">
@@ -502,7 +502,7 @@ function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) 
         <button
           type="button"
           onClick={retryManually}
-          className="text-xs font-semibold text-[color:var(--takda-brand)] underline"
+          className="text-xs font-semibold text-[color:var(--takda-brand-text)] underline"
         >
           Retry CAPTCHA
         </button>
@@ -524,7 +524,7 @@ function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) 
           <button
             type="button"
             onClick={retryManually}
-            className="text-xs font-semibold text-[color:var(--takda-brand)] underline"
+            className="text-xs font-semibold text-[color:var(--takda-brand-text)] underline"
           >
             Retry CAPTCHA
           </button>
@@ -1072,7 +1072,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
           <button
             type="button"
             onClick={onBack}
-            className="mb-4 text-sm font-semibold text-[color:var(--takda-brand)]"
+            className="mb-4 text-sm font-semibold text-[color:var(--takda-brand-text)]"
           >
             ← Back to Takda
           </button>
@@ -1177,7 +1177,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               <button
                 type="button"
                 onClick={() => setShowPassword((current) => !current)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand-text)]"
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
@@ -1191,7 +1191,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   loading ||
                   (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
                 }
-                className="w-full text-right text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
+                className="w-full text-right text-xs font-medium text-[color:var(--takda-brand-text)] disabled:opacity-50"
               >
                 Forgot password?
               </button>
@@ -1250,7 +1250,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               setOtpStage("email");
               setMessage("");
             }}
-            className="mt-3 w-full text-center text-xs font-medium text-[color:var(--takda-brand)]"
+            className="mt-3 w-full text-center text-xs font-medium text-[color:var(--takda-brand-text)]"
           >
             Use a one-time email code instead
           </button>
@@ -1358,7 +1358,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={resetOtpFlow}
               disabled={loading}
-              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand-text)] disabled:opacity-50"
             >
               Use password instead
             </button>
@@ -1398,7 +1398,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={sendOtpCode}
               disabled={loading || resendCooldown > 0 || !captchaToken}
-              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand-text)] disabled:opacity-50"
             >
               {resendCooldown > 0
                 ? `Resend code in ${resendCooldown}s`
@@ -1461,7 +1461,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               pendingOtpProfileRef.current = null;
             }
           }}
-          className="mt-5 w-full text-center text-sm font-medium text-[color:var(--takda-brand)]"
+          className="mt-5 w-full text-center text-sm font-medium text-[color:var(--takda-brand-text)]"
         >
           {mode === "login"
             ? "New to Takda? Create an account"
@@ -1563,7 +1563,7 @@ function ResetPasswordScreen({ onDone }) {
               onClick={() =>
                 setShowPassword((current) => !current)
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand-text)]"
             >
               {showPassword ? "Hide" : "Show"}
             </button>
@@ -1588,7 +1588,7 @@ function ResetPasswordScreen({ onDone }) {
               onClick={() =>
                 setShowConfirmPassword((current) => !current)
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand-text)]"
             >
               {showConfirmPassword ? "Hide" : "Show"}
             </button>
@@ -2219,7 +2219,7 @@ function ProModal({ onClose, returnFocusRef }) {
                 "Future Pro features included",
               ].map((feature) => (
                 <div key={feature} className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--takda-brand-tint-2)] text-xs font-bold text-[color:var(--takda-brand)]">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--takda-brand-tint-2)] text-xs font-bold text-[color:var(--takda-brand-text)]">
                     ✓
                   </span>
                   <span className="font-medium">{feature}</span>
@@ -2606,7 +2606,7 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
                         {option.label}
                       </span>
                       {selected && (
-                        <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
+                        <span aria-hidden="true" className="text-[color:var(--takda-brand-text)]">
                           ✓
                         </span>
                       )}
@@ -2648,7 +2648,7 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
                         {option.label}
                       </span>
                       {selected && (
-                        <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
+                        <span aria-hidden="true" className="text-[color:var(--takda-brand-text)]">
                           ✓
                         </span>
                       )}
@@ -2971,7 +2971,7 @@ function MyProfile({
                   fileInputRef.current?.click()
                 }
                 disabled={uploading}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[color:var(--takda-brand)] disabled:opacity-50"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[color:var(--takda-brand-text)] disabled:opacity-50"
               >
                 {uploading && <Spinner size={12} />}
                 {uploading
