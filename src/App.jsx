@@ -4621,7 +4621,7 @@ function SubjectDetail({
       </div>
 
       <div className="flex items-center justify-between mb-2.5">
-        <h2 className="text-sm font-semibold min-w-0 truncate" style={{ color: "var(--takda-text-heading)" }}>Activities ({pending.length} pending, {completed.length} completed)</h2>
+        <h2 className="font-display text-sm font-semibold min-w-0 truncate" style={{ color: "var(--takda-text-heading)" }}>Activities ({pending.length} pending, {completed.length} completed)</h2>
         <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canCreate ? "opacity-40" : ""}`} style={{ color: "var(--takda-brand)" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
@@ -4652,7 +4652,7 @@ function SubjectDetail({
         </div>
       )}
 
-      <h2 className="text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-heading)" }}>Notes</h2>
+      <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-heading)" }}>Notes</h2>
       <div className="flex gap-2 mb-3">
         <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-base outline-none" />
         <button
@@ -4701,7 +4701,7 @@ function SubjectDetail({
         ))}
       </div>
 
-      <h2 className="text-sm font-semibold mb-2.5 mt-7" style={{ color: "var(--takda-text-heading)" }}>Lesson Materials</h2>
+      <h2 className="font-display text-sm font-semibold mb-2.5 mt-7" style={{ color: "var(--takda-text-heading)" }}>Lesson Materials</h2>
       {materialsError && <div className="text-sm text-[color:var(--takda-feedback-error-text)] mb-2">{materialsError}</div>}
       {!materialsLoading && !materialsError && typeof materialUploadLimitBytes === "number" && (
         accountUploadUsageValid ? (
@@ -5394,7 +5394,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
       </div>
 
       <div className="flex items-baseline justify-between mb-2.5">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--takda-text-heading)" }}>{fmtDateFull(selected)}</h2>
+        <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-heading)" }}>{fmtDateFull(selected)}</h2>
         <span className="text-xs" style={{ color: "var(--takda-text-muted-1)" }}>{selectedList.length} {selectedList.length === 1 ? "activity" : "activities"}</span>
       </div>
 

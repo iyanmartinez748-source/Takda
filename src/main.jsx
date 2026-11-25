@@ -1085,7 +1085,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
             className="mx-auto mb-3 h-14 w-14 rounded-2xl object-cover shadow-sm"
           />
 
-          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
+          <h1 className="font-display text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Takda
           </h1>
 
@@ -1535,7 +1535,7 @@ function ResetPasswordScreen({ onDone }) {
             T
           </div>
 
-          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
+          <h1 className="font-display text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Create new password
           </h1>
 
@@ -1773,7 +1773,7 @@ function ProfileSetup({ user, onComplete }) {
             T
           </div>
 
-          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
+          <h1 className="font-display text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Welcome to Takda! 👋
           </h1>
 
@@ -2201,7 +2201,7 @@ function ProModal({ onClose, returnFocusRef }) {
                 uses, regardless of theme. */}
             <ProBadge />
 
-            <h2 id={titleId} className="mt-4 text-3xl font-extrabold">
+            <h2 id={titleId} className="font-display mt-4 text-3xl font-extrabold">
               Do more with your school life.
             </h2>
             <p className="mt-2 text-sm leading-6" style={{ color: "var(--takda-ink-surface-text-muted)" }}>
@@ -2909,7 +2909,7 @@ function MyProfile({
           <div className="flex items-center justify-between border-b border-[var(--takda-border)] px-5 py-4">
 
             <div>
-              <h2 id={titleId} className="text-lg font-bold text-[color:var(--takda-text-primary)]">
+              <h2 id={titleId} className="font-display text-lg font-bold text-[color:var(--takda-text-primary)]">
                 My Profile
               </h2>
 
