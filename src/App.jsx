@@ -2918,6 +2918,44 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
   );
 }
 
+// Stage F: Academic Performance's radial progress ring. Reuses the
+// exact same `value` (TakdaApp's dashboardOverallAverage, built from
+// GradesView's own unmodified gradePercent formula — no new
+// calculation) that already renders as plain text below it; the ring
+// is purely decorative reinforcement of that same real number, never
+// an independent data source, and the percentage text remains the
+// accessible readout (the <svg> is aria-hidden). `value === null`
+// (no grades recorded yet) renders an empty ring and "—", matching
+// the existing empty-data text exactly.
+function AcademicProgressCard({ value, bg, accent }) {
+  const hasValue = value !== null;
+  const pct = hasValue ? Math.max(0, Math.min(100, value)) : 0;
+  const radius = 15;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - pct / 100);
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl p-3.5 border border-[var(--takda-border)] flex items-center gap-2.5"
+      style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+    >
+      <span className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full pointer-events-none" aria-hidden="true" style={{ background: accent, opacity: 0.1 }} />
+      <svg aria-hidden="true" className="takda-progress-ring relative shrink-0" width="36" height="36" viewBox="0 0 36 36">
+        <circle cx="18" cy="18" r={radius} fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="4" />
+        <circle
+          cx="18" cy="18" r={radius} fill="none" stroke={accent} strokeWidth="4" strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset} transform="rotate(-90 18 18)"
+        />
+      </svg>
+      <div className="relative min-w-0">
+        <div className="font-display text-xl font-semibold leading-tight" style={{ color: accent }}>
+          {hasValue ? `${value.toFixed(1)}%` : "—"}
+        </div>
+        <div className="text-xs mt-0.5 font-medium leading-tight line-clamp-2" style={{ color: accent }}>Academic Performance</div>
+      </div>
+    </div>
+  );
+}
+
 // stats.pending/stats.subjects are the exact same already-computed
 // values other Dashboard widgets reuse — not recalculated here.
 // `classesToday` is `todaysClasses.length`, passed
@@ -2940,10 +2978,8 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
       <OverviewCard icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
       <OverviewCard icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
       {isPro ? (
-        <OverviewCard
-          icon={Lock}
-          label="Academic Performance"
-          value={overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}
+        <AcademicProgressCard
+          value={overallAverage}
           bg={OVERVIEW_ACCENTS.amber.bg}
           accent={OVERVIEW_ACCENTS.amber.accent}
         />

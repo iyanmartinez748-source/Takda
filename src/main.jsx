@@ -1927,6 +1927,30 @@ function ProBadge({ compact }) {
   );
 }
 
+// Stage H: one reusable loading indicator, reused by ProModal's
+// checkout button and MyProfile's Save/Upload buttons below —
+// replacing bare "Opening secure checkout..."/"Saving..."/"Uploading..."
+// text with the same text plus a small spinning ring, never standing
+// in for an artificial delay: every call site below only renders this
+// while its own real async request (startCheckout/saveChanges/
+// uploadAvatar) is actually in flight. aria-hidden since the adjacent
+// text already states the loading status accessibly.
+function Spinner({ size = 14, className = "" }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={`takda-spinner ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /* =========================
    SHARED MODAL ACCESSIBILITY HOOK (Step 06F.2, hardened Step 06F.4)
 
@@ -2251,8 +2275,9 @@ function ProModal({ onClose, returnFocusRef }) {
               type="button"
               onClick={startCheckout}
               disabled={loading}
-              className="mt-5 w-full rounded-xl bg-[var(--takda-brand)] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--takda-brand)] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
+              {loading && <Spinner />}
               {loading
                 ? "Opening secure checkout..."
                 : `Upgrade to Pro — ${
@@ -2938,8 +2963,9 @@ function MyProfile({
                   fileInputRef.current?.click()
                 }
                 disabled={uploading}
-                className="mt-3 text-sm font-semibold text-[color:var(--takda-brand)] disabled:opacity-50"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[color:var(--takda-brand)] disabled:opacity-50"
               >
+                {uploading && <Spinner size={12} />}
                 {uploading
                   ? "Uploading..."
                   : avatarUrl
@@ -3062,8 +3088,9 @@ function MyProfile({
                 <button
                   type="submit"
                   disabled={saving || uploading}
-                  className="flex-1 rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
+                  {saving && <Spinner />}
                   {saving
                     ? "Saving..."
                     : "Save Changes"}
