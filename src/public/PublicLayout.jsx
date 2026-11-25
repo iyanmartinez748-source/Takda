@@ -27,17 +27,17 @@ export default function PublicLayout({
 }) {
   return (
     <div
-      className="min-h-screen bg-[#F7F8FC] text-[#1B1B2F]"
+      className="min-h-screen bg-[var(--takda-bg-page-landing)] text-[color:var(--takda-text-primary)]"
       style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}
     >
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');`}</style>
 
-      <header className="sticky top-0 z-40 border-b border-[#E4E4F0] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-[var(--takda-border)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
             onClick={onNavigateHome}
-            className="flex items-center gap-2.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1"
+            className="flex items-center gap-2.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1"
             aria-label="Takda home"
           >
             <img src="/takda-icon.png" alt="" className="h-10 w-10 rounded-xl object-cover" />
@@ -48,7 +48,7 @@ export default function PublicLayout({
             <button
               type="button"
               onClick={onNavigateHome}
-              className="rounded-xl px-3 py-2 text-sm font-semibold text-[#1B1B2F] hover:text-[#3D2FE0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 sm:px-4"
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-text-primary)] hover:text-[color:var(--takda-brand)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 sm:px-4"
             >
               Home
             </button>
@@ -57,14 +57,14 @@ export default function PublicLayout({
                 <button
                   type="button"
                   onClick={onLogin}
-                  className="rounded-xl px-3 py-2 text-sm font-semibold text-[#3D2FE0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3D2FE0] focus-visible:ring-offset-1 sm:px-4"
+                  className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-brand)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 sm:px-4"
                 >
                   Log in
                 </button>
                 <button
                   type="button"
                   onClick={onSignup}
-                  className="rounded-xl bg-[#3D2FE0] px-3 py-2 text-sm font-semibold text-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1B2F] focus-visible:ring-offset-1 sm:px-4"
+                  className="rounded-xl bg-[var(--takda-brand)] px-3 py-2 text-sm font-semibold text-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-text-primary)] focus-visible:ring-offset-1 sm:px-4"
                 >
                   Get Started Free
                 </button>
@@ -76,13 +76,13 @@ export default function PublicLayout({
 
       <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">{children}</main>
 
-      <footer className="border-t border-[#E4E4F0] bg-white">
+      <footer className="border-t border-[var(--takda-border)] bg-white">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <img src="/takda-icon.png" alt="Takda" className="h-9 w-9 rounded-xl object-cover" />
               <div>
-                <p className="text-sm font-extrabold text-[#1B1B2F]">Takda</p>
+                <p className="text-sm font-extrabold text-[color:var(--takda-text-primary)]">Takda</p>
                 <p className="text-xs text-slate-400">Plan • Track • Finish</p>
               </div>
             </div>
@@ -90,7 +90,7 @@ export default function PublicLayout({
               <a
                 href="/"
                 onClick={(event) => { event.preventDefault(); onNavigateHome(); }}
-                className="hover:text-[#3D2FE0]"
+                className="hover:text-[color:var(--takda-brand)]"
               >
                 Home
               </a>
@@ -98,7 +98,7 @@ export default function PublicLayout({
                 <a
                   href="/about"
                   onClick={(event) => { event.preventDefault(); onNavigateAbout(); }}
-                  className="hover:text-[#3D2FE0]"
+                  className="hover:text-[color:var(--takda-brand)]"
                 >
                   About
                 </a>
@@ -107,7 +107,7 @@ export default function PublicLayout({
                 <a
                   href="/privacy"
                   onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }}
-                  className="hover:text-[#3D2FE0]"
+                  className="hover:text-[color:var(--takda-brand)]"
                 >
                   Privacy Policy
                 </a>
@@ -116,7 +116,7 @@ export default function PublicLayout({
                 <a
                   href="/terms"
                   onClick={(event) => { event.preventDefault(); onNavigateTerms(); }}
-                  className="hover:text-[#3D2FE0]"
+                  className="hover:text-[color:var(--takda-brand)]"
                 >
                   Terms of Service
                 </a>
@@ -125,17 +125,17 @@ export default function PublicLayout({
                 <a
                   href="/help"
                   onClick={(event) => { event.preventDefault(); onNavigateHelp(); }}
-                  className="hover:text-[#3D2FE0]"
+                  className="hover:text-[color:var(--takda-brand)]"
                 >
                   Help / FAQ
                 </a>
               )}
-              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[#3D2FE0]">
+              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[color:var(--takda-brand)]">
                 Contact / Support
               </a>
             </div>
           </div>
-          <div className="mt-6 border-t border-[#E4E4F0] pt-5 text-xs text-slate-400">
+          <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-slate-400">
             © {new Date().getFullYear()} Takda. Built for students.
           </div>
         </div>

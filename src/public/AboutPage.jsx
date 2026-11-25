@@ -30,7 +30,7 @@ export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateA
       onSignup={onSignup}
     >
       <article>
-        <p className="mb-3 text-sm font-semibold text-[#3D2FE0]">ABOUT TAKDA</p>
+        <p className="mb-3 text-sm font-semibold text-[color:var(--takda-brand)]">ABOUT TAKDA</p>
         <h1 className="text-3xl font-bold leading-tight sm:text-4xl">About Takda</h1>
         <p className="mt-5 text-base leading-7 text-slate-600">
           Takda is an academic planning workspace designed to help students organize school
@@ -40,7 +40,7 @@ export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateA
         <h2 className="mt-10 text-xl font-bold">What students can organize</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {features.map(([icon, title, description]) => (
-            <div key={title} className="rounded-2xl border border-[#E4E4F0] bg-white p-5">
+            <div key={title} className="rounded-2xl border border-[var(--takda-border)] bg-white p-5">
               <div className="mb-2 text-2xl" aria-hidden="true">
                 {icon}
               </div>
