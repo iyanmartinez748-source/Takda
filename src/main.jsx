@@ -130,8 +130,6 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
 
   return (
     <div className="min-h-screen bg-[var(--takda-bg-page-landing)] text-[color:var(--takda-text-primary)]" style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');`}</style>
-
       {legalPage && (
         <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/40 p-4">
           <div className="flex min-h-full items-center justify-center">
@@ -176,7 +174,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
             <div className="mb-4 inline-flex rounded-full border border-[var(--takda-brand-border-tint)] bg-[var(--takda-brand-tint-2)] px-3 py-1 text-xs font-semibold text-[color:var(--takda-brand)]">
               Your student workspace
             </div>
-            <h1 className="text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
+            <h1 className="font-display text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
               Stay on top of school with <span className="text-[color:var(--takda-brand)]">Takda.</span>
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">

@@ -43,8 +43,6 @@ import { subscribeToPush, unsubscribeFromPush, sendTestPush } from "./lib/push";
 import { generateRecurrenceDates, RecurrenceValidationError } from "./lib/recurrence";
 import { computeSmartInsights } from "./lib/planningEngine";
 
-const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
-
 const COLORS = ["#3D2FE0", "#FF5A5F", "#16A34A", "#F59E0B", "#0EA5A4", "#DB2777", "#7C3AED", "#2563EB"];
 const TYPES = ["Assignment", "Quiz", "Exam", "Project", "Presentation", "Report", "Research", "Reading", "Other"];
 const PRIORITIES = ["Low", "Medium", "High"];
@@ -64,16 +62,6 @@ const FREE_SUBJECT_LIMIT = 7;
 const FREE_ACTIVITY_LIMIT = 20;
 
 const uid = () => crypto.randomUUID();
-
-function loadFont() {
-  if (typeof document !== "undefined" && !document.getElementById("takda-font")) {
-    const link = document.createElement("link");
-    link.id = "takda-font";
-    link.rel = "stylesheet";
-    link.href = FONT_LINK;
-    document.head.appendChild(link);
-  }
-}
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -276,8 +264,6 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   const [notificationPermission, setNotificationPermission] = useState(() => getNotificationPermission());
   const [notificationsPreferred, setNotificationsPreferred] = useState(() => getNotificationsEnabledPreference());
   const notificationsActive = notificationPermission === "granted" && notificationsPreferred;
-
-  useEffect(() => { loadFont(); }, []);
 
   // Notification.permission can change outside React's knowledge (the
   // student changes it in browser/OS settings while the tab stays open) —
@@ -1597,7 +1583,6 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
       className="w-full md:min-h-[640px] max-w-md sm:max-w-full mx-auto md:max-w-7xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[var(--takda-border)] shadow-sm"
     >
       <style>{`
-        .font-display { font-family: 'Fraunces', serif; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: #D8D8ED; border-radius: 4px; }
         /* Single source of truth for how much bottom clearance the

@@ -31,7 +31,7 @@ export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateA
     >
       <article>
         <p className="mb-3 text-sm font-semibold text-[color:var(--takda-brand)]">ABOUT TAKDA</p>
-        <h1 className="text-3xl font-bold leading-tight sm:text-4xl">About Takda</h1>
+        <h1 className="font-display text-3xl font-bold leading-tight sm:text-4xl">About Takda</h1>
         <p className="mt-5 text-base leading-7 text-slate-600">
           Takda is an academic planning workspace designed to help students organize school
           responsibilities in one place.
