@@ -4240,9 +4240,16 @@ function NextClassCard({ nextClass, onOpenSubject }) {
     nextClass && (nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]);
   // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to Today's
   // Focus. No change to the card itself (nextClass/location/colors).
+  // Work Package 1: "Featured Up Next" framing — an eyebrow rule + a
+  // slightly larger font-display label, matching the Almanac masthead's
+  // own eyebrow/heading pairing. Purely a heading-level change; the
+  // card beneath it (data, colors, navigation) is untouched.
   return (
     <div className="mb-4">
-      <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Next Class</h2>
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="h-3 w-0.5 rounded-full shrink-0" style={{ background: "var(--takda-brand)" }} aria-hidden="true" />
+        <h2 className="font-display text-sm font-semibold tracking-wide" style={{ color: "var(--takda-text-primary)" }}>Up Next</h2>
+      </div>
       {!nextClass ? (
         // 10A.15B: compacted to one concise line (title only, no
         // subtitle, no action/handler) — still the same amber surface
@@ -4273,7 +4280,7 @@ function NextClassCard({ nextClass, onOpenSubject }) {
             boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
           }}
         >
-          <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/60" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
+          <SubjectSeal name={nextClass.subject?.name} color={nextClass.subject?.color} size={34} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold line-clamp-2 break-words" style={{ color: "var(--takda-text-primary)" }}>
               {nextClass.subject?.name || "Untitled Subject"}
@@ -4442,11 +4449,61 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight, cl
   );
 }
 
+// Work Package 1: circular subject "seal" — a medallion-style monogram
+// used in place of the plain color dot. Deliberately does NOT use the
+// subject's own `color` as the letter's text color: half of the 8
+// COLORS palette entries (computed by hand via the WCAG relative-
+// luminance formula) fall under 4.5:1 against both white and a light
+// tint of themselves (#FF5A5F ~3.05:1, #16A34A ~3.30:1, #F59E0B
+// ~2.16:1, #0EA5A4 ~3.03:1), so painting the initial in that color
+// would silently reintroduce a contrast failure for exactly the
+// subjects whose color a student is most likely to have picked. The
+// subject color is used only for the ring and the small corner dot —
+// both decorative/non-text, so WCAG text-contrast rules don't apply —
+// while the initial itself always uses the theme's own vetted
+// --takda-text-primary. The subject's name is already rendered as
+// visible text beside every seal, so the seal itself is aria-hidden.
+function SubjectSeal({ name, color, size = 44 }) {
+  const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+  const ringColor = color || "var(--takda-border-neutral-2)";
+  return (
+    <span
+      aria-hidden="true"
+      className="takda-subject-seal relative shrink-0 inline-flex items-center justify-center rounded-full font-display font-semibold"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.4),
+        background: "var(--takda-bg-page)",
+        border: `2px solid ${ringColor}`,
+        color: "var(--takda-text-primary)",
+        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)",
+      }}
+    >
+      {initial}
+      <span
+        className="absolute rounded-full"
+        style={{
+          width: Math.round(size * 0.24),
+          height: Math.round(size * 0.24),
+          right: -1,
+          bottom: -1,
+          background: ringColor,
+          border: "2px solid var(--takda-bg-surface)",
+        }}
+      />
+    </span>
+  );
+}
+
 /* ---------------- Subjects ---------------- */
 // Phase 09C.3A: Balanced Premium redesign. Cards stay plain token-based
 // surfaces with a soft inset highlight + shadow — no backdrop-filter,
 // per this batch's explicit "avoid backdrop-filter on repeated cards"
 // performance rule (there can be many of these in one grid).
+// Work Package 1: the plain color dot is replaced by SubjectSeal (a
+// circular monogram) for the Almanac's editorial/medallion language;
+// nothing about the card's own surface, shadow, or layout changed.
 function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onAdd, canCreate = true }) {
   return (
     <div className="p-5 md:p-8">
@@ -4477,9 +4534,9 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
                 className="takda-focus-visible takda-interactive text-left rounded-2xl p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
                 style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: s.color }} />
-                  <span className="font-display text-lg font-semibold truncate">{s.name}</span>
+                <div className="flex items-center gap-3 mb-3">
+                  <SubjectSeal name={s.name} color={s.color} />
+                  <span className="font-display text-lg font-semibold truncate min-w-0">{s.name}</span>
                 </div>
                 <div className="mb-3">
                   {s.teacher && <div className="text-xs mb-1 flex items-center gap-1" style={{ color: "var(--takda-text-muted-2)" }}><User size={12} />{s.teacher}</div>}
@@ -4519,8 +4576,8 @@ function SubjectDetail({
     <div className="p-5 md:p-8">
       <button onClick={onBack} className="takda-focus-visible flex items-center gap-1 text-sm mb-4" style={{ color: "var(--takda-text-muted-2)" }}><ArrowLeft size={15} /> Subjects</button>
       <div className="flex items-start justify-between gap-3 mb-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: subject.color }} />
+        <div className="flex items-center gap-3 min-w-0">
+          <SubjectSeal name={subject.name} color={subject.color} size={40} />
           <h1 className="font-display text-2xl font-semibold truncate">{subject.name}</h1>
           {readOnly && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{ color: "var(--takda-text-muted-2)", background: "var(--takda-border)" }}>Archived</span>}
         </div>
