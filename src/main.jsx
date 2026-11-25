@@ -2464,6 +2464,57 @@ function ProfileMenu({
    APPEARANCE MODAL (Step 03X)
 ========================= */
 
+// Design Excellence Category F: a miniature mockup (page strip + a
+// surface card with an accent bar and two muted text-lines) instead of
+// a single flat swatch dot — enough to actually read as "this is what
+// the app looks like" at a glance. aria-hidden since the option's own
+// label/description text is the accessible content.
+function ThemeMiniPreview({ preview }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg border border-black/10"
+      style={{ background: preview.page }}
+    >
+      <span
+        className="absolute inset-x-1.5 bottom-1.5 top-3 rounded-md"
+        style={{ background: preview.surface, boxShadow: "0 1px 2px rgba(0,0,0,0.12)" }}
+      >
+        <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full" style={{ background: preview.accent }} />
+        <span className="absolute left-1.5 top-[14px] h-[3px] w-6 rounded-full" style={{ background: preview.text, opacity: 0.85 }} />
+        <span className="absolute left-1.5 top-[20px] h-[3px] w-4 rounded-full" style={{ background: preview.muted }} />
+      </span>
+    </span>
+  );
+}
+
+// Design Excellence Category F: the real sky gradient at thumbnail
+// size, plus a tiny sun/moon body and (night only) a few stars — a
+// genuine miniature of the actual GreetingHero scene, not a generic icon.
+function AtmosphereMiniPreview({ option }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg border border-black/10"
+      style={{ background: option.sky }}
+    >
+      {option.body && (
+        <span
+          className="absolute h-2.5 w-2.5 rounded-full"
+          style={{ left: "62%", top: "22%", background: option.body, boxShadow: `0 0 6px 1px ${option.body}` }}
+        />
+      )}
+      {option.stars && (
+        <>
+          <span className="absolute h-[2px] w-[2px] rounded-full bg-white" style={{ left: "20%", top: "28%" }} />
+          <span className="absolute h-[2px] w-[2px] rounded-full bg-white" style={{ left: "35%", top: "55%" }} />
+          <span className="absolute h-[2px] w-[2px] rounded-full bg-white" style={{ left: "12%", top: "62%" }} />
+        </>
+      )}
+    </span>
+  );
+}
+
 function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAtmosphere, onClose, returnFocusRef }) {
   const panelRef = useRef(null);
   const titleId = "appearance-modal-title";
@@ -2524,21 +2575,33 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Design Excellence Category F: `preview` hardcodes that theme's own
+  // actual token values (copied directly from index.css's definitions,
+  // not computed from the currently-active theme) so ThemeMiniPreview
+  // can render what a NON-active theme genuinely looks like — the
+  // whole point of a preview. Using var(--takda-*) here would just
+  // reflect whichever theme is active right now, never the option
+  // being previewed.
   const THEME_OPTIONS = [
-    { key: "classic", label: "Classic", description: "Default Takda theme", swatch: "#3D2FE0" },
-    { key: "matcha", label: "Matcha Café", description: "Soft green and cream theme", swatch: "#4F7042" },
-    { key: "twilight", label: "Twilight", description: "Deep, cozy evening theme", swatch: "#6655E0" },
+    { key: "classic", label: "Classic", description: "Default Takda theme", swatch: "#3D2FE0", preview: { page: "#F5F6FA", surface: "#FFFFFF", text: "#1B1B2F", muted: "#94A3B8", accent: "#3D2FE0" } },
+    { key: "matcha", label: "Matcha Café", description: "Soft green and cream theme", swatch: "#4F7042", preview: { page: "#F7F2E4", surface: "#FFFEFA", text: "#2F2B22", muted: "#A79E87", accent: "#4F7042" } },
+    { key: "twilight", label: "Twilight", description: "Deep, cozy evening theme", swatch: "#6655E0", preview: { page: "#15132A", surface: "#1F1C38", text: "#EFECFA", muted: "#8B84AD", accent: "#9B8FFF" } },
   ];
 
   // Stage C: independent of theme — same storage/validation pattern as
   // THEME_OPTIONS above, intentionally never written to the same key or
   // read by the same effect, so switching one can never change the other.
+  // Design Excellence Category F: `sky` reuses the EXACT gradient
+  // strings index.css's own .takda-atm-scene[data-p="..."] .takda-atm-sky
+  // rules define — a genuine preview of the real atmosphere, not an
+  // approximation. "Auto" has no single sky of its own, so it gets a
+  // 4-wedge pie built from those same 4 gradients' start colors instead.
   const ATMOSPHERE_OPTIONS = [
-    { key: "auto", label: "Auto", description: "Follows your device's clock" },
-    { key: "dawn", label: "Dawn", description: "Early morning sky" },
-    { key: "day", label: "Day", description: "Bright daylight" },
-    { key: "dusk", label: "Dusk", description: "Golden-hour sunset" },
-    { key: "night", label: "Night", description: "Quiet, starlit sky" },
+    { key: "auto", label: "Auto", description: "Follows your device's clock", sky: "conic-gradient(#6a5a9e 0deg 90deg, #a9d8f0 90deg 180deg, #c6577c 180deg 270deg, #161340 270deg 360deg)" },
+    { key: "dawn", label: "Dawn", description: "Early morning sky", sky: "linear-gradient(185deg, #6a5a9e 0%, #c97d93 42%, #f3b48f 70%, #ffdba3 100%)", body: "#ffdba3" },
+    { key: "day", label: "Day", description: "Bright daylight", sky: "linear-gradient(185deg, #6fb8e6 0%, #a9d8f0 46%, #d9eef8 78%, #f1faff 100%)", body: "#fff6cf" },
+    { key: "dusk", label: "Dusk", description: "Golden-hour sunset", sky: "linear-gradient(185deg, #2d2259 0%, #7a3d6b 38%, #c6577c 62%, #f3985c 88%, #ffc98a 100%)", body: "#ffb15e" },
+    { key: "night", label: "Night", description: "Quiet, starlit sky", sky: "linear-gradient(185deg, #0a0918 0%, #161340 55%, #241f52 82%, #2d2766 100%)", body: "#e4ddff", stars: true },
   ];
 
   return (
@@ -2553,7 +2616,7 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
           aria-modal="true"
           aria-labelledby={titleId}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-sm rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-xl"
+          className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-xl"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -2590,30 +2653,29 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
                     type="button"
                     onClick={() => onSelect(option.key)}
                     aria-pressed={selected}
-                    className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
+                    aria-label={`${option.label} theme — ${option.description}`}
+                    className={`takda-focus-visible flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ${
                       selected
                         ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
                         : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-2 text-sm font-semibold text-[color:var(--takda-text-primary)]">
-                        <span
-                          aria-hidden="true"
-                          className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-black/10"
-                          style={{ background: option.swatch }}
-                        />
-                        {option.label}
-                      </span>
-                      {selected && (
-                        <span aria-hidden="true" className="text-[color:var(--takda-brand-text)]">
-                          ✓
+                    <ThemeMiniPreview preview={option.preview} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
+                          {option.label}
                         </span>
-                      )}
+                        {selected && (
+                          <span aria-hidden="true" className="shrink-0 text-[color:var(--takda-brand-text)]">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
+                        {option.description}
+                      </p>
                     </div>
-                    <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
-                      {option.description}
-                    </p>
                   </button>
                 );
               })}
@@ -2637,23 +2699,25 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
                     type="button"
                     onClick={() => onSelectAtmosphere(option.key)}
                     aria-pressed={selected}
-                    className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
+                    aria-label={`${option.label} atmosphere — ${option.description}`}
+                    className={`takda-focus-visible flex w-full flex-col gap-1.5 rounded-xl border p-2.5 text-left transition-colors duration-150 ${
                       selected
                         ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
                         : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                     }`}
                   >
+                    <AtmosphereMiniPreview option={option} />
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
                         {option.label}
                       </span>
                       {selected && (
-                        <span aria-hidden="true" className="text-[color:var(--takda-brand-text)]">
+                        <span aria-hidden="true" className="shrink-0 text-[color:var(--takda-brand-text)]">
                           ✓
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
+                    <p className="-mt-1 text-xs text-[color:var(--takda-text-muted-2)]">
                       {option.description}
                     </p>
                   </button>
