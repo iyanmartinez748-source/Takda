@@ -792,15 +792,25 @@ body {
 .takda-atm-scene[data-p="dusk"] .takda-atm-glow { left: 62%; top: 42%; width: 52px; height: 52px; background: radial-gradient(circle, #fff0cf, #ffb15e 55%, rgba(255,177,94,0) 100%); }
 .takda-atm-scene[data-p="night"] .takda-atm-glow { left: 66%; top: 15%; width: 36px; height: 36px; background: radial-gradient(circle, #f6f3ff, #d9d2ff 55%, rgba(217,210,255,0) 100%); }
 
+/* Design Excellence Category D: a cloud as 3 overlapping puff-lobes
+   (classic cumulus silhouette) baked into one element's background —
+   still a single DOM node, same paint cost as the old one-lobe
+   ellipse, just a richer shape than a plain blurred oval. */
 .takda-atm-cloud {
   position: absolute;
   border-radius: 50%;
   filter: blur(8px);
-  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.95), rgba(255,255,255,0) 70%);
+  background:
+    radial-gradient(circle at 24% 62%, rgba(255,255,255,.92), rgba(255,255,255,0) 58%),
+    radial-gradient(circle at 54% 32%, rgba(255,255,255,.95), rgba(255,255,255,0) 54%),
+    radial-gradient(circle at 80% 58%, rgba(255,255,255,.85), rgba(255,255,255,0) 56%);
 }
 
 .takda-atm-cloud-soft {
-  background: radial-gradient(circle at 35% 35%, rgba(255,210,180,.8), rgba(255,210,180,0) 70%);
+  background:
+    radial-gradient(circle at 24% 62%, rgba(255,210,180,.72), rgba(255,210,180,0) 58%),
+    radial-gradient(circle at 54% 32%, rgba(255,210,180,.8), rgba(255,210,180,0) 54%),
+    radial-gradient(circle at 80% 58%, rgba(255,210,180,.65), rgba(255,210,180,0) 56%);
 }
 
 .takda-atm-cloud-1 { width: 110px; height: 38px; left: 6%; top: 24%; opacity: .55; }
@@ -862,6 +872,16 @@ body {
   background: #fdfbff;
 }
 
+/* Design Excellence Category D: a handful of slightly larger, brighter
+   stars among the 18 (applied to specific indices in the JSX, not a
+   nth-child guess) reads as more sophisticated than 18 uniform dots —
+   same twinkle animation, just a size/glow variant. */
+.takda-atm-star-bright {
+  width: 3px;
+  height: 3px;
+  box-shadow: 0 0 4px 1px rgba(253,251,255,.55);
+}
+
 /* Performance fix (post-Stage-C review): all four scenes are always
    mounted (so the opacity crossfade has something to animate between),
    but only the active one should actually be animating — the other
@@ -881,6 +901,15 @@ body {
   animation: takda-atm-twinkle 3.6s ease-in-out infinite;
 }
 
+/* Design Excellence Category D: layered landscape depth. The horizon
+   used to be a single foreground silhouette plus one identical-shape
+   "rim" duplicate (dusk/night only, just blurred+offset) — real depth
+   needs distinct shapes at distinct distances, consistently across all
+   four periods, not just two of them. Three static layers (far/mid/
+   near), each its own SVG path, lightening and desaturating toward the
+   back (atmospheric perspective) — no animation on any of them, so
+   this costs nothing beyond the existing single-layer version and
+   needs no prefers-reduced-motion handling. */
 .takda-atm-horizon {
   position: absolute;
   left: 0;
@@ -906,14 +935,67 @@ body {
   fill: currentColor;
 }
 
-.takda-atm-hill-rim {
-  opacity: .5;
-  filter: blur(2px);
-  transform: translateY(-3px);
+.takda-atm-hill-far { opacity: .55; color: rgba(201,157,172,.5); }
+.takda-atm-hill-mid { opacity: .7; color: rgba(120,85,110,.6); transform: translateY(2px); }
+
+.takda-atm-scene[data-p="day"] .takda-atm-hill-far { color: rgba(180,205,195,.55); }
+.takda-atm-scene[data-p="day"] .takda-atm-hill-mid { color: rgba(100,130,120,.5); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-hill-far { color: rgba(185,112,120,.55); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-hill-mid { color: rgba(95,52,72,.68); }
+.takda-atm-scene[data-p="night"] .takda-atm-hill-far { color: rgba(55,55,95,.5); }
+.takda-atm-scene[data-p="night"] .takda-atm-hill-mid { color: rgba(24,24,50,.68); }
+
+/* Design Excellence Category D: a proper crisp sun/moon disc — halo
+   (ambient light, heavy blur) and glow (inner brightness, light blur)
+   already existed but neither has a defined edge, so the "sun"/"moon"
+   itself was never actually drawn, only its light. Sits on top of
+   both, same position as .takda-atm-glow per period. Night's moon gets
+   2 extra radial-gradient layers baked into the same background
+   (subtle craters) — texture, not geometry, so still a single static
+   element. */
+.takda-atm-body {
+  position: absolute;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
 }
 
-.takda-atm-scene[data-p="dusk"] .takda-atm-hill-rim { color: rgba(255,190,130,.6); }
-.takda-atm-scene[data-p="night"] .takda-atm-hill-rim { color: rgba(140,150,220,.28); }
+.takda-atm-scene[data-p="dawn"] .takda-atm-body { left: 25.5%; top: 27.5%; width: 30px; height: 30px; background: radial-gradient(circle at 35% 35%, #fff6df, #ffdba3 70%, #f3b48f 100%); }
+.takda-atm-scene[data-p="day"] .takda-atm-body { left: 73%; top: 15%; width: 22px; height: 22px; background: radial-gradient(circle at 35% 35%, #fffdf3, #fff6cf 65%, #ffe9a0 100%); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-body { left: 63.5%; top: 43.5%; width: 38px; height: 38px; background: radial-gradient(circle at 35% 35%, #fff0cf, #ffb15e 58%, #ff8a4a 100%); }
+.takda-atm-scene[data-p="night"] .takda-atm-body {
+  left: 67%; top: 16%; width: 24px; height: 24px;
+  background:
+    radial-gradient(circle at 30% 70%, rgba(170,160,215,.45), rgba(170,160,215,0) 42%),
+    radial-gradient(circle at 66% 34%, rgba(170,160,215,.35), rgba(170,160,215,0) 36%),
+    radial-gradient(circle at 38% 38%, #fbf9ff, #e4ddff 65%, #c9c0f0 100%);
+}
+
+/* Design Excellence Category D: soft dawn light rays — a static conic
+   gradient centered on the sun, no animation (a sweeping/rotating ray
+   is exactly the kind of motion prefers-reduced-motion exists to
+   avoid, and a static ray reads just as well as "soft atmospheric
+   light" here). mix-blend-mode: screen lets it brighten the sky
+   beneath it instead of sitting as a flat shape on top. */
+.takda-atm-rays {
+  position: absolute;
+  left: 2%;
+  top: 0%;
+  width: 70%;
+  height: 75%;
+  opacity: .8;
+  mix-blend-mode: screen;
+  background: conic-gradient(from 205deg at 46% 38%,
+    transparent 0deg, rgba(255,238,205,.22) 7deg, transparent 15deg,
+    transparent 38deg, rgba(255,238,205,.16) 45deg, transparent 53deg,
+    transparent 86deg, rgba(255,238,205,.19) 93deg, transparent 101deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Already static (no animation declared), kept transparent-safe for
+     any future author who adds motion here. */
+  .takda-atm-rays { transition: none; }
+}
 
 .takda-atm-scrim {
   position: absolute;

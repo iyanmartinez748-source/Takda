@@ -3663,10 +3663,22 @@ const HERO_SUBTLE_COLOR = "#F2EFFF";
 // .takda-atm-horizon[data-p="..."] rules in index.css), so the same
 // "same environment evolving through the day" shape appears in every
 // period rather than four unrelated drawings.
-function AtmosphereHill() {
+// Design Excellence Category D: three distinct silhouette shapes (not
+// the same path reused at different opacities) for genuine atmospheric-
+// perspective depth — far is the lowest/gentlest, mid has more
+// undulation, near (the original path, unchanged) is the sharpest and
+// closest. className selects far/mid/near's own color treatment from
+// index.css; the shape itself never changes with theme or period.
+function AtmosphereHill({ variant = "near", className = "" }) {
+  const path =
+    variant === "far"
+      ? "M0,78 Q100,58 200,72 Q300,84 400,64 L400,90 L0,90 Z"
+      : variant === "mid"
+      ? "M0,74 Q80,48 160,64 Q260,80 320,52 Q370,38 400,54 L400,90 L0,90 Z"
+      : "M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z";
   return (
-    <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z" />
+    <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true" className={className}>
+      <path d={path} />
     </svg>
   );
 }
@@ -3736,8 +3748,13 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
                 rules that this condition was silently never reaching). */}
             <div className="takda-atm-halo" />
             <div className="takda-atm-glow" />
+            {/* Design Excellence Category D: a crisp sun/moon disc on
+                top of the halo/glow ambient light — previously only the
+                light itself was drawn, never the body casting it. */}
+            <div className="takda-atm-body" />
             {p === "dawn" && (
               <>
+                <div className="takda-atm-rays" />
                 <div className="takda-atm-cloud takda-atm-cloud-1" />
                 <div className="takda-atm-cloud takda-atm-cloud-2" />
                 <div className="takda-atm-mist" />
@@ -3766,7 +3783,12 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
                 {ATMOSPHERE_STAR_POSITIONS.map(([x, y], i) => (
                   <span
                     key={i}
-                    className="takda-atm-star"
+                    // Design Excellence Category D: every 5th star (0,
+                    // 5, 10, 15 — a fixed, hand-chosen subset, not
+                    // random-per-render) renders slightly larger/
+                    // brighter for visual variety instead of 18
+                    // uniform dots.
+                    className={`takda-atm-star ${i % 5 === 0 ? "takda-atm-star-bright" : ""}`}
                     style={{
                       left: `${x}%`,
                       top: `${y}%`,
@@ -3777,13 +3799,14 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
                 ))}
               </div>
             )}
+            {/* Design Excellence Category D: consistent 3-layer depth
+                (far/mid/near) across all four periods — previously only
+                dusk/night got a second ("rim") layer, and it reused the
+                near layer's own exact shape, just blurred. */}
             <div className="takda-atm-horizon">
-              {(p === "dusk" || p === "night") && (
-                <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true" className="takda-atm-hill-rim">
-                  <path d="M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z" />
-                </svg>
-              )}
-              <AtmosphereHill />
+              <AtmosphereHill variant="far" className="takda-atm-hill-far" />
+              <AtmosphereHill variant="mid" className="takda-atm-hill-mid" />
+              <AtmosphereHill variant="near" />
             </div>
           </div>
         ))}
