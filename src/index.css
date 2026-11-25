@@ -213,8 +213,23 @@
    regression.
 ========================= */
 :root[data-takda-theme="twilight"] {
-  --takda-brand: #8F81FF;
-  --takda-brand-hover: #A79AFF;
+  /* Corrective fix (post-Stage-C review): the original #8F81FF only
+     measured ~3.11:1 for white text on it — this app's own buttons
+     everywhere else (Classic #3D2FE0 measures 7.83:1, documented
+     above) rely on brand being dark/saturated enough for white CTA
+     text, which a "light mode" violet tuned to read well against a
+     dark PAGE does not automatically satisfy once it's also used as a
+     button FILL. #6655E0 measures ~5.33:1 for white text (passes AA),
+     while still reading clearly as an accent against the dark page/
+     surface (~3.4:1, the WCAG floor for large text/UI components —
+     below the 4.5:1 ideal for small brand-colored text/links, a
+     real, documented remaining gap rather than a fixed one; a future
+     dedicated --takda-brand-text vs --takda-brand-solid split would
+     resolve both roles independently, but is out of this stage's
+     scope). Hover stays darker than the base, same convention as
+     Classic/Matcha's existing hover treatment. */
+  --takda-brand: #6655E0;
+  --takda-brand-hover: #5547C2;
   --takda-brand-tint-1: #211C3F;
   --takda-brand-tint-2: #2A2550;
   --takda-brand-tint-3: #332C63;
@@ -766,12 +781,12 @@ body {
 .takda-atm-cloud-2 { width: 82px; height: 30px; left: 54%; top: 38%; opacity: .45; }
 .takda-atm-cloud-3 { width: 100px; height: 34px; left: 62%; top: 42%; opacity: .5; }
 
-.takda-atm-scene[data-p="dawn"] .takda-atm-cloud-1 { animation: takda-atm-drift1 46s ease-in-out infinite; }
-.takda-atm-scene[data-p="dawn"] .takda-atm-cloud-2 { animation: takda-atm-drift2 60s ease-in-out infinite; }
-.takda-atm-scene[data-p="day"] .takda-atm-cloud-1 { animation: takda-atm-drift1 52s ease-in-out infinite; }
-.takda-atm-scene[data-p="day"] .takda-atm-cloud-2 { animation: takda-atm-drift2 68s ease-in-out infinite; }
-.takda-atm-scene[data-p="day"] .takda-atm-cloud-3 { animation: takda-atm-drift1 80s ease-in-out infinite; }
-.takda-atm-scene[data-p="dusk"] .takda-atm-cloud { animation: takda-atm-drift2 70s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="dawn"] .takda-atm-cloud-1 { animation: takda-atm-drift1 46s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="dawn"] .takda-atm-cloud-2 { animation: takda-atm-drift2 60s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-1 { animation: takda-atm-drift1 52s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-2 { animation: takda-atm-drift2 68s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-3 { animation: takda-atm-drift1 80s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="dusk"] .takda-atm-cloud { animation: takda-atm-drift2 70s ease-in-out infinite; }
 
 .takda-atm-mist {
   position: absolute;
@@ -796,7 +811,6 @@ body {
   position: absolute;
   width: 20px;
   height: 11px;
-  animation: takda-atm-flypath 26s ease-in-out infinite alternate;
 }
 
 .takda-atm-bird-1 { top: 6%; left: 0%; animation-delay: 0s; }
@@ -807,7 +821,6 @@ body {
   width: 100%;
   height: 100%;
   display: block;
-  animation: takda-atm-flap .7s ease-in-out infinite;
 }
 
 .takda-atm-stars {
@@ -821,6 +834,24 @@ body {
   height: 2.2px;
   border-radius: 50%;
   background: #fdfbff;
+}
+
+/* Performance fix (post-Stage-C review): all four scenes are always
+   mounted (so the opacity crossfade has something to animate between),
+   but only the active one should actually be animating — the other
+   three sat at opacity:0 while their clouds/birds/stars kept running,
+   burning CPU/battery for nothing visible. Every continuous-loop
+   animation is now scoped to `.is-active` specifically, never the bare
+   [data-p="..."] selector alone. */
+.takda-atm-scene.is-active .takda-atm-bird {
+  animation: takda-atm-flypath 26s ease-in-out infinite alternate;
+}
+
+.takda-atm-scene.is-active .takda-atm-bird-wing {
+  animation: takda-atm-flap .7s ease-in-out infinite;
+}
+
+.takda-atm-scene.is-active .takda-atm-star {
   animation: takda-atm-twinkle 3.6s ease-in-out infinite;
 }
 

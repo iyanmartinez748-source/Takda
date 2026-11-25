@@ -153,7 +153,7 @@ function PriorityTag({ priority }) {
   );
 }
 
-export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } = {}) {
+export default function TakdaApp({ isPro = false, onUpgrade, studentName = "", atmosphere = "day" } = {}) {
   const [ready, setReady] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -853,26 +853,29 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
     return "You're all caught up for today.";
   }, [focusLists]);
 
-  // Phase 09B.10: timePeriod now lives in real state, re-derived from the
-  // device clock on a lightweight 60s interval (not a high-frequency
-  // timer), so the greeting/hero actually updates when the user crosses
-  // a morning/afternoon/night boundary during an open session — the
-  // previous `useMemo(..., [])` computed this once at mount and never
-  // again, which this step was explicitly asked to fix (see Phase
-  // 09B.10's own instruction #7).
-  const [timePeriod, setTimePeriod] = useState(() => getTimePeriod());
+  // Phase 09B.10: re-derived from the device clock on a lightweight 60s
+  // interval (not a high-frequency timer), so the greeting actually
+  // updates when the user crosses a boundary during an open session.
+  //
+  // Corrective fix (post-Stage-C review): this is now deliberately a
+  // SEPARATE value from the Atmosphere scene below — greetingPeriod
+  // always reflects the real device clock via getGreetingPeriod() and
+  // is never affected by a manually-selected Atmosphere. Selecting
+  // "Night" at 9am must not make the greeting say "Still Studying" at
+  // 9am; it only changes which decorative sky is shown.
+  const [greetingPeriod, setGreetingPeriod] = useState(() => getGreetingPeriod());
 
   useEffect(() => {
-    const id = setInterval(() => setTimePeriod(getTimePeriod()), 60000);
+    const id = setInterval(() => setGreetingPeriod(getGreetingPeriod()), 60000);
     return () => clearInterval(id);
   }, []);
 
   const greeting = useMemo(() => {
-    if (timePeriod === "dawn") return "Good Morning";
-    if (timePeriod === "day") return "Good Afternoon";
-    if (timePeriod === "dusk") return "Good Evening";
+    if (greetingPeriod === "morning") return "Good Morning";
+    if (greetingPeriod === "afternoon") return "Good Afternoon";
+    if (greetingPeriod === "evening") return "Good Evening";
     return "Still Studying";
-  }, [timePeriod]);
+  }, [greetingPeriod]);
 
   // TAKDA 2.0 Dashboard (Phase 10A): Academic Performance overview card.
   // This is the EXACT SAME formula as GradesView's own `overallAverage`
@@ -1637,7 +1640,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
             <Dashboard
               greeting={greeting}
               contextMessage={contextMessage}
-              timePeriod={timePeriod}
+              atmosphere={atmosphere}
               focusLists={focusLists}
               stats={stats}
               recentlyCompleted={recentlyCompleted}
@@ -3327,7 +3330,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
 function Dashboard({
   greeting,
   contextMessage,
-  timePeriod,
+  atmosphere,
   focusLists,
   stats,
   recentlyCompleted,
@@ -3381,7 +3384,7 @@ function Dashboard({
         <span className="absolute top-[40%] left-[85%] w-1.5 h-1.5 rounded-full bg-white/60" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.4)" }} />
       </div>
 
-      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} timePeriod={timePeriod} />
+      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} atmosphere={atmosphere} />
 
       {showActiveSemesterContext && (
         <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
@@ -3602,10 +3605,11 @@ function Dashboard({
 /* ---------------- Greeting hero (Phase 09B.10; Stage C) ---------------- */
 // Pure function of the device clock — no new dependency, no network, no
 // invented data. Exported so main.jsx's Root() can resolve the
-// Atmosphere preference's "auto" option to the same real-time value,
-// independent of TakdaApp's own timePeriod state (see Root's
-// data-takda-period effect). Approved boundaries (device-local time):
-// Dawn 05:00-07:59, Day 08:00-16:59, Dusk 17:00-18:59, Night 19:00-04:59.
+// Atmosphere preference's "auto" option to the same real-time value.
+// Drives ONLY the decorative scene in GreetingHero — deliberately NOT
+// the greeting text (see getGreetingPeriod below). Approved boundaries
+// (device-local time): Dawn 05:00-07:59, Day 08:00-16:59, Dusk
+// 17:00-18:59, Night 19:00-04:59.
 export function getTimePeriod() {
   const h = new Date().getHours();
   if (h >= 5 && h < 8) return "dawn";
@@ -3614,10 +3618,25 @@ export function getTimePeriod() {
   return "night";
 }
 
+// Corrective fix (post-Stage-C review): a second, separate pure
+// function for the greeting TEXT specifically — deliberately
+// independent of getTimePeriod/the Atmosphere scene above, so a
+// manually-selected Atmosphere can never change what the greeting
+// says. Boundaries as specified: Good Morning before noon, Good
+// Afternoon 12:00-16:59, Good Evening 17:00-21:59, "Still Studying"
+// 22:00-04:59 (late enough that "Good Evening" would read oddly).
+function getGreetingPeriod() {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 5) return "late-night";
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  return "evening";
+}
+
 // Stage C superseded Phase 10A.2's single static illustration
 // (public/takda-hero-sunset.png, no longer referenced here) with four
 // live CSS/SVG scenes (.takda-atm-* in src/index.css), crossfaded by
-// `timePeriod` — the file on disk is unused now but was not deleted,
+// `atmosphere` — the file on disk is unused now but was not deleted,
 // since removing an asset file is outside this stage's authorized
 // scope. HERO_TEXT_COLOR/HERO_SUBTLE_COLOR stay a single fixed pair
 // (not four): the dark scrim (.takda-atm-scrim) behind the text is
@@ -3669,35 +3688,42 @@ const ATMOSPHERE_PERIODS = ["dawn", "day", "dusk", "night"];
 // or class data of its own, per Phase 09B.10 instruction #4). `studentName`
 // (Phase 10A) is an existing, already-fetched profile field threaded
 // down from Root/TakdaApp, never a hardcoded sample name; it renders
-// only when present. `timePeriod` (Stage C) is the same existing
-// dawn/day/dusk/night value TakdaApp already computes for `greeting`
-// itself — this component adds no new state or timer of its own, it
-// only decides which of the four pre-rendered scene layers is visible.
-// The date line is `new Date()` formatted inline on every render — no
-// new timer, no new state.
-function GreetingHero({ greeting, contextMessage, studentName, timePeriod }) {
+// only when present. `atmosphere` (Stage C, corrected) is the
+// dawn/day/dusk/night value resolved from the user's Atmosphere
+// preference in Root (Auto resolves to the real device clock; a manual
+// selection overrides it) — deliberately NOT the same value that drives
+// `greeting`'s text, so switching Atmosphere can never change what the
+// greeting says. The date line is `new Date()` formatted inline on
+// every render — no new timer, no new state.
+function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
-  const isNight = timePeriod === "night";
+  // Corrective fix: driven by the actual resolved greeting text, not by
+  // the (independent, possibly manually-overridden) Atmosphere scene —
+  // "Still Studying" only ever appears when it's actually late at night.
+  const isLateNight = greeting === "Still Studying";
   return (
     <div className="takda-glass relative overflow-hidden rounded-2xl mb-6 min-h-[150px] md:min-h-[170px]">
-      {/* Decorative atmosphere layers — purely presentational, so the
-          whole block is aria-hidden and sits behind the real greeting
-          text in a separate, non-hidden layer below. */}
-      <div className="absolute inset-0" aria-hidden="true">
+      {/* Decorative atmosphere layers — purely presentational: aria-hidden
+          AND pointer-events-none (so they can never intercept a click/
+          hover even where the real content column doesn't cover them),
+          sitting behind the real greeting text in a separate, normal
+          layer below. */}
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         {ATMOSPHERE_PERIODS.map((p) => (
-          <div key={p} data-p={p} className={`takda-atm-scene ${timePeriod === p ? "is-active" : ""}`}>
+          <div key={p} data-p={p} className={`takda-atm-scene ${atmosphere === p ? "is-active" : ""}`}>
             <div className="takda-atm-sky" />
-            {p !== "night" && (
-              <>
-                <div className="takda-atm-halo" />
-                <div className="takda-atm-glow" />
-              </>
-            )}
+            {/* Corrective fix: halo+glow render for every period, not
+                just dawn/day/dusk — Night's halo+glow is the moon's
+                own ambient light + disc; excluding it there was a bug
+                (index.css already defined Night-specific halo/glow
+                rules that this condition was silently never reaching). */}
+            <div className="takda-atm-halo" />
+            <div className="takda-atm-glow" />
             {p === "dawn" && (
               <>
                 <div className="takda-atm-cloud takda-atm-cloud-1" />
@@ -3755,7 +3781,7 @@ function GreetingHero({ greeting, contextMessage, studentName, timePeriod }) {
       <div className="relative z-[2] flex min-h-[150px] md:min-h-[170px] items-end px-5 py-5">
         <div className="relative max-w-[70%] md:max-w-[60%]">
           <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
-            {isNight
+            {isLateNight
               ? <>{greeting}{studentName ? `, ${studentName}` : ""}?</>
               : <>{greeting}{studentName ? `, ${studentName}` : ""} 👋</>}
           </h1>

@@ -2253,7 +2253,15 @@ function ProModal({ onClose, returnFocusRef }) {
                     : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                 }`}
               >
-                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[color:var(--takda-text-primary)]">
+                {/* Corrective fix: text color is a fixed dark literal,
+                    not the theme's --takda-text-primary — amber-400 is
+                    a fixed bright color in every theme, but
+                    text-primary flips to near-white in Twilight, which
+                    computed to ~1.43:1 against this background (a real
+                    failure, not a hypothetical one). A fixed dark color
+                    is correct here since the badge's own background
+                    never changes with theme either. */}
+                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[#1B1B2F]">
                   BEST VALUE
                 </span>
                 <p className="text-xs font-bold text-[color:var(--takda-text-muted-2)]">YEARLY</p>
@@ -2519,7 +2527,7 @@ function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAt
   const THEME_OPTIONS = [
     { key: "classic", label: "Classic", description: "Default Takda theme", swatch: "#3D2FE0" },
     { key: "matcha", label: "Matcha Café", description: "Soft green and cream theme", swatch: "#4F7042" },
-    { key: "twilight", label: "Twilight", description: "Deep, cozy evening theme", swatch: "#8F81FF" },
+    { key: "twilight", label: "Twilight", description: "Deep, cozy evening theme", swatch: "#6655E0" },
   ];
 
   // Stage C: independent of theme — same storage/validation pattern as
@@ -3224,16 +3232,32 @@ function Root() {
   // preferences can never interact.
   const [atmosphere, setAtmosphere] = useState(readStoredAtmosphere);
 
+  // Corrective fix (post-Stage-C review): the resolved dawn/day/dusk/
+  // night value is now real React state, not just a side-effect-only
+  // local variable — TakdaApp receives it as a prop below and uses it
+  // to pick GreetingHero's visible scene. Previously this value only
+  // ever reached a document attribute with no component actually
+  // reading it, so a manual Atmosphere selection had no visible effect
+  // on the Dashboard at all; this is the fix for that.
+  const [resolvedAtmosphere, setResolvedAtmosphere] = useState(
+    () => (atmosphere === "auto" ? getTimePeriod() : atmosphere)
+  );
+
   useEffect(() => {
     function applyPeriod() {
       const resolved = atmosphere === "auto" ? getTimePeriod() : atmosphere;
+      setResolvedAtmosphere(resolved);
+      // The document attribute is kept for any CSS that wants to key off
+      // the resolved period outside of TakdaApp's own React tree (e.g.
+      // the public landing page before login) — TakdaApp itself now
+      // reads the `atmosphere` prop below instead, not this attribute.
       document.documentElement.setAttribute("data-takda-period", resolved);
     }
     applyPeriod();
-    // Same 60s cadence as TakdaApp's own timePeriod poll — independent
-    // interval, not shared state, since this attribute must also update
-    // correctly on screens TakdaApp hasn't mounted yet (e.g. while still
-    // loading, or on the public landing page before login).
+    // Same 60s cadence as TakdaApp's own greeting poll — independent
+    // interval, not shared state, since this must also update correctly
+    // on screens TakdaApp hasn't mounted yet (e.g. while still loading,
+    // or on the public landing page before login).
     const id = setInterval(applyPeriod, 60000);
     return () => clearInterval(id);
   }, [atmosphere]);
@@ -4107,6 +4131,7 @@ function Root() {
         <TakdaApp
           isPro={isPro}
           studentName={getFirstName(profile?.full_name)}
+          atmosphere={resolvedAtmosphere}
           onUpgrade={(triggerEl) => {
             // Step 06G.9B: GradeLockedView's own "Upgrade to Pro" button
             // now passes itself through (event.currentTarget in
