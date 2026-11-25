@@ -3986,13 +3986,19 @@ function Root() {
     return (
       <div className="min-h-screen bg-[var(--takda-bg-page)] grid place-items-center">
 
-        <div className="text-center">
+        {/* Work Package 5: accessible loading feedback — role="status"
+            announces this to assistive tech without needing focus, and
+            the existing Spinner (already used by ProModal/MyProfile)
+            gives the same visual loading cue sighted users get
+            elsewhere in the app, instead of static text alone. */}
+        <div className="text-center" role="status" aria-label="Loading Takda">
 
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--takda-brand)] text-lg font-bold text-white">
             T
           </div>
 
-          <p className="text-sm text-[color:var(--takda-text-muted-2)]">
+          <p className="flex items-center justify-center gap-2 text-sm text-[color:var(--takda-text-muted-2)]">
+            <Spinner size={13} />
             Loading Takda…
           </p>
 

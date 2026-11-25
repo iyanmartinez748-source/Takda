@@ -4220,10 +4220,38 @@ function DashboardEmptyState({ icon: Icon, title, subtitle, tone }) {
 // relative-luminance formula, whereas --takda-text-muted-3 computes to
 // ~7.2:1 (Classic) / ~6.8:1 (Matcha) — comfortably clear of AA in both
 // themes, not a hairline pass.
+// Work Package 5: lightweight Almanac-style empty-state illustration —
+// a simple open-book line drawing (fitting an academic-planner app),
+// shared by every EmptyRow call site (Subjects/Activities/Materials/
+// Notes/Semesters/Grades) so the decorative treatment is consistent
+// everywhere without touching any individual call site. Pure line art,
+// a handful of elements, no gradients/filters/animation — "lightweight"
+// per the approved requirement. aria-hidden since `text` below already
+// carries the actual message.
+function EmptyStateIllustration() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="44"
+      height="44"
+      viewBox="0 0 44 44"
+      fill="none"
+      className="mx-auto mb-2.5"
+      style={{ color: "var(--takda-text-muted-1)" }}
+    >
+      <path d="M22 11 C18 8.5 12 8 7 9 V30 C12 29 18 29.5 22 32 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M22 11 C26 8.5 32 8 37 9 V30 C32 29 26 29.5 22 32 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M22 11 V32" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M11 15 H17.5 M11 19.5 H16" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.6" />
+      <path d="M27 15 H33.5 M28 19.5 H33" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+}
+
 function EmptyRow({ text }) {
   return (
     <div
-      className="rounded-2xl text-center text-sm py-5 px-4 mb-7"
+      className="rounded-2xl text-center text-sm py-6 px-4 mb-7"
       style={{
         background: "var(--takda-bg-empty-state)",
         border: "1px solid var(--takda-border)",
@@ -4231,6 +4259,7 @@ function EmptyRow({ text }) {
         boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
       }}
     >
+      <EmptyStateIllustration />
       {text}
     </div>
   );
@@ -4736,7 +4765,26 @@ function SubjectDetail({
           ><Plus size={13} /> Add Link</button>
         </div>
       </div>
-      {!materialsLoading && materials.length === 0 ? (
+      {materialsLoading ? (
+        // Work Package 5: genuine skeleton placeholder for the one
+        // loading state in this screen that previously rendered nothing
+        // at all (the "Loading…" caption above was the only feedback).
+        // Shape mimics MaterialLinkCard/MaterialUploadCard's own row
+        // (icon + two text lines) so the layout doesn't jump once real
+        // materials arrive. aria-hidden since the caption's "Loading…"
+        // text already carries this state to assistive tech.
+        <div className="flex flex-col gap-2" role="status" aria-label="Loading lesson materials">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-[var(--takda-border)] p-3" aria-hidden="true">
+              <div className="takda-skeleton w-9 h-9 rounded-xl shrink-0" />
+              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                <div className="takda-skeleton h-3 rounded" style={{ width: `${62 - i * 8}%` }} />
+                <div className="takda-skeleton h-2.5 rounded" style={{ width: "38%" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : materials.length === 0 ? (
         <EmptyRow text="No lesson materials yet." />
       ) : (
         <div className="flex flex-col gap-2">
