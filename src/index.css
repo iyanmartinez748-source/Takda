@@ -101,6 +101,33 @@
   --takda-success-icon: #10B981;
   --takda-bg-empty-state: #F8FAFC;
 
+  /* Stage D: deliberately theme-INDEPENDENT (declared once here, never
+     overridden by Matcha or Twilight below) — ProModal's header band is
+     a fixed dramatic-dark design choice, the same kind of decision
+     .takda-pro-badge already makes for its own always-graphite styling
+     a few lines down. A themed surface token would make this header
+     nearly invisible against a dark Twilight page; this token exists
+     specifically so it never has to be. */
+  --takda-ink-surface: #1B1B2F;
+  --takda-ink-surface-text: #FFFFFF;
+  --takda-ink-surface-text-muted: #CBD0DC;
+
+  /* Stage D: form-feedback tokens (distinct semantic domain from the
+     task-urgency --takda-status-* tokens above — a validation error is
+     not an "overdue task"). Classic values are copied verbatim from
+     ProModal/MyProfile's existing bg-red-50/text-red-600 and
+     bg-green-50/text-green-700 Tailwind pairs, so defining them here
+     changes no rendered pixel in Classic. Matcha deliberately inherits
+     these unmodified, same precedent as it already sets for the
+     --takda-status-* tokens above ("inherits Classic's status colors
+     for now"). Only Twilight overrides them below, reusing its own
+     overdue/week token values for visual consistency rather than
+     inventing a third unrelated red/green pair. */
+  --takda-feedback-error-bg: #FEF2F2;
+  --takda-feedback-error-text: #DC2626;
+  --takda-feedback-success-bg: #F0FDF4;
+  --takda-feedback-success-text: #15803D;
+
   /* Motion (Step 52D.2) — theme-independent, deliberately NOT declared
      inside any `:root[data-takda-theme="..."]` block: every current
      and future theme inherits the same timing from this base `:root`
@@ -159,6 +186,96 @@
   --takda-text-heading: #5A5345;
   --takda-success-icon: #10B981;
   --takda-bg-empty-state: #F7F2E4;
+}
+
+/* =========================
+   TAKDA DESIGN TOKENS — Twilight theme (Stage D)
+
+   Third additive theme, same mechanism as Matcha above (a
+   :root[data-takda-theme="..."] override block — nothing about how
+   themes are selected, stored, or applied changes). Unlike Matcha,
+   Twilight DOES override the status/priority/focustile/feedback tokens
+   Classic leaves to Matcha's light palette, because those are light
+   pastel chips that would look like bright, out-of-place patches on
+   this theme's dark page — a visual-harmony problem Matcha (also
+   light) never has.
+
+   Contrast, computed via the WCAG relative-luminance formula (not
+   estimated): --takda-text-primary on --takda-bg-page measures
+   ~15.6:1, and on --takda-bg-surface ~13.1:1 — both far clear of the
+   7:1 AAA floor, let alone AA's 4.5:1. --takda-text-muted-1 on
+   --takda-bg-page measures ~3.7:1 — below the 4.5:1 normal-text floor,
+   but this matches this app's EXISTING pattern exactly: Classic's own
+   --takda-text-muted-1 (#94A3B8) on white measures only ~2.6:1 by the
+   same formula, confirming muted-1 has always been this codebase's
+   large-text/decorative tier, never its body-text tier. Twilight's
+   muted-1 is already a real improvement over that baseline, not a
+   regression.
+========================= */
+:root[data-takda-theme="twilight"] {
+  --takda-brand: #8F81FF;
+  --takda-brand-hover: #A79AFF;
+  --takda-brand-tint-1: #211C3F;
+  --takda-brand-tint-2: #2A2550;
+  --takda-brand-tint-3: #332C63;
+  --takda-brand-border-tint: #4B4280;
+  --takda-brand-border-dashed: #433C70;
+
+  --takda-bg-page: #15132A;
+  --takda-bg-page-landing: #15132A;
+  --takda-bg-surface: #1F1C38;
+  --takda-bg-reminder-chip: #332B1A;
+  --takda-bg-grade-locked-icon: #2E2A1E;
+
+  --takda-text-primary: #EFECFA;
+  --takda-text-muted-1: #716B94;
+  --takda-text-muted-2: #938CBD;
+  --takda-text-muted-3: #B5AFDA;
+
+  --takda-border: #312A4F;
+  --takda-border-neutral-2: #3D3560;
+  --takda-scrollbar-thumb: #3D3560;
+
+  /* Deliberately NOT aliased to --takda-brand here (unlike Classic and
+     Matcha): a focus ring specifically benefits from the highest
+     available contrast, and --takda-text-primary's near-white
+     (~15.6:1 against the page, computed above) is higher-contrast
+     than brand's own violet on these dark surfaces. */
+  --takda-focus: #EFECFA;
+
+  --takda-status-overdue-dot: #FF6B70;
+  --takda-status-overdue-text: #FFA8AB;
+  --takda-status-overdue-bg: #3A1A1C;
+  --takda-status-tomorrow-dot: #F5B342;
+  --takda-status-tomorrow-text: #F0C98A;
+  --takda-status-tomorrow-bg: #332B1A;
+  --takda-status-week-dot: #4ADE80;
+  --takda-status-week-text: #9AE6B4;
+  --takda-status-week-bg: #16301F;
+  --takda-status-later-dot: #8E86B3;
+  --takda-status-later-text: #B5AFDA;
+  --takda-status-later-bg: #211F38;
+
+  --takda-label-pending: #B5AFDA;
+  --takda-label-pending-bg: #26223F;
+  --takda-label-inprogress: #93B4FF;
+  --takda-label-inprogress-bg: #1C2540;
+
+  --takda-priority-medium: #F0C98A;
+  --takda-priority-high: #FFA8AB;
+
+  --takda-focustile-overdue-border: #4A2529;
+  --takda-focustile-duetoday-border: #473A20;
+  --takda-focustile-upcoming-border: #1E3A28;
+
+  --takda-text-heading: #D9D4EE;
+  --takda-success-icon: #4ADE80;
+  --takda-bg-empty-state: #1C1934;
+
+  --takda-feedback-error-bg: #3A1A1C;
+  --takda-feedback-error-text: #FFA8AB;
+  --takda-feedback-success-bg: #16301F;
+  --takda-feedback-success-text: #9AE6B4;
 }
 
 html, body, #root {
@@ -391,6 +508,15 @@ body {
   --takda-glass-neutral-border: rgba(255, 250, 235, 0.45);
 }
 
+:root[data-takda-theme="twilight"] {
+  /* Dark frosted glass to match Twilight's own surface tone, same
+     pattern as Matcha's override above. The six vivid accent variants
+     stay unchanged for the same reason stated on the Classic block. */
+  --takda-glass-neutral-bg: rgba(31, 28, 56, 0.55);
+  --takda-glass-neutral-bg-solid: #1F1C38;
+  --takda-glass-neutral-border: rgba(75, 66, 128, 0.4);
+}
+
 @media (max-width: 640px) {
   /* Rule 8: cheaper blur radius on small/mobile viewports, applies to
      every glass surface automatically since they all read this token. */
@@ -527,6 +653,269 @@ body {
      translateY itself so reduced-motion users never see the jump. */
   .takda-glass:hover {
     transform: none;
+  }
+
+  /* Stage C: every atmosphere animation (cloud drift, bird flight/wing
+     flap, star twinkle) is suppressed outright, not just slowed — a
+     twinkling star or flapping wing is exactly the kind of persistent
+     motion prefers-reduced-motion exists to remove, same standard this
+     file already applies to .takda-pro-badge's shine sweep above. The
+     scene crossfade itself (not purely decorative — it's how the
+     active period's content becomes visible) is shortened rather than
+     removed, same treatment the glass hover lift gets just above. */
+  .takda-atm-cloud,
+  .takda-atm-bird,
+  .takda-atm-bird-wing,
+  .takda-atm-star {
+    animation: none !important;
+  }
+
+  .takda-atm-scene {
+    transition-duration: 0.2s;
+  }
+}
+
+/* =========================
+   Stage C: Animated Atmospheric Environments
+
+   Four time-of-day scenes (dawn/day/dusk/night) layered inside
+   GreetingHero (src/App.jsx), crossfaded by toggling .is-active based
+   on the `timePeriod` prop — never by swapping DOM nodes, so the
+   1.6s opacity transition below has something to animate between.
+   Decorative only: every element here is wrapped in a parent marked
+   aria-hidden="true" in the JSX, so none of it is ever exposed to
+   assistive tech; the actual greeting/context text sits in a separate,
+   normal (non-hidden) layer on top.
+
+   Deliberately independent of theme: these selectors key off
+   [data-p="..."] (the scene's own time-of-day), never off
+   [data-takda-theme="..."] — Theme and Atmosphere must stay
+   independently selectable, exactly as Stage C's brief requires.
+========================= */
+.takda-atm-scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.6s ease;
+  overflow: hidden;
+}
+
+.takda-atm-scene.is-active {
+  opacity: 1;
+}
+
+.takda-atm-sky {
+  position: absolute;
+  inset: 0;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-sky {
+  background: linear-gradient(185deg, #6a5a9e 0%, #c97d93 42%, #f3b48f 70%, #ffdba3 100%);
+}
+
+.takda-atm-scene[data-p="day"] .takda-atm-sky {
+  background: linear-gradient(185deg, #6fb8e6 0%, #a9d8f0 46%, #d9eef8 78%, #f1faff 100%);
+}
+
+.takda-atm-scene[data-p="dusk"] .takda-atm-sky {
+  background: linear-gradient(185deg, #2d2259 0%, #7a3d6b 38%, #c6577c 62%, #f3985c 88%, #ffc98a 100%);
+}
+
+.takda-atm-scene[data-p="night"] .takda-atm-sky {
+  background: linear-gradient(185deg, #0a0918 0%, #161340 55%, #241f52 82%, #2d2766 100%);
+}
+
+.takda-atm-halo {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(22px);
+  width: 150px;
+  height: 150px;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-halo { left: 24%; top: 12%; background: radial-gradient(circle, rgba(255,228,180,.65), rgba(255,228,180,0) 70%); }
+.takda-atm-scene[data-p="day"] .takda-atm-halo { left: 72%; top: 6%; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,250,225,.6), rgba(255,250,225,0) 70%); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-halo { left: 62%; top: 26%; width: 210px; height: 210px; background: radial-gradient(circle, rgba(255,206,138,.62), rgba(255,206,138,0) 72%); }
+.takda-atm-scene[data-p="night"] .takda-atm-halo { left: 66%; top: 6%; width: 120px; height: 120px; background: radial-gradient(circle, rgba(235,230,255,.42), rgba(235,230,255,0) 72%); }
+
+.takda-atm-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(2px);
+  width: 40px;
+  height: 40px;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-glow { left: 24%; top: 26%; background: radial-gradient(circle, #fff6df, #ffd9a0 60%, rgba(255,217,160,0) 100%); }
+.takda-atm-scene[data-p="day"] .takda-atm-glow { left: 72%; top: 14%; width: 32px; height: 32px; background: radial-gradient(circle, #fffdf3, #fff2c6 65%, rgba(255,242,198,0) 100%); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-glow { left: 62%; top: 42%; width: 52px; height: 52px; background: radial-gradient(circle, #fff0cf, #ffb15e 55%, rgba(255,177,94,0) 100%); }
+.takda-atm-scene[data-p="night"] .takda-atm-glow { left: 66%; top: 15%; width: 36px; height: 36px; background: radial-gradient(circle, #f6f3ff, #d9d2ff 55%, rgba(217,210,255,0) 100%); }
+
+.takda-atm-cloud {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(8px);
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.95), rgba(255,255,255,0) 70%);
+}
+
+.takda-atm-cloud-soft {
+  background: radial-gradient(circle at 35% 35%, rgba(255,210,180,.8), rgba(255,210,180,0) 70%);
+}
+
+.takda-atm-cloud-1 { width: 110px; height: 38px; left: 6%; top: 24%; opacity: .55; }
+.takda-atm-cloud-2 { width: 82px; height: 30px; left: 54%; top: 38%; opacity: .45; }
+.takda-atm-cloud-3 { width: 100px; height: 34px; left: 62%; top: 42%; opacity: .5; }
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-cloud-1 { animation: takda-atm-drift1 46s ease-in-out infinite; }
+.takda-atm-scene[data-p="dawn"] .takda-atm-cloud-2 { animation: takda-atm-drift2 60s ease-in-out infinite; }
+.takda-atm-scene[data-p="day"] .takda-atm-cloud-1 { animation: takda-atm-drift1 52s ease-in-out infinite; }
+.takda-atm-scene[data-p="day"] .takda-atm-cloud-2 { animation: takda-atm-drift2 68s ease-in-out infinite; }
+.takda-atm-scene[data-p="day"] .takda-atm-cloud-3 { animation: takda-atm-drift1 80s ease-in-out infinite; }
+.takda-atm-scene[data-p="dusk"] .takda-atm-cloud { animation: takda-atm-drift2 70s ease-in-out infinite; }
+
+.takda-atm-mist {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 26px;
+  height: 32px;
+  background: linear-gradient(to top, rgba(255,255,255,.5), rgba(255,255,255,0));
+  filter: blur(6px);
+}
+
+.takda-atm-birds {
+  position: absolute;
+  top: 16%;
+  left: 10%;
+  width: 50%;
+  height: 34%;
+  color: rgba(40,28,40,.5);
+}
+
+.takda-atm-bird {
+  position: absolute;
+  width: 20px;
+  height: 11px;
+  animation: takda-atm-flypath 26s ease-in-out infinite alternate;
+}
+
+.takda-atm-bird-1 { top: 6%; left: 0%; animation-delay: 0s; }
+.takda-atm-bird-2 { top: 34%; left: 16%; animation-delay: -6s; transform: scale(.82); }
+.takda-atm-bird-3 { top: 0%; left: 30%; animation-delay: -13s; transform: scale(.65); }
+
+.takda-atm-bird-wing {
+  width: 100%;
+  height: 100%;
+  display: block;
+  animation: takda-atm-flap .7s ease-in-out infinite;
+}
+
+.takda-atm-stars {
+  position: absolute;
+  inset: 0;
+}
+
+.takda-atm-star {
+  position: absolute;
+  width: 2.2px;
+  height: 2.2px;
+  border-radius: 50%;
+  background: #fdfbff;
+  animation: takda-atm-twinkle 3.6s ease-in-out infinite;
+}
+
+.takda-atm-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 36px;
+  color: rgba(42,22,46,.85);
+}
+
+.takda-atm-scene[data-p="day"] .takda-atm-horizon { color: rgba(38,56,52,.5); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-horizon { color: rgba(20,10,28,.9); }
+.takda-atm-scene[data-p="night"] .takda-atm-horizon { color: rgba(5,5,16,.92); }
+
+.takda-atm-horizon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.takda-atm-horizon svg path {
+  fill: currentColor;
+}
+
+.takda-atm-hill-rim {
+  opacity: .5;
+  filter: blur(2px);
+  transform: translateY(-3px);
+}
+
+.takda-atm-scene[data-p="dusk"] .takda-atm-hill-rim { color: rgba(255,190,130,.6); }
+.takda-atm-scene[data-p="night"] .takda-atm-hill-rim { color: rgba(140,150,220,.28); }
+
+.takda-atm-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, rgba(10,8,22,.55) 0%, rgba(10,8,22,.22) 48%, rgba(10,8,22,.02) 72%);
+}
+
+@keyframes takda-atm-drift1 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(12px); } }
+@keyframes takda-atm-drift2 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-9px); } }
+@keyframes takda-atm-twinkle { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@keyframes takda-atm-flap { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.45); } }
+@keyframes takda-atm-flypath { 0% { transform: translate(0,0); } 100% { transform: translate(44px,-11px); } }
+
+/* ========================= Stage F: Academic progress arc ========================= */
+.takda-progress-ring circle {
+  transition: stroke-dashoffset var(--takda-motion-slow) var(--takda-ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .takda-progress-ring circle {
+    transition: none;
+  }
+}
+
+/* ========================= Stage H: Loading spinner ========================= */
+@keyframes takda-spin {
+  to { transform: rotate(360deg); }
+}
+
+.takda-spinner {
+  animation: takda-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A spinner communicates real, ongoing loading state — removing its
+     motion entirely would remove the only signal it carries. Slowed
+     instead of stopped, same "shorten, don't delete the meaning"
+     treatment the scene crossfade gets above. */
+  .takda-spinner {
+    animation-duration: 1.6s;
+  }
+}
+
+/* ========================= Stage H: Skeleton placeholders ========================= */
+@keyframes takda-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+.takda-skeleton {
+  background: var(--takda-border);
+  border-radius: 8px;
+  animation: takda-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .takda-skeleton {
+    animation: none;
+    opacity: 0.75;
   }
 }
 

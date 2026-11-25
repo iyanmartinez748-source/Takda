@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
-import TakdaApp from "./App";
+import TakdaApp, { getTimePeriod } from "./App";
 import { supabase } from "./lib/supabase";
 import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
 import { unsubscribeFromPush } from "./lib/push";
@@ -53,7 +53,10 @@ const PASSWORD_CAPTCHA_ENABLED =
    setThemeAndPersist() in Root.
 ========================= */
 const TAKDA_THEME_STORAGE_KEY = "takda-theme";
-const TAKDA_ALLOWED_THEMES = ["classic", "matcha"];
+// Stage D: "twilight" added as a third, additive theme — existing stored
+// values of "classic"/"matcha" are untouched and still validate exactly
+// as before.
+const TAKDA_ALLOWED_THEMES = ["classic", "matcha", "twilight"];
 
 function readStoredTheme() {
   try {
@@ -76,6 +79,39 @@ function writeStoredTheme(value) {
   } catch {
     // localStorage can throw (private browsing, blocked storage) — the
     // theme still applies for this session, it just won't survive a reload.
+  }
+}
+
+/* =========================
+   ATMOSPHERE STATE (Stage C)
+
+   Deliberately a separate key, separate allow-list, and separate
+   document attribute (data-takda-period, set in Root below) from THEME
+   STATE above — Theme and Atmosphere must stay independently selectable,
+   never coupled. "auto" resolves to the real local time via
+   getTimePeriod() (same pure function App.jsx's own TakdaApp already
+   uses for the Dashboard greeting); the four explicit values override it
+   for inspection/preference. No Supabase column, no schema change —
+   browser-local only, same as theme.
+========================= */
+const TAKDA_ATMOSPHERE_STORAGE_KEY = "takda-atmosphere";
+const TAKDA_ALLOWED_ATMOSPHERES = ["auto", "dawn", "day", "dusk", "night"];
+
+function readStoredAtmosphere() {
+  try {
+    const raw = localStorage.getItem(TAKDA_ATMOSPHERE_STORAGE_KEY);
+    return TAKDA_ALLOWED_ATMOSPHERES.includes(raw) ? raw : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+function writeStoredAtmosphere(value) {
+  try {
+    localStorage.setItem(TAKDA_ATMOSPHERE_STORAGE_KEY, value);
+  } catch {
+    // Same reasoning as writeStoredTheme — the in-memory switch still
+    // applies for this session even if persistence fails.
   }
 }
 
@@ -2118,9 +2154,12 @@ function ProModal({ onClose, returnFocusRef }) {
           aria-labelledby={titleId}
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-3xl border border-[var(--takda-border)] bg-white shadow-2xl"
+          className="w-full max-w-md overflow-hidden rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-2xl"
         >
-          <div className="relative bg-[#1B1B2F] px-6 pb-7 pt-6 text-white">
+          <div
+            className="relative px-6 pb-7 pt-6"
+            style={{ background: "var(--takda-ink-surface)", color: "var(--takda-ink-surface-text)" }}
+          >
             <button
               type="button"
               onClick={onClose}
@@ -2131,14 +2170,17 @@ function ProModal({ onClose, returnFocusRef }) {
               ×
             </button>
 
-            <div className="inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-extrabold tracking-wide text-amber-300">
-              ⭐ TAKDA PRO
-            </div>
+            {/* Stage D: aligned with the app's one dedicated Pro-badge
+                system (ProBadge, this file) instead of a one-off amber
+                Tailwind pill — same graphite/champagne styling and
+                shine animation every other "PRO" indicator already
+                uses, regardless of theme. */}
+            <ProBadge />
 
             <h2 id={titleId} className="mt-4 text-3xl font-extrabold">
               Do more with your school life.
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6" style={{ color: "var(--takda-ink-surface-text-muted)" }}>
               Unlock premium Takda tools designed to help you stay organized,
               focused, and ready for deadlines.
             </p>
@@ -2169,12 +2211,12 @@ function ProModal({ onClose, returnFocusRef }) {
                 className={`rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "monthly"
                     ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)] ring-1 ring-[var(--takda-brand)]"
-                    : "border-[var(--takda-border)] bg-white"
+                    : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                 }`}
               >
-                <p className="text-xs font-bold text-slate-500">MONTHLY</p>
+                <p className="text-xs font-bold text-[color:var(--takda-text-muted-2)]">MONTHLY</p>
                 <p className="mt-1 text-2xl font-extrabold text-[color:var(--takda-text-primary)]">₱29</p>
-                <p className="text-xs text-slate-400">per month</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">per month</p>
               </button>
 
               <button
@@ -2184,20 +2226,23 @@ function ProModal({ onClose, returnFocusRef }) {
                 className={`relative rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "yearly"
                     ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)] ring-1 ring-[var(--takda-brand)]"
-                    : "border-[var(--takda-border)] bg-white"
+                    : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                 }`}
               >
                 <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[color:var(--takda-text-primary)]">
                   BEST VALUE
                 </span>
-                <p className="text-xs font-bold text-slate-500">YEARLY</p>
+                <p className="text-xs font-bold text-[color:var(--takda-text-muted-2)]">YEARLY</p>
                 <p className="mt-1 text-2xl font-extrabold text-[color:var(--takda-text-primary)]">₱299</p>
-                <p className="text-xs text-slate-400">per year</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">per year</p>
               </button>
             </div>
 
             {message && (
-              <div className="mt-4 rounded-xl bg-red-50 px-3 py-2.5 text-center text-xs font-medium text-red-600">
+              <div
+                className="mt-4 rounded-xl px-3 py-2.5 text-center text-xs font-medium"
+                style={{ background: "var(--takda-feedback-error-bg)", color: "var(--takda-feedback-error-text)" }}
+              >
                 {message}
               </div>
             )}
@@ -2215,7 +2260,7 @@ function ProModal({ onClose, returnFocusRef }) {
                   }`}
             </button>
 
-            <p className="mt-3 text-center text-xs leading-5 text-slate-400">
+            <p className="mt-3 text-center text-xs leading-5 text-[color:var(--takda-text-muted-1)]">
               You will be redirected to PayMongo's secure checkout page.
               Takda Pro is activated only after payment is confirmed.
             </p>
@@ -2386,7 +2431,7 @@ function ProfileMenu({
    APPEARANCE MODAL (Step 03X)
 ========================= */
 
-function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
+function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAtmosphere, onClose, returnFocusRef }) {
   const panelRef = useRef(null);
   const titleId = "appearance-modal-title";
 
@@ -2447,8 +2492,20 @@ function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
   }, []);
 
   const THEME_OPTIONS = [
-    { key: "classic", label: "Classic", description: "Default TAKDA theme" },
-    { key: "matcha", label: "Matcha", description: "Soft green and cream theme" },
+    { key: "classic", label: "Classic", description: "Default Takda theme", swatch: "#3D2FE0" },
+    { key: "matcha", label: "Matcha Café", description: "Soft green and cream theme", swatch: "#4F7042" },
+    { key: "twilight", label: "Twilight", description: "Deep, cozy evening theme", swatch: "#8F81FF" },
+  ];
+
+  // Stage C: independent of theme — same storage/validation pattern as
+  // THEME_OPTIONS above, intentionally never written to the same key or
+  // read by the same effect, so switching one can never change the other.
+  const ATMOSPHERE_OPTIONS = [
+    { key: "auto", label: "Auto", description: "Follows your device's clock" },
+    { key: "dawn", label: "Dawn", description: "Early morning sky" },
+    { key: "day", label: "Day", description: "Bright daylight" },
+    { key: "dusk", label: "Dusk", description: "Golden-hour sunset" },
+    { key: "night", label: "Night", description: "Quiet, starlit sky" },
   ];
 
   return (
@@ -2487,37 +2544,89 @@ function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
             </button>
           </div>
 
-          <div className="mt-5 flex flex-col gap-2">
-            {THEME_OPTIONS.map((option) => {
-              const selected = currentTheme === option.key;
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => onSelect(option.key)}
-                  aria-pressed={selected}
-                  className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
-                    selected
-                      ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
-                      : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
-                      {option.label}
-                    </span>
-                    {selected && (
-                      <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
-                        ✓
+          <div className="mt-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">
+              Theme
+            </p>
+            <div className="flex flex-col gap-2">
+              {THEME_OPTIONS.map((option) => {
+                const selected = currentTheme === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => onSelect(option.key)}
+                    aria-pressed={selected}
+                    className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
+                      selected
+                        ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
+                        : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-sm font-semibold text-[color:var(--takda-text-primary)]">
+                        <span
+                          aria-hidden="true"
+                          className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-black/10"
+                          style={{ background: option.swatch }}
+                        />
+                        {option.label}
                       </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
-                    {option.description}
-                  </p>
-                </button>
-              );
-            })}
+                      {selected && (
+                        <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
+                      {option.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Stage C: Atmosphere selection — a separate control group from
+              Theme above, writing to a separate preference and a separate
+              document attribute (data-takda-period, set in Root), so the
+              two can never interact. */}
+          <div className="mt-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">
+              Atmosphere
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {ATMOSPHERE_OPTIONS.map((option) => {
+                const selected = currentAtmosphere === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => onSelectAtmosphere(option.key)}
+                    aria-pressed={selected}
+                    className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
+                      selected
+                        ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
+                        : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
+                        {option.label}
+                      </span>
+                      {selected && (
+                        <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
+                      {option.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -2761,7 +2870,7 @@ function MyProfile({
           aria-labelledby={titleId}
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-lg rounded-3xl bg-white shadow-xl"
+          className="w-full max-w-lg rounded-3xl bg-[var(--takda-bg-surface)] shadow-xl"
         >
 
           <div className="flex items-center justify-between border-b border-[var(--takda-border)] px-5 py-4">
@@ -2771,7 +2880,7 @@ function MyProfile({
                 My Profile
               </h2>
 
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[color:var(--takda-text-muted-1)]">
                 Manage your Takda profile
               </p>
             </div>
@@ -2779,7 +2888,7 @@ function MyProfile({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-lg text-slate-500"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-lg text-[color:var(--takda-text-muted-2)]"
               aria-label="Close profile"
             >
               ×
@@ -2838,7 +2947,7 @@ function MyProfile({
                   : "Upload Photo"}
               </button>
 
-              <p className="mt-1 text-center text-xs text-slate-400">
+              <p className="mt-1 text-center text-xs text-[color:var(--takda-text-muted-1)]">
                 JPEG, PNG or WebP • Maximum 4 MB
               </p>
 
@@ -2857,7 +2966,7 @@ function MyProfile({
                   type="email"
                   value={user.email || ""}
                   disabled
-                  className="w-full rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-page)] px-3 py-3 text-base text-slate-400"
+                  className="w-full rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-page)] px-3 py-3 text-base text-[color:var(--takda-text-muted-1)]"
                 />
               </div>
 
@@ -2929,11 +3038,12 @@ function MyProfile({
 
               {message && (
                 <div
-                  className={`rounded-xl px-3 py-2.5 text-center text-xs ${
+                  className="rounded-xl px-3 py-2.5 text-center text-xs"
+                  style={
                     messageType === "success"
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-600"
-                  }`}
+                      ? { background: "var(--takda-feedback-success-bg)", color: "var(--takda-feedback-success-text)" }
+                      : { background: "var(--takda-feedback-error-bg)", color: "var(--takda-feedback-error-text)" }
+                  }
                 >
                   {message}
                 </div>
@@ -2944,7 +3054,7 @@ function MyProfile({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 rounded-xl border border-[var(--takda-border)] bg-white py-3 text-sm font-semibold text-slate-600"
+                  className="flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-3 text-sm font-semibold text-[color:var(--takda-text-muted-3)]"
                 >
                   Cancel
                 </button>
@@ -3080,6 +3190,31 @@ function Root() {
     if (!TAKDA_ALLOWED_THEMES.includes(value)) return;
     setTheme(value);
     writeStoredTheme(value);
+  }
+
+  // Stage C: Atmosphere preference — same lazy-initializer pattern as
+  // theme above, completely separate state/effect/storage key so the two
+  // preferences can never interact.
+  const [atmosphere, setAtmosphere] = useState(readStoredAtmosphere);
+
+  useEffect(() => {
+    function applyPeriod() {
+      const resolved = atmosphere === "auto" ? getTimePeriod() : atmosphere;
+      document.documentElement.setAttribute("data-takda-period", resolved);
+    }
+    applyPeriod();
+    // Same 60s cadence as TakdaApp's own timePeriod poll — independent
+    // interval, not shared state, since this attribute must also update
+    // correctly on screens TakdaApp hasn't mounted yet (e.g. while still
+    // loading, or on the public landing page before login).
+    const id = setInterval(applyPeriod, 60000);
+    return () => clearInterval(id);
+  }, [atmosphere]);
+
+  function setAtmosphereAndPersist(value) {
+    if (!TAKDA_ALLOWED_ATMOSPHERES.includes(value)) return;
+    setAtmosphere(value);
+    writeStoredAtmosphere(value);
   }
 
   const [loading, setLoading] = useState(true);
@@ -3989,6 +4124,8 @@ function Root() {
         <AppearanceModal
           currentTheme={theme}
           onSelect={setThemeAndPersist}
+          currentAtmosphere={atmosphere}
+          onSelectAtmosphere={setAtmosphereAndPersist}
           onClose={() => setShowAppearance(false)}
           returnFocusRef={appearanceTriggerRef}
         />
