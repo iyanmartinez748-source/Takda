@@ -23,13 +23,13 @@ export default function TermsPage({ isAuthenticated, onNavigateHome, onNavigateA
         <p className="mb-3 text-sm font-semibold text-[color:var(--takda-brand)]">TAKDA</p>
         <h1 className="font-display text-3xl font-bold leading-tight sm:text-4xl">{termsOfServiceContent.title}</h1>
 
-        <div className="mt-6 space-y-4 text-sm leading-7 text-slate-600">
+        <div className="mt-6 space-y-4 text-sm leading-7 text-[color:var(--takda-text-muted-2)]">
           {termsOfServiceContent.body.map((paragraph) => (
             <p key={paragraph}>{paragraph}</p>
           ))}
         </div>
 
-        <p className="mt-6 text-xs text-slate-400">{termsOfServiceContent.lastUpdated}</p>
+        <p className="mt-6 text-xs text-[color:var(--takda-text-muted-1)]">{termsOfServiceContent.lastUpdated}</p>
       </article>
     </PublicLayout>
   );
