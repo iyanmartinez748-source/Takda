@@ -128,10 +128,10 @@ function fmtDateFull(d) {
 }
 
 const STATUS_LABEL = {
-  pending: { text: "Pending", color: "#64748B", bg: "#F1F5F9" },
-  in_progress: { text: "In Progress", color: "#1D4ED8", bg: "#EFF6FF" },
-  completed: { text: "Completed", color: "#166534", bg: "#F0FDF4" },
-  overdue: { text: "Overdue", color: "#B91C1C", bg: "#FEF2F2" },
+  pending: { text: "Pending", color: "var(--takda-label-pending)", bg: "var(--takda-label-pending-bg)" },
+  in_progress: { text: "In Progress", color: "var(--takda-label-inprogress)", bg: "var(--takda-label-inprogress-bg)" },
+  completed: { text: "Completed", color: "var(--takda-status-week-text)", bg: "var(--takda-status-week-bg)" },
+  overdue: { text: "Overdue", color: "var(--takda-status-overdue-text)", bg: "var(--takda-status-overdue-bg)" },
 };
 function StatusBadge({ status }) {
   const s = STATUS_LABEL[status] || STATUS_LABEL.pending;
@@ -142,7 +142,7 @@ function StatusBadge({ status }) {
   );
 }
 
-const PRIORITY_COLOR = { Low: "var(--takda-text-muted-2)", Medium: "#D97706", High: "#DC2626" };
+const PRIORITY_COLOR = { Low: "var(--takda-text-muted-2)", Medium: "var(--takda-status-tomorrow-text)", High: "var(--takda-feedback-error-text)" };
 function PriorityTag({ priority }) {
   if (!priority) return null;
   const color = PRIORITY_COLOR[priority] || PRIORITY_COLOR.Medium;
@@ -2253,7 +2253,7 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             {localTestState.status === "sending" ? "Sending…" : "Send test notification"}
           </button>
           {localTestState.message && (
-            <p className="text-[11px]" style={{ color: localTestState.status === "error" ? "#ef4444" : "var(--takda-text-muted-2)" }}>
+            <p className="text-[11px]" style={{ color: localTestState.status === "error" ? "var(--takda-feedback-error-text)" : "var(--takda-text-muted-2)" }}>
               {localTestState.message}
             </p>
           )}
@@ -2267,7 +2267,7 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             {pushTestState.status === "sending" ? "Sending…" : "Send background push test"}
           </button>
           {pushTestState.message && (
-            <p className="text-[11px]" style={{ color: pushTestState.status === "error" ? "#ef4444" : "var(--takda-text-muted-2)" }}>
+            <p className="text-[11px]" style={{ color: pushTestState.status === "error" ? "var(--takda-feedback-error-text)" : "var(--takda-text-muted-2)" }}>
               {pushTestState.message}
             </p>
           )}
@@ -2721,13 +2721,25 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               key={it.key}
               onClick={() => setView(it.key)}
               aria-current={active ? "page" : undefined}
-              className={`takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
+              className={`takda-focus-visible relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
               style={{
                 background: active ? "var(--takda-brand-tint-3)" : undefined,
                 color: active ? "var(--takda-brand)" : "var(--takda-text-muted-3)",
                 boxShadow: active ? "inset 0 1px 0 var(--takda-glass-highlight)" : undefined,
               }}
             >
+              {/* Work Package 2: bookmark/ribbon-style active indicator — a
+                  short brand-colored bar on the leading edge, like a
+                  ribbon marking the current page of an almanac. Purely
+                  decorative (the tinted background + aria-current
+                  already carry the active state), so aria-hidden. */}
+              {active && (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 -ml-5 h-5 w-1 rounded-r-full"
+                  style={{ background: "var(--takda-brand)" }}
+                />
+              )}
               <Icon size={17} />
               {it.label}
             </button>
@@ -2780,7 +2792,7 @@ function NavBtn({ it, active, onClick }) {
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 rounded-lg"
-      style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
+      style={{ color: active ? "var(--takda-brand)" : "var(--takda-text-muted-1)" }}
     >
       <span
         className="flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out"
@@ -2841,7 +2853,7 @@ function MoreSheet({ view, onClose, onNavigate }) {
                 aria-current={active ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ease-out hover:border-[var(--takda-border-neutral-2)] motion-safe:active:scale-[0.99] ${active ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]" : "border-[var(--takda-border)]"}`}
               >
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#EEECFC" }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--takda-brand-tint-3)" }}>
                   <Icon size={16} color="var(--takda-brand)" />
                 </div>
                 <div className="min-w-0">
@@ -4286,9 +4298,18 @@ function NextClassCard({ nextClass, onOpenSubject }) {
               {nextClass.subject?.name || "Untitled Subject"}
             </div>
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {/* Work Package 4 fix: was background: tomorrow-text + white
+                  text — tomorrow-text is dark in Classic (#92400E, safe
+                  for white) but light in Twilight (#F0C98A), which
+                  computed to a real white-on-light failure. tomorrow-dot
+                  is a bright, roughly equally-light saturated amber in
+                  BOTH themes, so a fixed dark literal (same pattern as
+                  the already-approved "BEST VALUE" badge fix) passes
+                  comfortably in both: ~7.8:1 Classic, ~9.2:1 Twilight
+                  (hand-computed via the WCAG relative-luminance formula). */}
               <span
                 className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                style={{ background: "var(--takda-status-tomorrow-text)", color: "#fff" }}
+                style={{ background: "var(--takda-status-tomorrow-dot)", color: "#1B1B2F" }}
               >
                 {dayLabel}
               </span>
