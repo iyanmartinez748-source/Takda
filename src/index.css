@@ -39,6 +39,12 @@
   --takda-bg-page-landing: #F7F8FC;
   --takda-bg-surface: #FFFFFF;
   --takda-bg-reminder-chip: #FFF8E7;
+  /* Work Package 4: neutral hover fill for plain surfaces/buttons —
+     tracks whichever theme's bg-page is active via var() reference, so
+     it never needs its own per-theme redefinition. Replaces raw
+     hover:bg-slate-50/100 utilities that previously ignored Matcha and
+     Twilight entirely. */
+  --takda-bg-hover: var(--takda-bg-page);
   --takda-bg-grade-locked-icon: #F5F1E4;
 
   /* Text */
@@ -512,6 +518,14 @@ body {
   --takda-glass-neutral-bg: rgba(255, 255, 255, 0.55);
   --takda-glass-neutral-bg-solid: #FFFFFF;
   --takda-glass-neutral-border: rgba(255, 255, 255, 0.45);
+
+  /* Work Package 4: SemesterBar's own .takda-glass-silver chrome had no
+     Twilight override (unlike glass-neutral below), so it rendered a
+     light silver bar even in the dark theme. Hover overlay for glass
+     surfaces (e.g. SemesterBar's semester-switcher button) must also be
+     theme-aware — a flat white wash reads as a hover highlight on a
+     light glass surface but as a bright smudge on a dark one. */
+  --takda-glass-hover-overlay: rgba(255, 255, 255, 0.4);
 }
 
 :root[data-takda-theme="matcha"] {
@@ -530,6 +544,18 @@ body {
   --takda-glass-neutral-bg: rgba(31, 28, 56, 0.55);
   --takda-glass-neutral-bg-solid: #1F1C38;
   --takda-glass-neutral-border: rgba(75, 66, 128, 0.4);
+
+  /* Work Package 4 fix: glass-silver (SemesterBar) previously had no
+     Twilight entry at all and fell back to the light Classic/Matcha
+     value above. Mirrors glass-neutral's own dark override exactly. */
+  --takda-glass-silver-bg: rgba(31, 28, 56, 0.55);
+  --takda-glass-silver-bg-solid: #1F1C38;
+  --takda-glass-silver-border: rgba(75, 66, 128, 0.4);
+
+  /* A flat white hover wash would read as a bright smudge on Twilight's
+     dark glass surfaces — a faint light wash still reads as "hover"
+     without breaking the dark atmosphere. */
+  --takda-glass-hover-overlay: rgba(255, 255, 255, 0.08);
 }
 
 @media (max-width: 640px) {
