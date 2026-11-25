@@ -868,9 +868,10 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   }, []);
 
   const greeting = useMemo(() => {
-    if (timePeriod === "morning") return "Good Morning";
-    if (timePeriod === "afternoon") return "Good Afternoon";
-    return "Good Evening";
+    if (timePeriod === "dawn") return "Good Morning";
+    if (timePeriod === "day") return "Good Afternoon";
+    if (timePeriod === "dusk") return "Good Evening";
+    return "Still Studying";
   }, [timePeriod]);
 
   // TAKDA 2.0 Dashboard (Phase 10A): Academic Performance overview card.
@@ -3344,7 +3345,7 @@ function Dashboard({
         <span className="absolute top-[40%] left-[85%] w-1.5 h-1.5 rounded-full bg-white/60" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.4)" }} />
       </div>
 
-      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} />
+      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} timePeriod={timePeriod} />
 
       {showActiveSemesterContext && (
         <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
@@ -3562,40 +3563,69 @@ function Dashboard({
   );
 }
 
-/* ---------------- Greeting hero (Phase 09B.10) ---------------- */
-// Pure function of the device clock — no new dependency, no network,
-// no invented data. Only three buckets are needed by the approved
-// design (morning / afternoon / evening-night), matching the existing
-// Good Morning/Afternoon/Evening greeting text exactly.
-function getTimePeriod() {
+/* ---------------- Greeting hero (Phase 09B.10; Stage C) ---------------- */
+// Pure function of the device clock — no new dependency, no network, no
+// invented data. Exported so main.jsx's Root() can resolve the
+// Atmosphere preference's "auto" option to the same real-time value,
+// independent of TakdaApp's own timePeriod state (see Root's
+// data-takda-period effect). Approved boundaries (device-local time):
+// Dawn 05:00-07:59, Day 08:00-16:59, Dusk 17:00-18:59, Night 19:00-04:59.
+export function getTimePeriod() {
   const h = new Date().getHours();
-  if (h < 12) return "morning";
-  if (h < 18) return "afternoon";
+  if (h >= 5 && h < 8) return "dawn";
+  if (h >= 8 && h < 17) return "day";
+  if (h >= 17 && h < 19) return "dusk";
   return "night";
 }
 
-// TAKDA 2.0 (Phase 10A.2): the approved illustrated asset
-// (public/takda-hero-sunset.png) replaces the 3 CSS-gradient time-of-
-// day variants and their decorative sun/moon/star shapes — there is
-// only one supplied illustration, so it's used for every time of day;
-// the greeting WORD itself ("Good Morning"/"Good Afternoon"/"Good
-// Evening") still genuinely varies by time of day exactly as before,
-// since that comes from the unchanged `greeting` prop (computed
-// upstream in TakdaApp from its own unchanged `timePeriod` state) —
-// only the background image/illustration stopped varying, not the
-// text. Text color is now one fixed pair rather than 3, since the
-// background is now one fixed image rather than 3 different gradients.
-//
-// Contrast: the approved mockup screenshot already shows this exact
-// asset rendered with white text over its left (text) side, which is a
-// deep navy sky — confirmed legible there. I have no image-analysis
-// tool to re-measure WCAG contrast against actual pixel data, so a
-// defensive dark gradient overlay (left-to-right, fading to transparent
-// over the illustration) is layered under the text as a safety net
-// rather than relying on the photo alone — this is the "subtle
-// gradient overlay where necessary" this phase asked for.
+// Stage C superseded Phase 10A.2's single static illustration
+// (public/takda-hero-sunset.png, no longer referenced here) with four
+// live CSS/SVG scenes (.takda-atm-* in src/index.css), crossfaded by
+// `timePeriod` — the file on disk is unused now but was not deleted,
+// since removing an asset file is outside this stage's authorized
+// scope. HERO_TEXT_COLOR/HERO_SUBTLE_COLOR stay a single fixed pair
+// (not four): the dark scrim (.takda-atm-scrim) behind the text is
+// tuned to keep white text legible across all four scenes, same
+// "defensive overlay rather than relying on the art alone" reasoning
+// Phase 10A.2 used for the photo it replaced.
 const HERO_TEXT_COLOR = "#FFFFFF";
 const HERO_SUBTLE_COLOR = "#F2EFFF";
+
+// Stage C: shared horizon silhouette for all four scenes — one path,
+// recolored per scene entirely via CSS (currentColor + the
+// .takda-atm-horizon[data-p="..."] rules in index.css), so the same
+// "same environment evolving through the day" shape appears in every
+// period rather than four unrelated drawings.
+function AtmosphereHill() {
+  return (
+    <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z" />
+    </svg>
+  );
+}
+
+// Three birds, dawn only — a thin, distant-silhouette chevron mark
+// (not an emoji), each with its own flight-path + wing-flap animation
+// via index.css's .takda-atm-bird/.takda-atm-bird-wing.
+function AtmosphereBird({ className }) {
+  return (
+    <span className={`takda-atm-bird ${className}`}>
+      <svg viewBox="0 0 24 12" aria-hidden="true" className="takda-atm-bird-wing">
+        <path d="M0,6 Q6,0 12,6 Q18,0 24,6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+// Night only — a hand-placed (not random-per-render) scatter of 18
+// stars with staggered twinkle timing, so they never pulse in unison.
+const ATMOSPHERE_STAR_POSITIONS = [
+  [4, 16], [10, 30], [16, 10], [22, 36], [28, 18], [34, 44],
+  [40, 12], [46, 28], [8, 54], [18, 60], [30, 52], [44, 58],
+  [14, 42], [38, 36], [24, 8], [48, 46], [6, 26], [36, 20],
+];
+
+const ATMOSPHERE_PERIODS = ["dawn", "day", "dusk", "night"];
 
 // `greeting`/`contextMessage` are passed through unchanged from TakdaApp
 // (the existing time-based greeting text and the existing overdue/due-
@@ -3603,58 +3633,104 @@ const HERO_SUBTLE_COLOR = "#F2EFFF";
 // or class data of its own, per Phase 09B.10 instruction #4). `studentName`
 // (Phase 10A) is an existing, already-fetched profile field threaded
 // down from Root/TakdaApp, never a hardcoded sample name; it renders
-// only when present. The date line (Phase 10A.2) is `new Date()`
-// formatted inline on every render — no new timer, no new state; it
-// self-corrects whenever anything else causes a re-render (including
-// the existing 60s timePeriod poll in TakdaApp), which is more than
-// sufficient for a value that only changes once every 24 hours.
-function GreetingHero({ greeting, contextMessage, studentName }) {
+// only when present. `timePeriod` (Stage C) is the same existing
+// dawn/day/dusk/night value TakdaApp already computes for `greeting`
+// itself — this component adds no new state or timer of its own, it
+// only decides which of the four pre-rendered scene layers is visible.
+// The date line is `new Date()` formatted inline on every render — no
+// new timer, no new state.
+function GreetingHero({ greeting, contextMessage, studentName, timePeriod }) {
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
-  // 10A.12B: min-h reduced from 220/260px to 130/150px (desktop
-  // target: ~140-160px, per the 10A.12A audit) to recover vertical
-  // space for the rest of the Dashboard. min-h is a floor, not a cap
-  // — the box still grows taller automatically if real content (e.g.
-  // a longer contextMessage wrapping to 2 lines) needs more room,
-  // satisfying "allow growth" without any extra class. py-6→py-5
-  // gives a touch more breathing room relative to the smaller box.
-  // Greeting/contextMessage/studentName/date badge content, the
-  // sunset image asset, its gradient overlay, and HERO_TEXT_COLOR/
-  // HERO_SUBTLE_COLOR contrast are all unchanged.
+  const isNight = timePeriod === "night";
   return (
-    <div
-      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-5 mb-6 min-h-[130px] md:min-h-[150px] flex items-end"
-      style={{
-        backgroundImage:
-          "linear-gradient(to right, rgba(10,8,30,0.62) 0%, rgba(10,8,30,0.28) 45%, rgba(10,8,30,0.05) 70%), url('/takda-hero-sunset.png')",
-        backgroundSize: "cover, cover",
-        backgroundPosition: "left center, center",
-        backgroundRepeat: "no-repeat, no-repeat",
-        backdropFilter: "none",
-        WebkitBackdropFilter: "none",
-      }}
-    >
-      <div className="relative max-w-[70%] md:max-w-[60%]">
-        {/* 10A.22B: text-xl below sm only — the heading column's
-            position/width/gradient coverage are unchanged (zero
-            contrast impact, per the 10A.22A audit's gradient-stop
-            math); a smaller phone-only size needs less line-width,
-            reducing unnecessary wrap at 320-414px. sm:text-2xl
-            md:text-3xl exactly reproduce the prior sizing at 640px+. */}
-        <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
-          {greeting}{studentName ? `, ${studentName}` : ""} 👋
-        </h1>
-        <p className="text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
-        <div
-          className="inline-flex items-center gap-1.5 mt-3 rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{ background: "rgba(255,255,255,0.14)", color: HERO_TEXT_COLOR }}
-        >
-          <CalendarIcon size={13} aria-hidden="true" />
-          <span>{todayLabel}</span>
+    <div className="takda-glass relative overflow-hidden rounded-2xl mb-6 min-h-[150px] md:min-h-[170px]">
+      {/* Decorative atmosphere layers — purely presentational, so the
+          whole block is aria-hidden and sits behind the real greeting
+          text in a separate, non-hidden layer below. */}
+      <div className="absolute inset-0" aria-hidden="true">
+        {ATMOSPHERE_PERIODS.map((p) => (
+          <div key={p} data-p={p} className={`takda-atm-scene ${timePeriod === p ? "is-active" : ""}`}>
+            <div className="takda-atm-sky" />
+            {p !== "night" && (
+              <>
+                <div className="takda-atm-halo" />
+                <div className="takda-atm-glow" />
+              </>
+            )}
+            {p === "dawn" && (
+              <>
+                <div className="takda-atm-cloud takda-atm-cloud-1" />
+                <div className="takda-atm-cloud takda-atm-cloud-2" />
+                <div className="takda-atm-mist" />
+                <div className="takda-atm-birds">
+                  <AtmosphereBird className="takda-atm-bird-1" />
+                  <AtmosphereBird className="takda-atm-bird-2" />
+                  <AtmosphereBird className="takda-atm-bird-3" />
+                </div>
+              </>
+            )}
+            {p === "day" && (
+              <>
+                <div className="takda-atm-cloud takda-atm-cloud-1" />
+                <div className="takda-atm-cloud takda-atm-cloud-2" />
+                <div className="takda-atm-cloud takda-atm-cloud-3" />
+              </>
+            )}
+            {p === "dusk" && (
+              <>
+                <div className="takda-atm-cloud takda-atm-cloud-soft takda-atm-cloud-1" />
+                <div className="takda-atm-cloud takda-atm-cloud-soft takda-atm-cloud-2" />
+              </>
+            )}
+            {p === "night" && (
+              <div className="takda-atm-stars">
+                {ATMOSPHERE_STAR_POSITIONS.map(([x, y], i) => (
+                  <span
+                    key={i}
+                    className="takda-atm-star"
+                    style={{
+                      left: `${x}%`,
+                      top: `${y}%`,
+                      animationDelay: `${-(i * 0.37) % 3.6}s`,
+                      animationDuration: `${2.6 + (i % 5) * 0.4}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="takda-atm-horizon">
+              {(p === "dusk" || p === "night") && (
+                <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true" className="takda-atm-hill-rim">
+                  <path d="M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z" />
+                </svg>
+              )}
+              <AtmosphereHill />
+            </div>
+          </div>
+        ))}
+        <div className="takda-atm-scrim" />
+      </div>
+
+      <div className="relative z-[2] flex min-h-[150px] md:min-h-[170px] items-end px-5 py-5">
+        <div className="relative max-w-[70%] md:max-w-[60%]">
+          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
+            {isNight
+              ? <>{greeting}{studentName ? `, ${studentName}` : ""}?</>
+              : <>{greeting}{studentName ? `, ${studentName}` : ""} 👋</>}
+          </h1>
+          <p className="text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
+          <div
+            className="inline-flex items-center gap-1.5 mt-3 rounded-full px-3 py-1.5 text-xs font-semibold"
+            style={{ background: "rgba(255,255,255,0.14)", color: HERO_TEXT_COLOR }}
+          >
+            <CalendarIcon size={13} aria-hidden="true" />
+            <span>{todayLabel}</span>
+          </div>
         </div>
       </div>
     </div>
