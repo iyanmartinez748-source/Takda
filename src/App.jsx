@@ -3,7 +3,8 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText, ExternalLink
+  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText, ExternalLink,
+  Sparkles
 } from "lucide-react";
 import {
   createSemester,
@@ -3203,18 +3204,31 @@ const MOTIVATION_QUOTES = [
 // never academic data. The quote is picked once per mount (lazy
 // useState initializer) so it stays stable for the session instead of
 // re-rolling on every re-render.
+// Minimalist Almanac V5: restyled only — same MOTIVATION_QUOTES array,
+// same once-per-mount selection, same "purely decorative" labeling.
+// Gradient tint + centered-stack layout replaced with a compact
+// horizontal row on a neutral surface (theme-aware border, no
+// gradient/glass), matching the rest of this pass's "neutral surface,
+// restrained accent" direction. No fixed height, so a longer quote
+// just wraps — nothing here can clip it.
 function MotivationPanel() {
   const [quote] = useState(() => MOTIVATION_QUOTES[Math.floor(Math.random() * MOTIVATION_QUOTES.length)]);
   return (
     <div
-      className="rounded-2xl p-4 text-center mb-4"
+      className="rounded-2xl p-3.5 border flex items-center gap-3 mb-4"
       style={{
-        background: "linear-gradient(135deg, var(--takda-brand-tint-1), var(--takda-brand-tint-2))",
-        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)",
+        background: "var(--takda-bg-surface)",
+        borderColor: "var(--takda-border)",
+        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
       }}
     >
-      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--takda-brand-text)" }}>✨ Daily Motivation</span>
-      <p className="text-sm mt-1.5 italic" style={{ color: "var(--takda-text-muted-3)" }}>{quote}</p>
+      <span className="flex items-center justify-center w-9 h-9 rounded-full shrink-0" style={{ background: "var(--takda-overview-lavender-bg)" }} aria-hidden="true">
+        <Sparkles size={16} color="var(--takda-brand-text)" />
+      </span>
+      <div className="min-w-0">
+        <span className="text-[10px] font-semibold uppercase tracking-wide block mb-0.5" style={{ color: "var(--takda-text-muted-2)" }}>Daily Motivation</span>
+        <p className="font-display text-sm italic leading-snug break-words" style={{ color: "var(--takda-text-primary)" }}>{quote}</p>
+      </div>
     </div>
   );
 }
@@ -3491,6 +3505,14 @@ function Dashboard({
         </div>
       )}
 
+      {/* Minimalist Almanac V5 (Motivation Panel refinement): moved here
+          from the bottom of the preserved widget grid — directly below
+          the hero, before Up Next/Academic Overview, applying at every
+          breakpoint since this sits outside any responsive-only
+          wrapper. Same component, same quote data/selection, rendered
+          exactly once. */}
+      <MotivationPanel />
+
       {/* Minimalist Almanac V5 — approved arrangement: "Up Next" on the
           left, "Academic Overview" on the right (desktop), with Up
           Next appearing FIRST on mobile too. A flex-col container is
@@ -3671,10 +3693,6 @@ function Dashboard({
 
         <div>
           <SmartInsightsSection insights={smartInsights} />
-        </div>
-
-        <div className="lg:col-span-2">
-          <MotivationPanel />
         </div>
       </div>
 
