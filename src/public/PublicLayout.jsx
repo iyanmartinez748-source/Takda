@@ -30,9 +30,7 @@ export default function PublicLayout({
       className="min-h-screen bg-[var(--takda-bg-page-landing)] text-[color:var(--takda-text-primary)]"
       style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}
     >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');`}</style>
-
-      <header className="sticky top-0 z-40 border-b border-[var(--takda-border)] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-[var(--takda-border)] bg-[var(--takda-bg-surface)]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
@@ -76,17 +74,17 @@ export default function PublicLayout({
 
       <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">{children}</main>
 
-      <footer className="border-t border-[var(--takda-border)] bg-white">
+      <footer className="border-t border-[var(--takda-border)] bg-[var(--takda-bg-surface)]">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <img src="/takda-icon.png" alt="Takda" className="h-9 w-9 rounded-xl object-cover" />
               <div>
                 <p className="text-sm font-extrabold text-[color:var(--takda-text-primary)]">Takda</p>
-                <p className="text-xs text-slate-400">Plan • Track • Finish</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">Plan • Track • Finish</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
+            <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-[color:var(--takda-text-muted-2)]">
               <a
                 href="/"
                 onClick={(event) => { event.preventDefault(); onNavigateHome(); }}
@@ -135,7 +133,7 @@ export default function PublicLayout({
               </a>
             </div>
           </div>
-          <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-slate-400">
+          <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-[color:var(--takda-text-muted-1)]">
             © {new Date().getFullYear()} Takda. Built for students.
           </div>
         </div>

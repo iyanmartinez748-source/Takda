@@ -18,6 +18,19 @@
     <link rel="icon" type="image/png" href="/takda-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Consolidated font load (Stage B): replaces three separate
+         mechanisms — App.jsx's JS-injected <link> (Fraunces+Inter),
+         and the LandingPage/PublicLayout inline @import (Inter+Plus
+         Jakarta Sans) — with one static, parse-time-discoverable
+         request carrying every weight any of those three needed.
+         Inter is requested at 400;500;600;700 (the union of the two
+         prior requests, not a new addition) so no weight regresses. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+    />
     <!-- iOS "Add to Home Screen" only recognizes the apple- prefixed tag;
          mobile-web-app-capable is the current cross-browser standard name. -->
     <meta name="mobile-web-app-capable" content="yes" />

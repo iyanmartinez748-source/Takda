@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
-import TakdaApp from "./App";
+import TakdaApp, { getTimePeriod } from "./App";
 import { supabase } from "./lib/supabase";
 import { installSupabaseStorageAdapter } from "./lib/storageAdapter";
 import { unsubscribeFromPush } from "./lib/push";
@@ -53,7 +53,10 @@ const PASSWORD_CAPTCHA_ENABLED =
    setThemeAndPersist() in Root.
 ========================= */
 const TAKDA_THEME_STORAGE_KEY = "takda-theme";
-const TAKDA_ALLOWED_THEMES = ["classic", "matcha"];
+// Stage D: "twilight" added as a third, additive theme — existing stored
+// values of "classic"/"matcha" are untouched and still validate exactly
+// as before.
+const TAKDA_ALLOWED_THEMES = ["classic", "matcha", "twilight"];
 
 function readStoredTheme() {
   try {
@@ -76,6 +79,39 @@ function writeStoredTheme(value) {
   } catch {
     // localStorage can throw (private browsing, blocked storage) — the
     // theme still applies for this session, it just won't survive a reload.
+  }
+}
+
+/* =========================
+   ATMOSPHERE STATE (Stage C)
+
+   Deliberately a separate key, separate allow-list, and separate
+   document attribute (data-takda-period, set in Root below) from THEME
+   STATE above — Theme and Atmosphere must stay independently selectable,
+   never coupled. "auto" resolves to the real local time via
+   getTimePeriod() (same pure function App.jsx's own TakdaApp already
+   uses for the Dashboard greeting); the four explicit values override it
+   for inspection/preference. No Supabase column, no schema change —
+   browser-local only, same as theme.
+========================= */
+const TAKDA_ATMOSPHERE_STORAGE_KEY = "takda-atmosphere";
+const TAKDA_ALLOWED_ATMOSPHERES = ["auto", "dawn", "day", "dusk", "night"];
+
+function readStoredAtmosphere() {
+  try {
+    const raw = localStorage.getItem(TAKDA_ATMOSPHERE_STORAGE_KEY);
+    return TAKDA_ALLOWED_ATMOSPHERES.includes(raw) ? raw : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+function writeStoredAtmosphere(value) {
+  try {
+    localStorage.setItem(TAKDA_ATMOSPHERE_STORAGE_KEY, value);
+  } catch {
+    // Same reasoning as writeStoredTheme — the in-memory switch still
+    // applies for this session even if persistence fails.
   }
 }
 
@@ -130,29 +166,27 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
 
   return (
     <div className="min-h-screen bg-[var(--takda-bg-page-landing)] text-[color:var(--takda-text-primary)]" style={{ fontFamily: '"Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif' }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');`}</style>
-
       {legalPage && (
         <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/40 p-4">
           <div className="flex min-h-full items-center justify-center">
-            <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-xl sm:p-8">
+            <div className="w-full max-w-2xl rounded-3xl bg-[var(--takda-bg-surface)] p-6 shadow-xl sm:p-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-[color:var(--takda-brand)]">Takda</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[color:var(--takda-brand-text)]">Takda</p>
                   <h2 className="mt-1 text-2xl font-extrabold">{legalContent[legalPage].title}</h2>
                 </div>
-                <button type="button" onClick={() => setLegalPage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-xl text-slate-500" aria-label="Close">×</button>
+                <button type="button" onClick={() => setLegalPage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-xl text-[color:var(--takda-text-muted-2)]" aria-label="Close">×</button>
               </div>
-              <div className="mt-6 space-y-4 text-sm leading-7 text-slate-600">
+              <div className="mt-6 space-y-4 text-sm leading-7 text-[color:var(--takda-text-muted-3)]">
                 {legalContent[legalPage].body.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
               </div>
-              <p className="mt-6 text-xs text-slate-400">Last updated: September 2026</p>
+              <p className="mt-6 text-xs text-[color:var(--takda-text-muted-1)]">Last updated: September 2026</p>
               <button type="button" onClick={() => setLegalPage(null)} className="mt-6 w-full rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-bold text-white sm:w-auto sm:px-6">Close</button>
             </div>
           </div>
         </div>
       )}
-      <header className="sticky top-0 z-40 border-b border-[var(--takda-border)] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-[var(--takda-border)] bg-[var(--takda-bg-surface)]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5">
             <img src="/takda-icon.png" alt="Takda" className="h-10 w-10 rounded-xl object-cover" />
@@ -160,7 +194,7 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
           </div>
 
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-brand)] sm:px-4">
+            <button type="button" onClick={onLogin} className="rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--takda-brand-text)] sm:px-4">
               Log in
             </button>
             <button type="button" onClick={onSignup} className="rounded-xl bg-[var(--takda-brand)] px-3 py-2 text-sm font-semibold text-white shadow-sm sm:px-4">
@@ -173,30 +207,30 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
       <main>
         <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 md:grid-cols-2 md:py-24">
           <div>
-            <div className="mb-4 inline-flex rounded-full border border-[var(--takda-brand-border-tint)] bg-[var(--takda-brand-tint-2)] px-3 py-1 text-xs font-semibold text-[color:var(--takda-brand)]">
+            <div className="mb-4 inline-flex rounded-full border border-[var(--takda-brand-border-tint)] bg-[var(--takda-brand-tint-2)] px-3 py-1 text-xs font-semibold text-[color:var(--takda-brand-text)]">
               Your student workspace
             </div>
-            <h1 className="text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
-              Stay on top of school with <span className="text-[color:var(--takda-brand)]">Takda.</span>
+            <h1 className="font-display text-4xl font-bold leading-tight sm:text-5xl md:text-6xl">
+              Stay on top of school with <span className="text-[color:var(--takda-brand-text)]">Takda.</span>
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
+            <p className="mt-5 max-w-xl text-base leading-7 text-[color:var(--takda-text-muted-3)] sm:text-lg">
               Manage your subjects, activities, deadlines, grades, calendar, and notes — all in one simple student workspace.
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <button type="button" onClick={onSignup} className="rounded-xl bg-[var(--takda-brand)] px-6 py-3.5 text-sm font-semibold text-white shadow-sm">
                 Get Started Free →
               </button>
-              <button type="button" onClick={onLogin} className="rounded-xl border border-[var(--takda-border)] bg-white px-6 py-3.5 text-sm font-semibold text-[color:var(--takda-text-primary)]">
+              <button type="button" onClick={onLogin} className="rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-6 py-3.5 text-sm font-semibold text-[color:var(--takda-text-primary)]">
                 I already have an account
               </button>
             </div>
-            <p className="mt-4 text-xs text-slate-400">Free to get started • Built for students</p>
+            <p className="mt-4 text-xs text-[color:var(--takda-text-muted-1)]">Free to get started • Built for students</p>
           </div>
 
-          <div className="rounded-3xl border border-[var(--takda-border)] bg-white p-5 shadow-xl shadow-slate-200/50 sm:p-7">
+          <div className="rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-5 shadow-xl sm:p-7">
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400">Good day 👋</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">Good day 👋</p>
                 <p className="text-xl font-bold">Your academic overview</p>
               </div>
               <img src="/takda-icon.png" alt="" className="h-11 w-11 rounded-xl object-cover" />
@@ -206,36 +240,36 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
                 <div key={label} className="rounded-2xl border border-[var(--takda-border)] p-4">
                   <span>{icon}</span>
                   <p className="mt-2 text-2xl font-bold">{value}</p>
-                  <p className="text-xs text-slate-500">{label}</p>
+                  <p className="text-xs text-[color:var(--takda-text-muted-2)]">{label}</p>
                 </div>
               ))}
             </div>
             <div className="mt-4 rounded-2xl bg-[var(--takda-bg-page)] p-4">
-              <p className="text-xs font-semibold text-slate-500">UPCOMING DEADLINE</p>
+              <p className="text-xs font-semibold text-[color:var(--takda-text-muted-2)]">UPCOMING DEADLINE</p>
               <div className="mt-2 flex items-center justify-between gap-3">
                 <div>
                   <p className="font-semibold">Research Paper</p>
-                  <p className="text-xs text-slate-400">Contemporary Issues</p>
+                  <p className="text-xs text-[color:var(--takda-text-muted-1)]">Contemporary Issues</p>
                 </div>
-                <span className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--takda-brand)]">Tomorrow</span>
+                <span className="rounded-lg bg-[var(--takda-bg-surface)] px-3 py-1.5 text-xs font-semibold text-[color:var(--takda-brand-text)]">Tomorrow</span>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="border-y border-[var(--takda-border)] bg-white py-16 sm:py-20">
+        <section className="border-y border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-16 sm:py-20">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
             <div className="mx-auto mb-10 max-w-2xl text-center">
-              <p className="text-sm font-semibold text-[color:var(--takda-brand)]">EVERYTHING IN ONE PLACE</p>
+              <p className="text-sm font-semibold text-[color:var(--takda-brand-text)]">EVERYTHING IN ONE PLACE</p>
               <h2 className="mt-2 text-3xl font-bold sm:text-4xl">Less school chaos. More focus.</h2>
-              <p className="mt-3 text-slate-500">Takda gives students the essentials for organizing academic life without making things complicated.</p>
+              <p className="mt-3 text-[color:var(--takda-text-muted-2)]">Takda gives students the essentials for organizing academic life without making things complicated.</p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {features.map(([icon, title, description]) => (
                 <div key={title} className="rounded-2xl border border-[var(--takda-border)] p-5">
                   <div className="mb-3 text-2xl">{icon}</div>
                   <h3 className="font-bold">{title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+                  <p className="mt-2 text-sm leading-6 text-[color:var(--takda-text-muted-2)]">{description}</p>
                 </div>
               ))}
             </div>
@@ -243,35 +277,35 @@ function LandingPage({ onLogin, onSignup, onNavigateAbout, onNavigatePrivacy, on
         </section>
 
         <section className="mx-auto max-w-4xl px-4 py-16 text-center sm:px-6 sm:py-20">
-          <div className="rounded-3xl bg-[#1B1B2F] px-6 py-10 text-white sm:px-10">
+          <div className="rounded-3xl bg-[var(--takda-ink-surface)] px-6 py-10 text-white sm:px-10">
             <h2 className="text-3xl font-bold">Ready to organize your school life?</h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">Create your Takda account and start managing your academic work from one place.</p>
-            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[color:var(--takda-brand)]">
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-[color:var(--takda-ink-surface-text-muted)]">Create your Takda account and start managing your academic work from one place.</p>
+            <button type="button" onClick={onSignup} className="mt-6 rounded-xl bg-white px-6 py-3 text-sm font-bold text-[color:var(--takda-brand-text)]">
               Create Free Account
             </button>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-[var(--takda-border)] bg-white">
+      <footer className="border-t border-[var(--takda-border)] bg-[var(--takda-bg-surface)]">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <img src="/takda-icon.png" alt="Takda" className="h-9 w-9 rounded-xl object-cover" />
               <div>
                 <p className="text-sm font-extrabold text-[color:var(--takda-text-primary)]">Takda</p>
-                <p className="text-xs text-slate-400">Plan • Track • Finish</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">Plan • Track • Finish</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-slate-500">
-              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[color:var(--takda-brand)]">About</a>
-              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[color:var(--takda-brand)]">Privacy Policy</a>
-              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[color:var(--takda-brand)]">Terms of Service</a>
-              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[color:var(--takda-brand)]">Help / FAQ</a>
-              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[color:var(--takda-brand)]">Contact / Support</a>
+            <div className="flex flex-wrap gap-x-5 gap-y-3 text-xs font-semibold text-[color:var(--takda-text-muted-2)]">
+              <a href="/about" onClick={(event) => { event.preventDefault(); onNavigateAbout(); }} className="hover:text-[color:var(--takda-brand-text)]">About</a>
+              <a href="/privacy" onClick={(event) => { event.preventDefault(); onNavigatePrivacy(); }} className="hover:text-[color:var(--takda-brand-text)]">Privacy Policy</a>
+              <a href="/terms" onClick={(event) => { event.preventDefault(); onNavigateTerms(); }} className="hover:text-[color:var(--takda-brand-text)]">Terms of Service</a>
+              <a href="/help" onClick={(event) => { event.preventDefault(); onNavigateHelp(); }} className="hover:text-[color:var(--takda-brand-text)]">Help / FAQ</a>
+              <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="hover:text-[color:var(--takda-brand-text)]">Contact / Support</a>
             </div>
           </div>
-          <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-slate-400">
+          <div className="mt-6 border-t border-[var(--takda-border)] pt-5 text-xs text-[color:var(--takda-text-muted-1)]">
             © {new Date().getFullYear()} Takda. Built for students.
           </div>
         </div>
@@ -461,14 +495,14 @@ function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) 
   if (blocked) {
     return (
       <div className="space-y-2 text-center">
-        <p className="text-xs text-red-600" role="alert">
+        <p className="text-xs text-[color:var(--takda-feedback-error-text)]" role="alert">
           CAPTCHA verification failed repeatedly. Please try again.
         </p>
 
         <button
           type="button"
           onClick={retryManually}
-          className="text-xs font-semibold text-[#3D2FE0] underline"
+          className="text-xs font-semibold text-[color:var(--takda-brand-text)] underline"
         >
           Retry CAPTCHA
         </button>
@@ -479,7 +513,7 @@ function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) 
   if (loadError) {
     return (
       <div className="space-y-2 text-center">
-        <p className="text-xs text-red-600" role="alert">
+        <p className="text-xs text-[color:var(--takda-feedback-error-text)]" role="alert">
           {loadError}
         </p>
 
@@ -490,7 +524,7 @@ function TurnstileWidget({ siteKey, onVerify, onExpire, onError, resetSignal }) 
           <button
             type="button"
             onClick={retryManually}
-            className="text-xs font-semibold text-[#3D2FE0] underline"
+            className="text-xs font-semibold text-[color:var(--takda-brand-text)] underline"
           >
             Retry CAPTCHA
           </button>
@@ -1032,13 +1066,13 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
 
   return (
     <div className="min-h-screen bg-[var(--takda-bg-page)] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-[var(--takda-border)] bg-white p-6 shadow-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-sm">
 
         {onBack && (
           <button
             type="button"
             onClick={onBack}
-            className="mb-4 text-sm font-semibold text-[color:var(--takda-brand)]"
+            className="mb-4 text-sm font-semibold text-[color:var(--takda-brand-text)]"
           >
             ← Back to Takda
           </button>
@@ -1051,7 +1085,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
             className="mx-auto mb-3 h-14 w-14 rounded-2xl object-cover shadow-sm"
           />
 
-          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
+          <h1 className="font-display text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Takda
           </h1>
 
@@ -1143,7 +1177,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               <button
                 type="button"
                 onClick={() => setShowPassword((current) => !current)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand-text)]"
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
@@ -1157,7 +1191,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
                   loading ||
                   (PASSWORD_CAPTCHA_ENABLED && !passwordCaptchaToken)
                 }
-                className="w-full text-right text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
+                className="w-full text-right text-xs font-medium text-[color:var(--takda-brand-text)] disabled:opacity-50"
               >
                 Forgot password?
               </button>
@@ -1216,7 +1250,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               setOtpStage("email");
               setMessage("");
             }}
-            className="mt-3 w-full text-center text-xs font-medium text-[color:var(--takda-brand)]"
+            className="mt-3 w-full text-center text-xs font-medium text-[color:var(--takda-brand-text)]"
           >
             Use a one-time email code instead
           </button>
@@ -1324,7 +1358,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={resetOtpFlow}
               disabled={loading}
-              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand-text)] disabled:opacity-50"
             >
               Use password instead
             </button>
@@ -1364,7 +1398,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               type="button"
               onClick={sendOtpCode}
               disabled={loading || resendCooldown > 0 || !captchaToken}
-              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand)] disabled:opacity-50"
+              className="w-full text-center text-xs font-medium text-[color:var(--takda-brand-text)] disabled:opacity-50"
             >
               {resendCooldown > 0
                 ? `Resend code in ${resendCooldown}s`
@@ -1427,7 +1461,7 @@ function AuthScreen({ initialMode = "login", onBack, pendingOtpProfileRef }) {
               pendingOtpProfileRef.current = null;
             }
           }}
-          className="mt-5 w-full text-center text-sm font-medium text-[color:var(--takda-brand)]"
+          className="mt-5 w-full text-center text-sm font-medium text-[color:var(--takda-brand-text)]"
         >
           {mode === "login"
             ? "New to Takda? Create an account"
@@ -1494,18 +1528,18 @@ function ResetPasswordScreen({ onDone }) {
 
   return (
     <div className="min-h-screen bg-[var(--takda-bg-page)] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-[var(--takda-border)] bg-white p-6 shadow-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-sm">
 
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--takda-brand)] text-lg font-bold text-white">
             T
           </div>
 
-          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
+          <h1 className="font-display text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Create new password
           </h1>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-[color:var(--takda-text-muted-2)]">
             Enter your new Takda password.
           </p>
         </div>
@@ -1529,7 +1563,7 @@ function ResetPasswordScreen({ onDone }) {
               onClick={() =>
                 setShowPassword((current) => !current)
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand-text)]"
             >
               {showPassword ? "Hide" : "Show"}
             </button>
@@ -1554,7 +1588,7 @@ function ResetPasswordScreen({ onDone }) {
               onClick={() =>
                 setShowConfirmPassword((current) => !current)
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand)]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[color:var(--takda-brand-text)]"
             >
               {showConfirmPassword ? "Hide" : "Show"}
             </button>
@@ -1571,7 +1605,7 @@ function ResetPasswordScreen({ onDone }) {
         </form>
 
         {message && (
-          <p className="mt-3 text-center text-xs text-slate-600">
+          <p className="mt-3 text-center text-xs text-[color:var(--takda-text-muted-3)]">
             {message}
           </p>
         )}
@@ -1731,7 +1765,7 @@ function ProfileSetup({ user, onComplete }) {
 
   return (
     <div className="min-h-screen bg-[var(--takda-bg-page)] flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--takda-border)] bg-white p-6 shadow-sm">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-sm">
 
         <div className="mb-6 text-center">
 
@@ -1739,7 +1773,7 @@ function ProfileSetup({ user, onComplete }) {
             T
           </div>
 
-          <h1 className="text-2xl font-bold text-[color:var(--takda-text-primary)]">
+          <h1 className="font-display text-2xl font-bold text-[color:var(--takda-text-primary)]">
             Welcome to Takda! 👋
           </h1>
 
@@ -1757,7 +1791,7 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
-              Full Name <span className="text-red-500">*</span>
+              Full Name <span className="text-[color:var(--takda-feedback-error-text)]">*</span>
             </label>
 
             <input
@@ -1786,7 +1820,7 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
-              Program / Track <span className="text-red-500">*</span>
+              Program / Track <span className="text-[color:var(--takda-feedback-error-text)]">*</span>
             </label>
 
             <input
@@ -1801,7 +1835,7 @@ function ProfileSetup({ user, onComplete }) {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
-              Year / Grade Level <span className="text-red-500">*</span>
+              Year / Grade Level <span className="text-[color:var(--takda-feedback-error-text)]">*</span>
             </label>
 
             <input
@@ -1815,7 +1849,7 @@ function ProfileSetup({ user, onComplete }) {
           </div>
 
           {message && (
-            <div className="rounded-xl bg-red-50 px-3 py-2 text-center text-xs text-red-600">
+            <div className="rounded-xl bg-[var(--takda-feedback-error-bg)] px-3 py-2 text-center text-xs text-[color:var(--takda-feedback-error-text)]">
               {message}
             </div>
           )}
@@ -1850,14 +1884,14 @@ function Avatar({ profile, email, size = "normal" }) {
       <img
         src={profile.avatar_url}
         alt="Profile"
-        className={`${dimension} rounded-full object-cover border border-[#E4E4F0] bg-white`}
+        className={`${dimension} rounded-full object-cover border border-[var(--takda-border)] bg-[var(--takda-bg-surface)]`}
       />
     );
   }
 
   return (
     <div
-      className={`${dimension} flex items-center justify-center rounded-full bg-[#3D2FE0] font-bold text-white`}
+      className={`${dimension} flex items-center justify-center rounded-full bg-[var(--takda-brand)] font-bold text-white`}
     >
       {getInitials(profile?.full_name, email)}
     </div>
@@ -1890,6 +1924,30 @@ function ProBadge({ compact }) {
     >
       <span aria-hidden="true">✦</span> PRO
     </span>
+  );
+}
+
+// Stage H: one reusable loading indicator, reused by ProModal's
+// checkout button and MyProfile's Save/Upload buttons below —
+// replacing bare "Opening secure checkout..."/"Saving..."/"Uploading..."
+// text with the same text plus a small spinning ring, never standing
+// in for an artificial delay: every call site below only renders this
+// while its own real async request (startCheckout/saveChanges/
+// uploadAvatar) is actually in flight. aria-hidden since the adjacent
+// text already states the loading status accessibly.
+function Spinner({ size = 14, className = "" }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={`takda-spinner ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -2120,9 +2178,12 @@ function ProModal({ onClose, returnFocusRef }) {
           aria-labelledby={titleId}
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-3xl border border-[var(--takda-border)] bg-white shadow-2xl"
+          className="w-full max-w-md overflow-hidden rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-2xl"
         >
-          <div className="relative bg-[#1B1B2F] px-6 pb-7 pt-6 text-white">
+          <div
+            className="relative px-6 pb-7 pt-6"
+            style={{ background: "var(--takda-ink-surface)", color: "var(--takda-ink-surface-text)" }}
+          >
             <button
               type="button"
               onClick={onClose}
@@ -2133,14 +2194,17 @@ function ProModal({ onClose, returnFocusRef }) {
               ×
             </button>
 
-            <div className="inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-extrabold tracking-wide text-amber-300">
-              ⭐ TAKDA PRO
-            </div>
+            {/* Stage D: aligned with the app's one dedicated Pro-badge
+                system (ProBadge, this file) instead of a one-off amber
+                Tailwind pill — same graphite/champagne styling and
+                shine animation every other "PRO" indicator already
+                uses, regardless of theme. */}
+            <ProBadge />
 
-            <h2 id={titleId} className="mt-4 text-3xl font-extrabold">
+            <h2 id={titleId} className="font-display mt-4 text-3xl font-extrabold">
               Do more with your school life.
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6" style={{ color: "var(--takda-ink-surface-text-muted)" }}>
               Unlock premium Takda tools designed to help you stay organized,
               focused, and ready for deadlines.
             </p>
@@ -2155,7 +2219,7 @@ function ProModal({ onClose, returnFocusRef }) {
                 "Future Pro features included",
               ].map((feature) => (
                 <div key={feature} className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--takda-brand-tint-2)] text-xs font-bold text-[color:var(--takda-brand)]">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--takda-brand-tint-2)] text-xs font-bold text-[color:var(--takda-brand-text)]">
                     ✓
                   </span>
                   <span className="font-medium">{feature}</span>
@@ -2171,12 +2235,12 @@ function ProModal({ onClose, returnFocusRef }) {
                 className={`rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "monthly"
                     ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)] ring-1 ring-[var(--takda-brand)]"
-                    : "border-[var(--takda-border)] bg-white"
+                    : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                 }`}
               >
-                <p className="text-xs font-bold text-slate-500">MONTHLY</p>
+                <p className="text-xs font-bold text-[color:var(--takda-text-muted-2)]">MONTHLY</p>
                 <p className="mt-1 text-2xl font-extrabold text-[color:var(--takda-text-primary)]">₱29</p>
-                <p className="text-xs text-slate-400">per month</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">per month</p>
               </button>
 
               <button
@@ -2186,20 +2250,31 @@ function ProModal({ onClose, returnFocusRef }) {
                 className={`relative rounded-2xl border p-4 text-left disabled:opacity-60 ${
                   billing === "yearly"
                     ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)] ring-1 ring-[var(--takda-brand)]"
-                    : "border-[var(--takda-border)] bg-white"
+                    : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
                 }`}
               >
-                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[color:var(--takda-text-primary)]">
+                {/* Corrective fix: text color is a fixed dark literal,
+                    not the theme's --takda-text-primary — amber-400 is
+                    a fixed bright color in every theme, but
+                    text-primary flips to near-white in Twilight, which
+                    computed to ~1.43:1 against this background (a real
+                    failure, not a hypothetical one). A fixed dark color
+                    is correct here since the badge's own background
+                    never changes with theme either. */}
+                <span className="absolute -top-2 right-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-[#1B1B2F]">
                   BEST VALUE
                 </span>
-                <p className="text-xs font-bold text-slate-500">YEARLY</p>
+                <p className="text-xs font-bold text-[color:var(--takda-text-muted-2)]">YEARLY</p>
                 <p className="mt-1 text-2xl font-extrabold text-[color:var(--takda-text-primary)]">₱299</p>
-                <p className="text-xs text-slate-400">per year</p>
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">per year</p>
               </button>
             </div>
 
             {message && (
-              <div className="mt-4 rounded-xl bg-red-50 px-3 py-2.5 text-center text-xs font-medium text-red-600">
+              <div
+                className="mt-4 rounded-xl px-3 py-2.5 text-center text-xs font-medium"
+                style={{ background: "var(--takda-feedback-error-bg)", color: "var(--takda-feedback-error-text)" }}
+              >
                 {message}
               </div>
             )}
@@ -2208,8 +2283,9 @@ function ProModal({ onClose, returnFocusRef }) {
               type="button"
               onClick={startCheckout}
               disabled={loading}
-              className="mt-5 w-full rounded-xl bg-[var(--takda-brand)] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--takda-brand)] py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
+              {loading && <Spinner />}
               {loading
                 ? "Opening secure checkout..."
                 : `Upgrade to Pro — ${
@@ -2217,7 +2293,7 @@ function ProModal({ onClose, returnFocusRef }) {
                   }`}
             </button>
 
-            <p className="mt-3 text-center text-xs leading-5 text-slate-400">
+            <p className="mt-3 text-center text-xs leading-5 text-[color:var(--takda-text-muted-1)]">
               You will be redirected to PayMongo's secure checkout page.
               Takda Pro is activated only after payment is confirmed.
             </p>
@@ -2298,15 +2374,15 @@ function ProfileMenu({
         {isPro ? (
           <ProBadge />
         ) : (
-          <span className="hidden rounded-full bg-slate-100 px-2 py-1 text-[10px] font-extrabold tracking-wide text-slate-500 sm:inline-flex">
+          <span className="hidden rounded-full bg-[var(--takda-border)] px-2 py-1 text-[10px] font-extrabold tracking-wide text-[color:var(--takda-text-muted-2)] sm:inline-flex">
             FREE
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-[#E4E4F0] bg-white shadow-lg">
-          <div className="border-b border-[#E4E4F0] p-4">
+        <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] shadow-lg">
+          <div className="border-b border-[var(--takda-border)] p-4">
             <div className="flex items-center gap-3">
               <Avatar
                 profile={profile}
@@ -2315,19 +2391,19 @@ function ProfileMenu({
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-semibold text-[#1B1B2F]">
+                  <p className="truncate text-sm font-semibold text-[color:var(--takda-text-primary)]">
                     {profile?.full_name || "Takda Student"}
                   </p>
                   {isPro ? (
                     <ProBadge compact />
                   ) : (
-                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-extrabold tracking-wide text-slate-500">
+                    <span className="shrink-0 rounded-full bg-[var(--takda-border)] px-2 py-0.5 text-[9px] font-extrabold tracking-wide text-[color:var(--takda-text-muted-2)]">
                       FREE
                     </span>
                   )}
                 </div>
 
-                <p className="truncate text-xs text-slate-400">
+                <p className="truncate text-xs text-[color:var(--takda-text-muted-1)]">
                   {user.email}
                 </p>
               </div>
@@ -2341,7 +2417,7 @@ function ProfileMenu({
                 setOpen(false);
                 onOpenProfile(triggerRef.current);
               }}
-              className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#1B1B2F] hover:bg-[#F5F6FA]"
+              className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[color:var(--takda-text-primary)] hover:bg-[var(--takda-bg-hover)]"
             >
               👤 My Profile
             </button>
@@ -2352,7 +2428,7 @@ function ProfileMenu({
                 setOpen(false);
                 onOpenAppearance(triggerRef.current);
               }}
-              className="mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#1B1B2F] hover:bg-[#F5F6FA]"
+              className="mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[color:var(--takda-text-primary)] hover:bg-[var(--takda-bg-hover)]"
             >
               🎨 Appearance
             </button>
@@ -2364,7 +2440,7 @@ function ProfileMenu({
                   setOpen(false);
                   onOpenPro(triggerRef.current);
                 }}
-                className="mt-1 w-full rounded-xl bg-[#FFF8E7] px-3 py-2.5 text-left text-sm font-bold text-amber-700 hover:bg-amber-100"
+                className="mt-1 w-full rounded-xl bg-[var(--takda-bg-reminder-chip)] px-3 py-2.5 text-left text-sm font-bold text-[color:var(--takda-status-tomorrow-text)] hover:bg-[var(--takda-status-tomorrow-bg)]"
               >
                 ⭐ Upgrade to Pro
               </button>
@@ -2373,7 +2449,7 @@ function ProfileMenu({
             <button
               type="button"
               onClick={onLogout}
-              className="mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+              className="mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[color:var(--takda-feedback-error-text)] hover:bg-[var(--takda-feedback-error-bg)]"
             >
               Log out
             </button>
@@ -2388,7 +2464,58 @@ function ProfileMenu({
    APPEARANCE MODAL (Step 03X)
 ========================= */
 
-function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
+// Design Excellence Category F: a miniature mockup (page strip + a
+// surface card with an accent bar and two muted text-lines) instead of
+// a single flat swatch dot — enough to actually read as "this is what
+// the app looks like" at a glance. aria-hidden since the option's own
+// label/description text is the accessible content.
+function ThemeMiniPreview({ preview }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg border border-black/10"
+      style={{ background: preview.page }}
+    >
+      <span
+        className="absolute inset-x-1.5 bottom-1.5 top-3 rounded-md"
+        style={{ background: preview.surface, boxShadow: "0 1px 2px rgba(0,0,0,0.12)" }}
+      >
+        <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full" style={{ background: preview.accent }} />
+        <span className="absolute left-1.5 top-[14px] h-[3px] w-6 rounded-full" style={{ background: preview.text, opacity: 0.85 }} />
+        <span className="absolute left-1.5 top-[20px] h-[3px] w-4 rounded-full" style={{ background: preview.muted }} />
+      </span>
+    </span>
+  );
+}
+
+// Design Excellence Category F: the real sky gradient at thumbnail
+// size, plus a tiny sun/moon body and (night only) a few stars — a
+// genuine miniature of the actual GreetingHero scene, not a generic icon.
+function AtmosphereMiniPreview({ option }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg border border-black/10"
+      style={{ background: option.sky }}
+    >
+      {option.body && (
+        <span
+          className="absolute h-2.5 w-2.5 rounded-full"
+          style={{ left: "62%", top: "22%", background: option.body, boxShadow: `0 0 6px 1px ${option.body}` }}
+        />
+      )}
+      {option.stars && (
+        <>
+          <span className="absolute h-[2px] w-[2px] rounded-full bg-white" style={{ left: "20%", top: "28%" }} />
+          <span className="absolute h-[2px] w-[2px] rounded-full bg-white" style={{ left: "35%", top: "55%" }} />
+          <span className="absolute h-[2px] w-[2px] rounded-full bg-white" style={{ left: "12%", top: "62%" }} />
+        </>
+      )}
+    </span>
+  );
+}
+
+function AppearanceModal({ currentTheme, onSelect, currentAtmosphere, onSelectAtmosphere, onClose, returnFocusRef }) {
   const panelRef = useRef(null);
   const titleId = "appearance-modal-title";
 
@@ -2448,9 +2575,33 @@ function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Design Excellence Category F: `preview` hardcodes that theme's own
+  // actual token values (copied directly from index.css's definitions,
+  // not computed from the currently-active theme) so ThemeMiniPreview
+  // can render what a NON-active theme genuinely looks like — the
+  // whole point of a preview. Using var(--takda-*) here would just
+  // reflect whichever theme is active right now, never the option
+  // being previewed.
   const THEME_OPTIONS = [
-    { key: "classic", label: "Classic", description: "Default TAKDA theme" },
-    { key: "matcha", label: "Matcha", description: "Soft green and cream theme" },
+    { key: "classic", label: "Classic", description: "Default Takda theme", swatch: "#3D2FE0", preview: { page: "#F5F6FA", surface: "#FFFFFF", text: "#1B1B2F", muted: "#94A3B8", accent: "#3D2FE0" } },
+    { key: "matcha", label: "Matcha Café", description: "Soft green and cream theme", swatch: "#4F7042", preview: { page: "#F7F2E4", surface: "#FFFEFA", text: "#2F2B22", muted: "#A79E87", accent: "#4F7042" } },
+    { key: "twilight", label: "Twilight", description: "Deep, cozy evening theme", swatch: "#6655E0", preview: { page: "#15132A", surface: "#1F1C38", text: "#EFECFA", muted: "#8B84AD", accent: "#9B8FFF" } },
+  ];
+
+  // Stage C: independent of theme — same storage/validation pattern as
+  // THEME_OPTIONS above, intentionally never written to the same key or
+  // read by the same effect, so switching one can never change the other.
+  // Design Excellence Category F: `sky` reuses the EXACT gradient
+  // strings index.css's own .takda-atm-scene[data-p="..."] .takda-atm-sky
+  // rules define — a genuine preview of the real atmosphere, not an
+  // approximation. "Auto" has no single sky of its own, so it gets a
+  // 4-wedge pie built from those same 4 gradients' start colors instead.
+  const ATMOSPHERE_OPTIONS = [
+    { key: "auto", label: "Auto", description: "Follows your device's clock", sky: "conic-gradient(#6a5a9e 0deg 90deg, #a9d8f0 90deg 180deg, #c6577c 180deg 270deg, #161340 270deg 360deg)" },
+    { key: "dawn", label: "Dawn", description: "Early morning sky", sky: "linear-gradient(185deg, #6a5a9e 0%, #c97d93 42%, #f3b48f 70%, #ffdba3 100%)", body: "#ffdba3" },
+    { key: "day", label: "Day", description: "Bright daylight", sky: "linear-gradient(185deg, #6fb8e6 0%, #a9d8f0 46%, #d9eef8 78%, #f1faff 100%)", body: "#fff6cf" },
+    { key: "dusk", label: "Dusk", description: "Golden-hour sunset", sky: "linear-gradient(185deg, #2d2259 0%, #7a3d6b 38%, #c6577c 62%, #f3985c 88%, #ffc98a 100%)", body: "#ffb15e" },
+    { key: "night", label: "Night", description: "Quiet, starlit sky", sky: "linear-gradient(185deg, #0a0918 0%, #161340 55%, #241f52 82%, #2d2766 100%)", body: "#e4ddff", stars: true },
   ];
 
   return (
@@ -2465,7 +2616,7 @@ function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
           aria-modal="true"
           aria-labelledby={titleId}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-sm rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-xl"
+          className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-3xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-6 shadow-xl"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -2489,37 +2640,90 @@ function AppearanceModal({ currentTheme, onSelect, onClose, returnFocusRef }) {
             </button>
           </div>
 
-          <div className="mt-5 flex flex-col gap-2">
-            {THEME_OPTIONS.map((option) => {
-              const selected = currentTheme === option.key;
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => onSelect(option.key)}
-                  aria-pressed={selected}
-                  className={`takda-focus-visible w-full rounded-xl border p-3 text-left transition-colors duration-150 ${
-                    selected
-                      ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
-                      : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
-                      {option.label}
-                    </span>
-                    {selected && (
-                      <span aria-hidden="true" className="text-[color:var(--takda-brand)]">
-                        ✓
+          <div className="mt-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">
+              Theme
+            </p>
+            <div className="flex flex-col gap-2">
+              {THEME_OPTIONS.map((option) => {
+                const selected = currentTheme === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => onSelect(option.key)}
+                    aria-pressed={selected}
+                    aria-label={`${option.label} theme — ${option.description}`}
+                    className={`takda-focus-visible flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ${
+                      selected
+                        ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
+                        : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
+                    }`}
+                  >
+                    <ThemeMiniPreview preview={option.preview} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
+                          {option.label}
+                        </span>
+                        {selected && (
+                          <span aria-hidden="true" className="shrink-0 text-[color:var(--takda-brand-text)]">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
+                        {option.description}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Stage C: Atmosphere selection — a separate control group from
+              Theme above, writing to a separate preference and a separate
+              document attribute (data-takda-period, set in Root), so the
+              two can never interact. */}
+          <div className="mt-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">
+              Atmosphere
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {ATMOSPHERE_OPTIONS.map((option) => {
+                const selected = currentAtmosphere === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => onSelectAtmosphere(option.key)}
+                    aria-pressed={selected}
+                    aria-label={`${option.label} atmosphere — ${option.description}`}
+                    className={`takda-focus-visible flex w-full flex-col gap-1.5 rounded-xl border p-2.5 text-left transition-colors duration-150 ${
+                      selected
+                        ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]"
+                        : "border-[var(--takda-border)] bg-[var(--takda-bg-surface)]"
+                    }`}
+                  >
+                    <AtmosphereMiniPreview option={option} />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
+                        {option.label}
                       </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs text-[color:var(--takda-text-muted-2)]">
-                    {option.description}
-                  </p>
-                </button>
-              );
-            })}
+                      {selected && (
+                        <span aria-hidden="true" className="shrink-0 text-[color:var(--takda-brand-text)]">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <p className="-mt-1 text-xs text-[color:var(--takda-text-muted-2)]">
+                      {option.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -2763,17 +2967,17 @@ function MyProfile({
           aria-labelledby={titleId}
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-lg rounded-3xl bg-white shadow-xl"
+          className="w-full max-w-lg rounded-3xl bg-[var(--takda-bg-surface)] shadow-xl"
         >
 
           <div className="flex items-center justify-between border-b border-[var(--takda-border)] px-5 py-4">
 
             <div>
-              <h2 id={titleId} className="text-lg font-bold text-[color:var(--takda-text-primary)]">
+              <h2 id={titleId} className="font-display text-lg font-bold text-[color:var(--takda-text-primary)]">
                 My Profile
               </h2>
 
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[color:var(--takda-text-muted-1)]">
                 Manage your Takda profile
               </p>
             </div>
@@ -2781,7 +2985,7 @@ function MyProfile({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-lg text-slate-500"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--takda-bg-page)] text-lg text-[color:var(--takda-text-muted-2)]"
               aria-label="Close profile"
             >
               ×
@@ -2831,8 +3035,9 @@ function MyProfile({
                   fileInputRef.current?.click()
                 }
                 disabled={uploading}
-                className="mt-3 text-sm font-semibold text-[color:var(--takda-brand)] disabled:opacity-50"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[color:var(--takda-brand-text)] disabled:opacity-50"
               >
+                {uploading && <Spinner size={12} />}
                 {uploading
                   ? "Uploading..."
                   : avatarUrl
@@ -2840,7 +3045,7 @@ function MyProfile({
                   : "Upload Photo"}
               </button>
 
-              <p className="mt-1 text-center text-xs text-slate-400">
+              <p className="mt-1 text-center text-xs text-[color:var(--takda-text-muted-1)]">
                 JPEG, PNG or WebP • Maximum 4 MB
               </p>
 
@@ -2859,14 +3064,14 @@ function MyProfile({
                   type="email"
                   value={user.email || ""}
                   disabled
-                  className="w-full rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-page)] px-3 py-3 text-base text-slate-400"
+                  className="w-full rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-page)] px-3 py-3 text-base text-[color:var(--takda-text-muted-1)]"
                 />
               </div>
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-[color:var(--takda-text-primary)]">
                   Full Name{" "}
-                  <span className="text-red-500">*</span>
+                  <span className="text-[color:var(--takda-feedback-error-text)]">*</span>
                 </label>
 
                 <input
@@ -2931,11 +3136,12 @@ function MyProfile({
 
               {message && (
                 <div
-                  className={`rounded-xl px-3 py-2.5 text-center text-xs ${
+                  className="rounded-xl px-3 py-2.5 text-center text-xs"
+                  style={
                     messageType === "success"
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-600"
-                  }`}
+                      ? { background: "var(--takda-feedback-success-bg)", color: "var(--takda-feedback-success-text)" }
+                      : { background: "var(--takda-feedback-error-bg)", color: "var(--takda-feedback-error-text)" }
+                  }
                 >
                   {message}
                 </div>
@@ -2946,7 +3152,7 @@ function MyProfile({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 rounded-xl border border-[var(--takda-border)] bg-white py-3 text-sm font-semibold text-slate-600"
+                  className="flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] py-3 text-sm font-semibold text-[color:var(--takda-text-muted-3)]"
                 >
                   Cancel
                 </button>
@@ -2954,8 +3160,9 @@ function MyProfile({
                 <button
                   type="submit"
                   disabled={saving || uploading}
-                  className="flex-1 rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--takda-brand)] py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
+                  {saving && <Spinner />}
                   {saving
                     ? "Saving..."
                     : "Save Changes"}
@@ -3082,6 +3289,47 @@ function Root() {
     if (!TAKDA_ALLOWED_THEMES.includes(value)) return;
     setTheme(value);
     writeStoredTheme(value);
+  }
+
+  // Stage C: Atmosphere preference — same lazy-initializer pattern as
+  // theme above, completely separate state/effect/storage key so the two
+  // preferences can never interact.
+  const [atmosphere, setAtmosphere] = useState(readStoredAtmosphere);
+
+  // Corrective fix (post-Stage-C review): the resolved dawn/day/dusk/
+  // night value is now real React state, not just a side-effect-only
+  // local variable — TakdaApp receives it as a prop below and uses it
+  // to pick GreetingHero's visible scene. Previously this value only
+  // ever reached a document attribute with no component actually
+  // reading it, so a manual Atmosphere selection had no visible effect
+  // on the Dashboard at all; this is the fix for that.
+  const [resolvedAtmosphere, setResolvedAtmosphere] = useState(
+    () => (atmosphere === "auto" ? getTimePeriod() : atmosphere)
+  );
+
+  useEffect(() => {
+    function applyPeriod() {
+      const resolved = atmosphere === "auto" ? getTimePeriod() : atmosphere;
+      setResolvedAtmosphere(resolved);
+      // The document attribute is kept for any CSS that wants to key off
+      // the resolved period outside of TakdaApp's own React tree (e.g.
+      // the public landing page before login) — TakdaApp itself now
+      // reads the `atmosphere` prop below instead, not this attribute.
+      document.documentElement.setAttribute("data-takda-period", resolved);
+    }
+    applyPeriod();
+    // Same 60s cadence as TakdaApp's own greeting poll — independent
+    // interval, not shared state, since this must also update correctly
+    // on screens TakdaApp hasn't mounted yet (e.g. while still loading,
+    // or on the public landing page before login).
+    const id = setInterval(applyPeriod, 60000);
+    return () => clearInterval(id);
+  }, [atmosphere]);
+
+  function setAtmosphereAndPersist(value) {
+    if (!TAKDA_ALLOWED_ATMOSPHERES.includes(value)) return;
+    setAtmosphere(value);
+    writeStoredAtmosphere(value);
   }
 
   const [loading, setLoading] = useState(true);
@@ -3800,15 +4048,21 @@ function Root() {
 
   if (loading || profileLoading) {
     return (
-      <div className="min-h-screen bg-[#F5F6FA] grid place-items-center">
+      <div className="min-h-screen bg-[var(--takda-bg-page)] grid place-items-center">
 
-        <div className="text-center">
+        {/* Work Package 5: accessible loading feedback — role="status"
+            announces this to assistive tech without needing focus, and
+            the existing Spinner (already used by ProModal/MyProfile)
+            gives the same visual loading cue sighted users get
+            elsewhere in the app, instead of static text alone. */}
+        <div className="text-center" role="status" aria-label="Loading Takda">
 
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#3D2FE0] text-lg font-bold text-white">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--takda-brand)] text-lg font-bold text-white">
             T
           </div>
 
-          <p className="text-sm text-slate-500">
+          <p className="flex items-center justify-center gap-2 text-sm text-[color:var(--takda-text-muted-2)]">
+            <Spinner size={13} />
             Loading Takda…
           </p>
 
@@ -3911,11 +4165,11 @@ function Root() {
           <div>
             {profile?.full_name && (
               <>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[color:var(--takda-text-muted-1)]">
                   Welcome back,
                 </p>
 
-                <p className="text-sm font-semibold text-[var(--takda-text-primary)]">
+                <p className="text-sm font-semibold text-[color:var(--takda-text-primary)]">
                   {profile.full_name}
                 </p>
               </>
@@ -3947,6 +4201,7 @@ function Root() {
         <TakdaApp
           isPro={isPro}
           studentName={getFirstName(profile?.full_name)}
+          atmosphere={resolvedAtmosphere}
           onUpgrade={(triggerEl) => {
             // Step 06G.9B: GradeLockedView's own "Upgrade to Pro" button
             // now passes itself through (event.currentTarget in
@@ -3991,6 +4246,8 @@ function Root() {
         <AppearanceModal
           currentTheme={theme}
           onSelect={setThemeAndPersist}
+          currentAtmosphere={atmosphere}
+          onSelectAtmosphere={setAtmosphereAndPersist}
           onClose={() => setShowAppearance(false)}
           returnFocusRef={appearanceTriggerRef}
         />

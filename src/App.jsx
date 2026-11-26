@@ -3,7 +3,8 @@ import {
   Plus, X, Check, BookOpen, Calendar as CalendarIcon, StickyNote,
   Home, ChevronLeft, ChevronRight, Search, Clock, MapPin, User,
   Trash2, Edit2, AlertCircle, CheckCircle2, Circle, ArrowLeft, Lock,
-  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText, ExternalLink
+  MoreHorizontal, Flag, ChevronDown, Bell, Link2, FileText, ExternalLink,
+  Sparkles
 } from "lucide-react";
 import {
   createSemester,
@@ -43,8 +44,6 @@ import { subscribeToPush, unsubscribeFromPush, sendTestPush } from "./lib/push";
 import { generateRecurrenceDates, RecurrenceValidationError } from "./lib/recurrence";
 import { computeSmartInsights } from "./lib/planningEngine";
 
-const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap";
-
 const COLORS = ["#3D2FE0", "#FF5A5F", "#16A34A", "#F59E0B", "#0EA5A4", "#DB2777", "#7C3AED", "#2563EB"];
 const TYPES = ["Assignment", "Quiz", "Exam", "Project", "Presentation", "Report", "Research", "Reading", "Other"];
 const PRIORITIES = ["Low", "Medium", "High"];
@@ -64,16 +63,6 @@ const FREE_SUBJECT_LIMIT = 7;
 const FREE_ACTIVITY_LIMIT = 20;
 
 const uid = () => crypto.randomUUID();
-
-function loadFont() {
-  if (typeof document !== "undefined" && !document.getElementById("takda-font")) {
-    const link = document.createElement("link");
-    link.id = "takda-font";
-    link.rel = "stylesheet";
-    link.href = FONT_LINK;
-    document.head.appendChild(link);
-  }
-}
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -140,10 +129,10 @@ function fmtDateFull(d) {
 }
 
 const STATUS_LABEL = {
-  pending: { text: "Pending", color: "#64748B", bg: "#F1F5F9" },
-  in_progress: { text: "In Progress", color: "#1D4ED8", bg: "#EFF6FF" },
-  completed: { text: "Completed", color: "#166534", bg: "#F0FDF4" },
-  overdue: { text: "Overdue", color: "#B91C1C", bg: "#FEF2F2" },
+  pending: { text: "Pending", color: "var(--takda-label-pending)", bg: "var(--takda-label-pending-bg)" },
+  in_progress: { text: "In Progress", color: "var(--takda-label-inprogress)", bg: "var(--takda-label-inprogress-bg)" },
+  completed: { text: "Completed", color: "var(--takda-status-week-text)", bg: "var(--takda-status-week-bg)" },
+  overdue: { text: "Overdue", color: "var(--takda-status-overdue-text)", bg: "var(--takda-status-overdue-bg)" },
 };
 function StatusBadge({ status }) {
   const s = STATUS_LABEL[status] || STATUS_LABEL.pending;
@@ -154,7 +143,7 @@ function StatusBadge({ status }) {
   );
 }
 
-const PRIORITY_COLOR = { Low: "var(--takda-text-muted-2)", Medium: "#D97706", High: "#DC2626" };
+const PRIORITY_COLOR = { Low: "var(--takda-text-muted-2)", Medium: "var(--takda-status-tomorrow-text)", High: "var(--takda-feedback-error-text)" };
 function PriorityTag({ priority }) {
   if (!priority) return null;
   const color = PRIORITY_COLOR[priority] || PRIORITY_COLOR.Medium;
@@ -165,7 +154,7 @@ function PriorityTag({ priority }) {
   );
 }
 
-export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } = {}) {
+export default function TakdaApp({ isPro = false, onUpgrade, studentName = "", atmosphere = "day" } = {}) {
   const [ready, setReady] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -276,8 +265,6 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   const [notificationPermission, setNotificationPermission] = useState(() => getNotificationPermission());
   const [notificationsPreferred, setNotificationsPreferred] = useState(() => getNotificationsEnabledPreference());
   const notificationsActive = notificationPermission === "granted" && notificationsPreferred;
-
-  useEffect(() => { loadFont(); }, []);
 
   // Notification.permission can change outside React's knowledge (the
   // student changes it in browser/OS settings while the tab stays open) —
@@ -491,6 +478,23 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
   // creation is already blocked upstream whenever semesters exist but none
   // is active, so this list is never actually rendered/used in that case.
   const creatableSubjectsForActivity = useMemo(() => {
+    if (semesters.length === 0) return subjects;
+    if (activeSemesterId === null) return [];
+    return subjects.filter((s) => s.semesterId === activeSemesterId);
+  }, [subjects, semesters.length, activeSemesterId]);
+
+  // Minimalist Almanac V5: the new dashboard Subject Shelf needs an
+  // ACTIVE-semester-scoped subjects list — the same scoping convention
+  // every other Dashboard data point (stats, nextClass, todaysClasses)
+  // already uses — not `viewSubjects` (SELECTED-semester-scoped, used
+  // by the standalone Subjects page), which could silently disagree
+  // with the rest of the dashboard if the user has a different
+  // semester merely selected elsewhere. Same filter expression as
+  // `creatableSubjectsForActivity` above (proven existing logic, not a
+  // new rule), kept as its own variable rather than reusing that one
+  // directly since its name/intent is specifically about activity
+  // creation, not display.
+  const dashboardSubjects = useMemo(() => {
     if (semesters.length === 0) return subjects;
     if (activeSemesterId === null) return [];
     return subjects.filter((s) => s.semesterId === activeSemesterId);
@@ -867,25 +871,29 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
     return "You're all caught up for today.";
   }, [focusLists]);
 
-  // Phase 09B.10: timePeriod now lives in real state, re-derived from the
-  // device clock on a lightweight 60s interval (not a high-frequency
-  // timer), so the greeting/hero actually updates when the user crosses
-  // a morning/afternoon/night boundary during an open session — the
-  // previous `useMemo(..., [])` computed this once at mount and never
-  // again, which this step was explicitly asked to fix (see Phase
-  // 09B.10's own instruction #7).
-  const [timePeriod, setTimePeriod] = useState(() => getTimePeriod());
+  // Phase 09B.10: re-derived from the device clock on a lightweight 60s
+  // interval (not a high-frequency timer), so the greeting actually
+  // updates when the user crosses a boundary during an open session.
+  //
+  // Corrective fix (post-Stage-C review): this is now deliberately a
+  // SEPARATE value from the Atmosphere scene below — greetingPeriod
+  // always reflects the real device clock via getGreetingPeriod() and
+  // is never affected by a manually-selected Atmosphere. Selecting
+  // "Night" at 9am must not make the greeting say "Still Studying" at
+  // 9am; it only changes which decorative sky is shown.
+  const [greetingPeriod, setGreetingPeriod] = useState(() => getGreetingPeriod());
 
   useEffect(() => {
-    const id = setInterval(() => setTimePeriod(getTimePeriod()), 60000);
+    const id = setInterval(() => setGreetingPeriod(getGreetingPeriod()), 60000);
     return () => clearInterval(id);
   }, []);
 
   const greeting = useMemo(() => {
-    if (timePeriod === "morning") return "Good Morning";
-    if (timePeriod === "afternoon") return "Good Afternoon";
-    return "Good Evening";
-  }, [timePeriod]);
+    if (greetingPeriod === "morning") return "Good Morning";
+    if (greetingPeriod === "afternoon") return "Good Afternoon";
+    if (greetingPeriod === "evening") return "Good Evening";
+    return "Still Studying";
+  }, [greetingPeriod]);
 
   // TAKDA 2.0 Dashboard (Phase 10A): Academic Performance overview card.
   // This is the EXACT SAME formula as GradesView's own `overallAverage`
@@ -1584,7 +1592,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
 
   if (!ready) {
     return (
-      <div style={{ fontFamily: "Inter, sans-serif" }} className="flex items-center justify-center h-full min-h-[500px] text-slate-400">
+      <div style={{ fontFamily: "Inter, sans-serif" }} className="flex items-center justify-center h-full min-h-[500px] text-[color:var(--takda-text-muted-1)]">
         Loading Takda…
       </div>
     );
@@ -1597,7 +1605,6 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
       className="w-full md:min-h-[640px] max-w-md sm:max-w-full mx-auto md:max-w-7xl flex flex-col md:flex-row rounded-2xl overflow-hidden border border-[var(--takda-border)] shadow-sm"
     >
       <style>{`
-        .font-display { font-family: 'Fraunces', serif; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: #D8D8ED; border-radius: 4px; }
         /* Single source of truth for how much bottom clearance the
@@ -1637,7 +1644,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
         />
         <div className="flex-1 overflow-y-auto pb-[calc(var(--mobile-nav-clearance)+env(safe-area-inset-bottom))] lg:pb-6">
           {saveError && (
-            <div className="mx-5 mt-4 md:mx-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-2">
+            <div className="mx-5 mt-4 md:mx-8 rounded-lg bg-[var(--takda-status-tomorrow-bg)] border border-[var(--takda-focustile-duetoday-border)] text-[color:var(--takda-status-tomorrow-text)] text-xs px-3 py-2">
               Your changes couldn't be saved just now — they may not be here after a refresh.
             </div>
           )}
@@ -1651,7 +1658,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
             <Dashboard
               greeting={greeting}
               contextMessage={contextMessage}
-              timePeriod={timePeriod}
+              atmosphere={atmosphere}
               focusLists={focusLists}
               stats={stats}
               recentlyCompleted={recentlyCompleted}
@@ -1678,6 +1685,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "" } 
               studentName={studentName}
               overallAverage={dashboardOverallAverage}
               onOpenNotes={() => setView("notes")}
+              subjects={dashboardSubjects}
             />
           )}
 
@@ -2237,7 +2245,7 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
           <button
             type="button"
             onClick={onDisable}
-            className="takda-focus-visible shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] hover:bg-slate-50 transition-colors duration-150"
+            className="takda-focus-visible shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] hover:bg-[var(--takda-bg-hover)] transition-colors duration-150"
             style={{ color: "var(--takda-text-muted-3)" }}
           >
             Disable
@@ -2259,12 +2267,12 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             onClick={handleLocalTestClick}
             disabled={localTestState.status === "sending"}
             className="takda-focus-visible text-[11px] font-semibold hover:underline disabled:opacity-50"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             {localTestState.status === "sending" ? "Sending…" : "Send test notification"}
           </button>
           {localTestState.message && (
-            <p className="text-[11px]" style={{ color: localTestState.status === "error" ? "#ef4444" : "var(--takda-text-muted-2)" }}>
+            <p className="text-[11px]" style={{ color: localTestState.status === "error" ? "var(--takda-feedback-error-text)" : "var(--takda-text-muted-2)" }}>
               {localTestState.message}
             </p>
           )}
@@ -2273,12 +2281,12 @@ function NotificationSettings({ permission, active, onEnable, onDisable, onSendT
             onClick={handleBackgroundPushTestClick}
             disabled={pushTestState.status === "sending"}
             className="takda-focus-visible text-[11px] font-semibold hover:underline disabled:opacity-50"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             {pushTestState.status === "sending" ? "Sending…" : "Send background push test"}
           </button>
           {pushTestState.message && (
-            <p className="text-[11px]" style={{ color: pushTestState.status === "error" ? "#ef4444" : "var(--takda-text-muted-2)" }}>
+            <p className="text-[11px]" style={{ color: pushTestState.status === "error" ? "var(--takda-feedback-error-text)" : "var(--takda-text-muted-2)" }}>
               {pushTestState.message}
             </p>
           )}
@@ -2296,7 +2304,7 @@ function ReminderBell({ count, onClick, ringKey }) {
   return (
     <button
       onClick={onClick}
-      className="relative p-1.5 -m-1.5 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-[#3D2FE0] takda-interactive"
+      className="relative p-1.5 -m-1.5 rounded-lg text-[color:var(--takda-text-muted-2)] hover:bg-[var(--takda-bg-hover)] hover:text-[#3D2FE0] takda-interactive"
       aria-label={count > 0 ? `Reminders — ${count} urgent` : "Reminders"}
     >
       <Bell
@@ -2358,7 +2366,7 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
         <span className="text-xs text-[color:var(--takda-text-muted-2)]">No semesters set up yet.</span>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible text-xs font-semibold text-[color:var(--takda-brand-text)] hover:underline">
             + Set up semesters
           </button>
         </div>
@@ -2428,15 +2436,15 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
     <div className="relative z-10 takda-glass takda-glass-silver flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 rounded-2xl px-5 md:px-8 py-3.5 mx-5 my-3 md:m-4 shrink-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 min-h-11 md:min-h-0 -mx-2 hover:bg-white/40 transition-colors duration-150"
+        className="takda-focus-visible flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 min-h-11 md:min-h-0 -mx-2 hover:bg-[var(--takda-glass-hover-overlay)] transition-colors duration-150"
       >
-        <CalendarIcon size={15} className="text-[color:var(--takda-brand)] shrink-0" />
+        <CalendarIcon size={15} className="text-[color:var(--takda-brand-text)] shrink-0" />
         <span className="text-[15px] font-semibold md:truncate">{current.label}</span>
         {/* Desktop-only badge copy — exact original markup/position
             (between name and chevron), hidden below md. */}
-        {current.isActive && <span className="hidden md:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
-        {current.isArchived && <span className="hidden md:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
-        <ChevronDown size={14} className="text-slate-400 shrink-0" />
+        {current.isActive && <span className="hidden md:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wide text-[color:var(--takda-status-week-text)] bg-[var(--takda-status-week-bg)] border border-[var(--takda-focustile-upcoming-border)] rounded-full px-2 py-0.5">Active</span>}
+        {current.isArchived && <span className="hidden md:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-2)] bg-[var(--takda-border)] border border-[var(--takda-border-neutral-2)] rounded-full px-2 py-0.5">Archived</span>}
+        <ChevronDown size={14} className="text-[color:var(--takda-text-muted-1)] shrink-0" />
       </button>
       <div className="flex items-center justify-between gap-3">
         {/* Mobile-only badge copy — row 2, alongside the bell/manage
@@ -2444,12 +2452,12 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
             lets justify-between push the bell/manage group fully
             right, matching how the row reads with no badge present. */}
         <div className="flex items-center gap-2 md:hidden">
-          {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-full px-2 py-0.5">Active</span>}
-          {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200/70 rounded-full px-2 py-0.5">Archived</span>}
+          {current.isActive && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-[color:var(--takda-status-week-text)] bg-[var(--takda-status-week-bg)] border border-[var(--takda-focustile-upcoming-border)] rounded-full px-2 py-0.5">Active</span>}
+          {current.isArchived && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-2)] bg-[var(--takda-border)] border border-[var(--takda-border-neutral-2)] rounded-full px-2 py-0.5">Archived</span>}
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <ReminderBell count={reminderBadgeCount} onClick={onOpenReminders} ringKey={ringKey} />
-          <button onClick={onManage} className="takda-focus-visible flex items-center min-h-11 md:min-h-0 text-xs font-semibold text-[color:var(--takda-brand)] hover:underline">
+          <button onClick={onManage} className="takda-focus-visible flex items-center min-h-11 md:min-h-0 text-xs font-semibold text-[color:var(--takda-brand-text)] hover:underline">
             Manage Semesters
           </button>
         </div>
@@ -2469,8 +2477,8 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
             <button
               key={o.id ?? "unassigned"}
               onClick={() => { onSelect(o.id); setOpen(false); }}
-              className="takda-focus-visible w-full min-h-11 flex items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors duration-150"
-              style={o.id === selectedSemesterId ? { color: "var(--takda-brand)", fontWeight: 600 } : undefined}
+              className="takda-focus-visible w-full min-h-11 flex items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--takda-bg-hover)] transition-colors duration-150"
+              style={o.id === selectedSemesterId ? { color: "var(--takda-brand-text)", fontWeight: 600 } : undefined}
             >
               {/* 10A.17B: flex-1 min-w-0 lets this span actually shrink
                   within the row (the same Flexbox requirement already
@@ -2487,8 +2495,8 @@ function SemesterBar({ semesters, selectedSemesterId, activeSemesterId, onSelect
                   near the top-right instead of overlapping the text. */}
               <span className="flex-1 min-w-0 md:truncate break-words">{o.label}</span>
               <span className="flex items-center gap-1 shrink-0">
-                {o.isActive && <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-600">Active</span>}
-                {o.isArchived && <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Archived</span>}
+                {o.isActive && <span className="text-[9px] font-bold uppercase tracking-wide text-[color:var(--takda-status-week-text)]">Active</span>}
+                {o.isArchived && <span className="text-[9px] font-bold uppercase tracking-wide text-[color:var(--takda-text-muted-1)]">Archived</span>}
               </span>
             </button>
           ))}
@@ -2589,7 +2597,7 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
   return (
     <ModalShell title={mode === "form" ? (formSemester ? "Edit Semester" : "New Semester") : "Manage Semesters"} onClose={onClose}>
       {error && (
-        <div className="mb-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2">{error}</div>
+        <div className="mb-3 rounded-xl bg-[var(--takda-feedback-error-bg)] border border-[var(--takda-focustile-overdue-border)] text-[color:var(--takda-feedback-error-text)] text-xs px-3 py-2">{error}</div>
       )}
 
       {mode === "list" ? (
@@ -2597,7 +2605,7 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
           <button
             onClick={openCreateForm}
             className="takda-focus-visible w-full mb-4 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--takda-brand-border-dashed)] py-2.5 text-sm font-semibold"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             <Plus size={15} /> New Semester
           </button>
@@ -2618,14 +2626,14 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
                       )}
                     </div>
                     <div className="shrink-0 flex items-center gap-1.5">
-                      {s.isActive && <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">Active</span>}
+                      {s.isActive && <span className="text-[10px] font-bold uppercase tracking-wide text-[color:var(--takda-status-week-text)] bg-[var(--takda-status-week-bg)] rounded-full px-1.5 py-0.5">Active</span>}
                       {s.archivedAt && <span className="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{ color: "var(--takda-text-muted-2)", background: "var(--takda-border)" }}>Archived</span>}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     <button
                       onClick={() => openEditForm(s)}
-                      className="takda-focus-visible text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] hover:bg-slate-50 transition-colors duration-150"
+                      className="takda-focus-visible text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] hover:bg-[var(--takda-bg-hover)] transition-colors duration-150"
                       style={{ color: "var(--takda-text-muted-3)" }}
                     >
                       Edit
@@ -2643,7 +2651,7 @@ function SemesterManagerModal({ semesters, activeSemesterId, onClose, onCreate, 
                       <button
                         onClick={() => handleArchive(s.id)}
                         disabled={busyId === s.id}
-                        className="takda-focus-visible text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] text-red-500 hover:bg-red-50 transition-colors duration-150 disabled:opacity-50"
+                        className="takda-focus-visible text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-[var(--takda-border)] text-[color:var(--takda-feedback-error-text)] hover:bg-[var(--takda-feedback-error-bg)] transition-colors duration-150 disabled:opacity-50"
                       >
                         {busyId === s.id ? "Archiving…" : "Archive"}
                       </button>
@@ -2732,13 +2740,25 @@ function Sidebar({ view, setView, onAddSubject, canCreate = true }) {
               key={it.key}
               onClick={() => setView(it.key)}
               aria-current={active ? "page" : undefined}
-              className={`takda-focus-visible flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
+              className={`takda-focus-visible relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold takda-interactive text-left ${active ? "" : "takda-sidebar-nav-hover"}`}
               style={{
                 background: active ? "var(--takda-brand-tint-3)" : undefined,
                 color: active ? "var(--takda-brand)" : "var(--takda-text-muted-3)",
                 boxShadow: active ? "inset 0 1px 0 var(--takda-glass-highlight)" : undefined,
               }}
             >
+              {/* Work Package 2: bookmark/ribbon-style active indicator — a
+                  short brand-colored bar on the leading edge, like a
+                  ribbon marking the current page of an almanac. Purely
+                  decorative (the tinted background + aria-current
+                  already carry the active state), so aria-hidden. */}
+              {active && (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 -ml-5 h-5 w-1 rounded-r-full"
+                  style={{ background: "var(--takda-brand)" }}
+                />
+              )}
               <Icon size={17} />
               {it.label}
             </button>
@@ -2791,7 +2811,7 @@ function NavBtn({ it, active, onClick }) {
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 flex-1 min-w-0 takda-interactive focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--takda-focus)] focus-visible:ring-offset-1 rounded-lg"
-      style={{ color: active ? "var(--takda-brand)" : "#94A3B8" }}
+      style={{ color: active ? "var(--takda-brand)" : "var(--takda-text-muted-1)" }}
     >
       <span
         className="flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 ease-out"
@@ -2836,10 +2856,10 @@ function MoreSheet({ view, onClose, onNavigate }) {
       aria-modal="true"
       aria-label="More options"
     >
-      <div className="bg-white w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] takda-sheet-enter" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[var(--takda-bg-surface)] w-full rounded-t-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] takda-sheet-enter" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display text-lg font-semibold">More</h3>
-          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150"><X size={18} /></button>
         </div>
         <div className="flex flex-col gap-2">
           {items.map((it) => {
@@ -2850,14 +2870,14 @@ function MoreSheet({ view, onClose, onNavigate }) {
                 key={it.key}
                 onClick={() => onNavigate(it.key)}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ease-out hover:border-slate-300 motion-safe:active:scale-[0.99] ${active ? "border-[#3D2FE0] bg-[#F7F6FF]" : "border-[#E4E4F0]"}`}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ease-out hover:border-[var(--takda-border-neutral-2)] motion-safe:active:scale-[0.99] ${active ? "border-[var(--takda-brand)] bg-[var(--takda-brand-tint-1)]" : "border-[var(--takda-border)]"}`}
               >
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#EEECFC" }}>
-                  <Icon size={16} color="#3D2FE0" />
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--takda-brand-tint-3)" }}>
+                  <Icon size={16} color="var(--takda-brand-text)" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{it.label}</div>
-                  <div className="text-[11px] text-slate-500 truncate">{it.desc}</div>
+                  <div className="text-[11px] text-[color:var(--takda-text-muted-2)] truncate">{it.desc}</div>
                 </div>
               </button>
             );
@@ -2887,9 +2907,15 @@ const DASHBOARD_UPCOMING_VISIBLE = 6;
 // re-verified by hand via the WCAG relative-luminance formula:
 // #92400E on #FFFBEB -> ~6.84:1, comfortably clear of the 4.5:1 AA
 // minimum.
+// Design Excellence Category B: "lavender" now draws from its own
+// dedicated --takda-overview-lavender-bg (not the brand tint scale
+// directly) and --takda-brand-text (not raw --takda-brand) — see both
+// tokens' own comments in index.css for the computed contrast/harmony
+// reasoning. Classic/Matcha are visually unchanged (both tokens alias
+// to the originals there); only Twilight's rendering changes.
 const OVERVIEW_ACCENTS = {
   rose: { bg: "var(--takda-status-overdue-bg)", accent: "var(--takda-status-overdue-text)" },
-  lavender: { bg: "var(--takda-brand-tint-2)", accent: "var(--takda-brand)" },
+  lavender: { bg: "var(--takda-overview-lavender-bg)", accent: "var(--takda-brand-text)" },
   mint: { bg: "var(--takda-status-week-bg)", accent: "var(--takda-status-week-text)" },
   amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
 };
@@ -2916,7 +2942,7 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
         <Icon size={15} color={accent} />
       </span>
       <div className="relative min-w-0">
-        <div className="font-display text-xl font-semibold leading-tight" style={{ color: accent }}>{value}</div>
+        <div className="font-display text-xl font-semibold leading-tight tracking-tight tabular-nums" style={{ color: accent }}>{value}</div>
         {/* 10A.19B: truncate -> line-clamp-2. At 320px this column is
             only ~64px wide (see the 10A.19A audit's arithmetic), too
             narrow for any of the 4 labels on one line at text-xs —
@@ -2927,6 +2953,44 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
             grid) keeps a row-mate card's height matched automatically
             if only one of the two wraps. */}
         <div className="text-xs mt-0.5 font-medium leading-tight line-clamp-2" style={{ color: accent }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+// Stage F: Academic Performance's radial progress ring. Reuses the
+// exact same `value` (TakdaApp's dashboardOverallAverage, built from
+// GradesView's own unmodified gradePercent formula — no new
+// calculation) that already renders as plain text below it; the ring
+// is purely decorative reinforcement of that same real number, never
+// an independent data source, and the percentage text remains the
+// accessible readout (the <svg> is aria-hidden). `value === null`
+// (no grades recorded yet) renders an empty ring and "—", matching
+// the existing empty-data text exactly.
+function AcademicProgressCard({ value, bg, accent }) {
+  const hasValue = value !== null;
+  const pct = hasValue ? Math.max(0, Math.min(100, value)) : 0;
+  const radius = 15;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - pct / 100);
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl p-3.5 border border-[var(--takda-border)] flex items-center gap-2.5"
+      style={{ background: bg, boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
+    >
+      <span className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full pointer-events-none" aria-hidden="true" style={{ background: accent, opacity: 0.1 }} />
+      <svg aria-hidden="true" className="takda-progress-ring relative shrink-0" width="36" height="36" viewBox="0 0 36 36">
+        <circle cx="18" cy="18" r={radius} fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="4" />
+        <circle
+          cx="18" cy="18" r={radius} fill="none" stroke={accent} strokeWidth="4" strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset} transform="rotate(-90 18 18)"
+        />
+      </svg>
+      <div className="relative min-w-0">
+        <div className="font-display text-xl font-semibold leading-tight tracking-tight tabular-nums" style={{ color: accent }}>
+          {hasValue ? `${value.toFixed(1)}%` : "—"}
+        </div>
+        <div className="text-xs mt-0.5 font-medium leading-tight line-clamp-2" style={{ color: accent }}>Academic Performance</div>
       </div>
     </div>
   );
@@ -2947,17 +3011,76 @@ function OverviewCard({ icon: Icon, label, value, bg, accent }) {
 // 10A.14B: mb-7 (28px) -> mb-4 (16px), the one spacing change
 // authorized for AcademicOverview in this phase — its own card
 // styling (OverviewCard) is untouched.
+// Minimalist Almanac V5: desktop (lg+) regroups the 4 same-weight
+// colored tiles below into ONE neutral surface with stacked rows —
+// "reduce competition between brightly colored cards" per the approved
+// direction (design-intelligence.md §2/§3's 60-30-10 / hierarchy
+// reasoning). The accent color now lives only in each row's icon chip,
+// not the row's own background. Below lg, the ORIGINAL compact 2x2
+// tile grid (OverviewCard, unchanged) still renders — this is the
+// explicitly preserved mobile baseline, not touched by this pass. Same
+// stats/classesToday/overallAverage/isPro/onOpenGrades props, same
+// values, same onOpenGrades handler — this is a presentation-only
+// regrouping, no new data.
+function AcademicOverviewRow({ icon: Icon, label, value, bg, accent }) {
+  return (
+    <div className="flex items-center gap-3 py-2.5 border-b border-[var(--takda-border)] last:border-b-0 last:pb-0 first:pt-0">
+      <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0" style={{ background: bg }}>
+        <Icon size={14} color={accent} />
+      </span>
+      <span className="text-xs font-medium flex-1" style={{ color: "var(--takda-text-muted-2)" }}>{label}</span>
+      <span className="font-display text-base font-semibold tabular-nums" style={{ color: "var(--takda-text-primary)" }}>{value}</span>
+    </div>
+  );
+}
+
 function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGrades }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+    <>
+      <div className="hidden lg:block rounded-2xl p-4 border border-[var(--takda-border)] mb-4" style={{ background: "var(--takda-bg-surface)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}>
+        <h2 className="font-display text-sm font-semibold tracking-wide mb-1" style={{ color: "var(--takda-text-primary)" }}>Academic Overview</h2>
+        <AcademicOverviewRow icon={CheckCircle2} label="Pending Activities" value={stats.pending} bg={OVERVIEW_ACCENTS.rose.bg} accent={OVERVIEW_ACCENTS.rose.accent} />
+        <AcademicOverviewRow icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
+        <AcademicOverviewRow icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
+        {isPro ? (
+          <div className="flex items-center gap-3 py-2.5">
+            <svg aria-hidden="true" className="takda-progress-ring shrink-0" width="28" height="28" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--takda-border)" strokeWidth="4" />
+              <circle
+                cx="18" cy="18" r="15" fill="none" stroke="var(--takda-brand)" strokeWidth="4" strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 15}
+                strokeDashoffset={overallAverage !== null ? (2 * Math.PI * 15) * (1 - Math.max(0, Math.min(100, overallAverage)) / 100) : 2 * Math.PI * 15}
+                transform="rotate(-90 18 18)"
+              />
+            </svg>
+            <span className="text-xs font-medium flex-1" style={{ color: "var(--takda-text-muted-2)" }}>Academic Performance</span>
+            <span className="font-display text-base font-semibold tabular-nums" style={{ color: "var(--takda-text-primary)" }}>
+              {overallAverage !== null ? `${overallAverage.toFixed(1)}%` : "—"}
+            </span>
+          </div>
+        ) : (
+          <button type="button" onClick={onOpenGrades} className="takda-focus-visible takda-interactive w-full flex items-center gap-3 py-2.5 text-left">
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0" style={{ background: OVERVIEW_ACCENTS.amber.bg }}>
+              <Lock size={14} color={OVERVIEW_ACCENTS.amber.accent} />
+            </span>
+            <span className="text-xs font-medium flex-1" style={{ color: "var(--takda-text-muted-2)" }}>Academic Performance</span>
+            <span className="takda-pro-badge inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide">
+              <span aria-hidden="true">✦</span> PRO
+            </span>
+          </button>
+        )}
+      </div>
+
+      {/* Preserved mobile/tablet baseline (unchanged below lg) — the
+          original compact 2x2-then-4-across grid of colored
+          OverviewCard tiles. */}
+      <div className="lg:hidden grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
       <OverviewCard icon={CheckCircle2} label="Pending Activities" value={stats.pending} bg={OVERVIEW_ACCENTS.rose.bg} accent={OVERVIEW_ACCENTS.rose.accent} />
       <OverviewCard icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
       <OverviewCard icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
       {isPro ? (
-        <OverviewCard
-          icon={Lock}
-          label="Academic Performance"
-          value={overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}
+        <AcademicProgressCard
+          value={overallAverage}
           bg={OVERVIEW_ACCENTS.amber.bg}
           accent={OVERVIEW_ACCENTS.amber.accent}
         />
@@ -3000,7 +3123,8 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
           </div>
         </button>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -3080,18 +3204,31 @@ const MOTIVATION_QUOTES = [
 // never academic data. The quote is picked once per mount (lazy
 // useState initializer) so it stays stable for the session instead of
 // re-rolling on every re-render.
+// Minimalist Almanac V5: restyled only — same MOTIVATION_QUOTES array,
+// same once-per-mount selection, same "purely decorative" labeling.
+// Gradient tint + centered-stack layout replaced with a compact
+// horizontal row on a neutral surface (theme-aware border, no
+// gradient/glass), matching the rest of this pass's "neutral surface,
+// restrained accent" direction. No fixed height, so a longer quote
+// just wraps — nothing here can clip it.
 function MotivationPanel() {
   const [quote] = useState(() => MOTIVATION_QUOTES[Math.floor(Math.random() * MOTIVATION_QUOTES.length)]);
   return (
     <div
-      className="rounded-2xl p-4 text-center mb-4"
+      className="rounded-2xl p-3.5 border flex items-center gap-3 mb-4"
       style={{
-        background: "linear-gradient(135deg, var(--takda-brand-tint-1), var(--takda-brand-tint-2))",
-        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)",
+        background: "var(--takda-bg-surface)",
+        borderColor: "var(--takda-border)",
+        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
       }}
     >
-      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--takda-brand)" }}>✨ Daily Motivation</span>
-      <p className="text-sm mt-1.5 italic" style={{ color: "var(--takda-text-muted-3)" }}>{quote}</p>
+      <span className="flex items-center justify-center w-9 h-9 rounded-full shrink-0" style={{ background: "var(--takda-overview-lavender-bg)" }} aria-hidden="true">
+        <Sparkles size={16} color="var(--takda-brand-text)" />
+      </span>
+      <div className="min-w-0">
+        <span className="text-[10px] font-semibold uppercase tracking-wide block mb-0.5" style={{ color: "var(--takda-text-muted-2)" }}>Daily Motivation</span>
+        <p className="font-display text-sm italic leading-snug break-words" style={{ color: "var(--takda-text-primary)" }}>{quote}</p>
+      </div>
     </div>
   );
 }
@@ -3196,7 +3333,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
         </div>
         <span
           className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-          style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+          style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand-text)" }}
         >
           {counts.all} pending
         </span>
@@ -3268,7 +3405,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
               aria-disabled={!canCreate}
               title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
               className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold -mt-4 ${!canCreate ? "opacity-40" : ""}`}
-              style={{ color: "var(--takda-brand)" }}
+              style={{ color: "var(--takda-brand-text)" }}
             >
               <Plus size={13} /> Add Activity
             </button>
@@ -3305,7 +3442,7 @@ function TodaysFocusPanel({ focusLists, onToggle, onOpenSubject, onFocusFilter, 
 function Dashboard({
   greeting,
   contextMessage,
-  timePeriod,
+  atmosphere,
   focusLists,
   stats,
   recentlyCompleted,
@@ -3332,6 +3469,7 @@ function Dashboard({
   studentName,
   overallAverage,
   onOpenNotes,
+  subjects,
 }) {
   // overdueVisible/dueTodayVisible/upcomingVisible used to be computed
   // here for the old 3-stacked-sections render; that render is now
@@ -3359,7 +3497,7 @@ function Dashboard({
         <span className="absolute top-[40%] left-[85%] w-1.5 h-1.5 rounded-full bg-white/60" style={{ boxShadow: "0 0 6px 2px rgba(255,255,255,0.4)" }} />
       </div>
 
-      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} />
+      <GreetingHero greeting={greeting} contextMessage={contextMessage} studentName={studentName} atmosphere={atmosphere} />
 
       {showActiveSemesterContext && (
         <div className="rounded-xl bg-[var(--takda-status-later-bg)] border border-[var(--takda-border)] px-3 py-2.5 text-xs text-[color:var(--takda-text-muted-2)] mb-4">
@@ -3367,13 +3505,35 @@ function Dashboard({
         </div>
       )}
 
-      <AcademicOverview
-        stats={stats}
-        classesToday={todaysClasses.length}
-        overallAverage={overallAverage}
-        isPro={isPro}
-        onOpenGrades={onOpenGrades}
-      />
+      {/* Minimalist Almanac V5 (Motivation Panel refinement): moved here
+          from the bottom of the preserved widget grid — directly below
+          the hero, before Up Next/Academic Overview, applying at every
+          breakpoint since this sits outside any responsive-only
+          wrapper. Same component, same quote data/selection, rendered
+          exactly once. */}
+      <MotivationPanel />
+
+      {/* Minimalist Almanac V5 — approved arrangement: "Up Next" on the
+          left, "Academic Overview" on the right (desktop), with Up
+          Next appearing FIRST on mobile too. A flex-col container is
+          used (not a plain stacked block) specifically so `order-*`
+          takes effect at every breakpoint, not only inside the lg:grid
+          state — this reorders presentation only; no prop, handler, or
+          data computation on either child changed. */}
+      <div className="flex flex-col lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start mb-4">
+        <div className="order-1">
+          <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
+        </div>
+        <div className="order-2">
+          <AcademicOverview
+            stats={stats}
+            classesToday={todaysClasses.length}
+            overallAverage={overallAverage}
+            isPro={isPro}
+            onOpenGrades={onOpenGrades}
+          />
+        </div>
+      </div>
 
       <QuickActions
         onAddSubject={onAddSubject}
@@ -3383,7 +3543,26 @@ function Dashboard({
         canCreate={canCreate}
       />
 
-      <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
+      {/* Minimalist Almanac V5: TodaysFocusPanel moved up out of the
+          preserved widget grid below (it is explicitly named in the
+          approved arrangement, unlike its 6 former grid-mates, which
+          stay exactly where they are — same component, same props,
+          same data, just rendered at a different point in this file). */}
+      <TodaysFocusPanel
+        focusLists={focusLists}
+        onToggle={onToggle}
+        onOpenSubject={onOpenSubject}
+        onFocusFilter={onFocusFilter}
+        canCreate={canCreate}
+        onAddActivity={onAddActivity}
+      />
+
+      {/* Minimalist Almanac V5: new Subject Shelf — real subjects data
+          (the same semester-scoped list the Subjects page itself
+          uses), not on the dashboard before this pass. See SubjectShelf
+          below for what was deliberately kept simple (name + seal only,
+          no fabricated per-subject status count) and why. */}
+      <SubjectShelf subjects={subjects} onOpenSubject={onOpenSubject} onAddSubject={onAddSubject} canCreate={canCreate} />
 
       {/* 10A.5B: FocusForToday (Overdue/Due Today/Upcoming count tiles)
           removed from here — it duplicated the exact same counts
@@ -3451,27 +3630,14 @@ function Dashboard({
           rhythm now comes from each widget's own margin alone, exactly
           as it did before this grid existed. Not verified in a
           browser. */}
+      {/* Minimalist Almanac V5: TodaysFocusPanel no longer renders here
+          — it moved above (see the comment at its new call site) to
+          match the approved arrangement. Nothing else about this grid
+          changed: SmartReminders becomes this grid's own first item,
+          its existing lg:col-span-2 and every sibling's own span are
+          untouched, so the grid simply auto-flows starting one item
+          earlier — not a restructure of the grid itself. */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-x-6 lg:items-start">
-        {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
-            sections (Needs Attention/Due Today/Upcoming Deadlines) are
-            replaced by one unified TodaysFocusPanel with filter tabs.
-            It receives the same focusLists/onToggle/onOpenSubject/
-            onFocusFilter/canCreate/onAddActivity Dashboard already
-            had in scope — no new data source, no new classification
-            logic (see the component's own comment above its
-            definition for the confirmed existing deadline-boundary
-            rules this reuses verbatim). */}
-        <div className="lg:col-span-2">
-          <TodaysFocusPanel
-            focusLists={focusLists}
-            onToggle={onToggle}
-            onOpenSubject={onOpenSubject}
-            onFocusFilter={onFocusFilter}
-            canCreate={canCreate}
-            onAddActivity={onAddActivity}
-          />
-        </div>
-
         <div className="lg:col-span-2">
           <SmartRemindersSection
             groups={reminderGroups}
@@ -3500,7 +3666,7 @@ function Dashboard({
             <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-muted-1)" }}>Recently Completed</h2>
             <span
               className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-              style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" }}
+              style={{ background: "var(--takda-brand-tint-2)", color: "var(--takda-brand-text)" }}
               aria-label={`${stats.completed} completed ${stats.completed === 1 ? "activity" : "activities"}`}
             >
               {stats.completed} completed
@@ -3527,10 +3693,6 @@ function Dashboard({
 
         <div>
           <SmartInsightsSection insights={smartInsights} />
-        </div>
-
-        <div className="lg:col-span-2">
-          <MotivationPanel />
         </div>
       </div>
 
@@ -3577,40 +3739,108 @@ function Dashboard({
   );
 }
 
-/* ---------------- Greeting hero (Phase 09B.10) ---------------- */
-// Pure function of the device clock — no new dependency, no network,
-// no invented data. Only three buckets are needed by the approved
-// design (morning / afternoon / evening-night), matching the existing
-// Good Morning/Afternoon/Evening greeting text exactly.
-function getTimePeriod() {
+/* ---------------- Greeting hero (Phase 09B.10; Stage C) ---------------- */
+// Pure function of the device clock — no new dependency, no network, no
+// invented data. Exported so main.jsx's Root() can resolve the
+// Atmosphere preference's "auto" option to the same real-time value.
+// Drives ONLY the decorative scene in GreetingHero — deliberately NOT
+// the greeting text (see getGreetingPeriod below). Approved boundaries
+// (device-local time): Dawn 05:00-07:59, Day 08:00-16:59, Dusk
+// 17:00-18:59, Night 19:00-04:59.
+export function getTimePeriod() {
   const h = new Date().getHours();
-  if (h < 12) return "morning";
-  if (h < 18) return "afternoon";
+  if (h >= 5 && h < 8) return "dawn";
+  if (h >= 8 && h < 17) return "day";
+  if (h >= 17 && h < 19) return "dusk";
   return "night";
 }
 
-// TAKDA 2.0 (Phase 10A.2): the approved illustrated asset
-// (public/takda-hero-sunset.png) replaces the 3 CSS-gradient time-of-
-// day variants and their decorative sun/moon/star shapes — there is
-// only one supplied illustration, so it's used for every time of day;
-// the greeting WORD itself ("Good Morning"/"Good Afternoon"/"Good
-// Evening") still genuinely varies by time of day exactly as before,
-// since that comes from the unchanged `greeting` prop (computed
-// upstream in TakdaApp from its own unchanged `timePeriod` state) —
-// only the background image/illustration stopped varying, not the
-// text. Text color is now one fixed pair rather than 3, since the
-// background is now one fixed image rather than 3 different gradients.
-//
-// Contrast: the approved mockup screenshot already shows this exact
-// asset rendered with white text over its left (text) side, which is a
-// deep navy sky — confirmed legible there. I have no image-analysis
-// tool to re-measure WCAG contrast against actual pixel data, so a
-// defensive dark gradient overlay (left-to-right, fading to transparent
-// over the illustration) is layered under the text as a safety net
-// rather than relying on the photo alone — this is the "subtle
-// gradient overlay where necessary" this phase asked for.
+// Corrective fix (post-Stage-C review): a second, separate pure
+// function for the greeting TEXT specifically — deliberately
+// independent of getTimePeriod/the Atmosphere scene above, so a
+// manually-selected Atmosphere can never change what the greeting
+// says. Boundaries as specified: Good Morning before noon, Good
+// Afternoon 12:00-16:59, Good Evening 17:00-21:59, "Still Studying"
+// 22:00-04:59 (late enough that "Good Evening" would read oddly).
+function getGreetingPeriod() {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 5) return "late-night";
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  return "evening";
+}
+
+// Stage C superseded Phase 10A.2's single static illustration
+// (public/takda-hero-sunset.png, no longer referenced here) with four
+// live CSS/SVG scenes (.takda-atm-* in src/index.css), crossfaded by
+// `atmosphere` — the file on disk is unused now but was not deleted,
+// since removing an asset file is outside this stage's authorized
+// scope. HERO_TEXT_COLOR/HERO_SUBTLE_COLOR stay a single fixed pair
+// (not four): the dark scrim (.takda-atm-scrim) behind the text is
+// tuned to keep white text legible across all four scenes, same
+// "defensive overlay rather than relying on the art alone" reasoning
+// Phase 10A.2 used for the photo it replaced.
 const HERO_TEXT_COLOR = "#FFFFFF";
 const HERO_SUBTLE_COLOR = "#F2EFFF";
+
+// Stage C: shared horizon silhouette for all four scenes — one path,
+// recolored per scene entirely via CSS (currentColor + the
+// .takda-atm-horizon[data-p="..."] rules in index.css), so the same
+// "same environment evolving through the day" shape appears in every
+// period rather than four unrelated drawings.
+// Design Excellence Category D: three distinct silhouette shapes (not
+// the same path reused at different opacities) for genuine atmospheric-
+// perspective depth — far is the lowest/gentlest, mid has more
+// undulation, near (the original path, unchanged) is the sharpest and
+// closest. className selects far/mid/near's own color treatment from
+// index.css; the shape itself never changes with theme or period.
+// Minimalist Almanac V5: added "mountain" (a new, farthest layer — an
+// angular, more "elegant and recognizable" silhouette than another
+// rolling-hill curve, per the approved direction) and "river" (a new
+// winding band sitting between mid and near). "far"'s own path is
+// otherwise unchanged; "mountain" and "river" are new path strings,
+// not replacements, so the existing far/mid/near layers keep rendering
+// exactly as before everywhere this component is already used.
+function AtmosphereHill({ variant = "near", className = "" }) {
+  const path =
+    variant === "mountain"
+      ? "M0,41 L55,23 L105,38 L165,16 L225,36 L295,22 L355,38 L400,27 L400,90 L0,90 Z"
+      : variant === "far"
+      ? "M0,78 Q100,58 200,72 Q300,84 400,64 L400,90 L0,90 Z"
+      : variant === "mid"
+      ? "M0,74 Q80,48 160,64 Q260,80 320,52 Q370,38 400,54 L400,90 L0,90 Z"
+      : variant === "river"
+      ? "M0,78 Q90,68 180,80 Q260,90 400,74 L400,82 Q260,98 180,88 Q90,76 0,86 Z"
+      : "M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z";
+  return (
+    <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true" className={className}>
+      <path d={path} />
+    </svg>
+  );
+}
+
+// Three birds, dawn only — a thin, distant-silhouette chevron mark
+// (not an emoji), each with its own flight-path + wing-flap animation
+// via index.css's .takda-atm-bird/.takda-atm-bird-wing.
+function AtmosphereBird({ className }) {
+  return (
+    <span className={`takda-atm-bird ${className}`}>
+      <svg viewBox="0 0 24 12" aria-hidden="true" className="takda-atm-bird-wing">
+        <path d="M0,6 Q6,0 12,6 Q18,0 24,6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+// Night only — a hand-placed (not random-per-render) scatter of 18
+// stars with staggered twinkle timing, so they never pulse in unison.
+const ATMOSPHERE_STAR_POSITIONS = [
+  [4, 16], [10, 30], [16, 10], [22, 36], [28, 18], [34, 44],
+  [40, 12], [46, 28], [8, 54], [18, 60], [30, 52], [44, 58],
+  [14, 42], [38, 36], [24, 8], [48, 46], [6, 26], [36, 20],
+];
+
+const ATMOSPHERE_PERIODS = ["dawn", "day", "dusk", "night"];
 
 // `greeting`/`contextMessage` are passed through unchanged from TakdaApp
 // (the existing time-based greeting text and the existing overdue/due-
@@ -3618,58 +3848,128 @@ const HERO_SUBTLE_COLOR = "#F2EFFF";
 // or class data of its own, per Phase 09B.10 instruction #4). `studentName`
 // (Phase 10A) is an existing, already-fetched profile field threaded
 // down from Root/TakdaApp, never a hardcoded sample name; it renders
-// only when present. The date line (Phase 10A.2) is `new Date()`
-// formatted inline on every render — no new timer, no new state; it
-// self-corrects whenever anything else causes a re-render (including
-// the existing 60s timePeriod poll in TakdaApp), which is more than
-// sufficient for a value that only changes once every 24 hours.
-function GreetingHero({ greeting, contextMessage, studentName }) {
+// only when present. `atmosphere` (Stage C, corrected) is the
+// dawn/day/dusk/night value resolved from the user's Atmosphere
+// preference in Root (Auto resolves to the real device clock; a manual
+// selection overrides it) — deliberately NOT the same value that drives
+// `greeting`'s text, so switching Atmosphere can never change what the
+// greeting says. The date line is `new Date()` formatted inline on
+// every render — no new timer, no new state.
+function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
+  // Minimalist Almanac V5: year dropped from this specific label — it
+  // now renders as a compact uppercase eyebrow (see below), where a
+  // full "Weekday, Month Day, Year" string reads as heavy/cramped at
+  // that small size. No other date computation in the file is touched.
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
-    year: "numeric",
   });
-  // 10A.12B: min-h reduced from 220/260px to 130/150px (desktop
-  // target: ~140-160px, per the 10A.12A audit) to recover vertical
-  // space for the rest of the Dashboard. min-h is a floor, not a cap
-  // — the box still grows taller automatically if real content (e.g.
-  // a longer contextMessage wrapping to 2 lines) needs more room,
-  // satisfying "allow growth" without any extra class. py-6→py-5
-  // gives a touch more breathing room relative to the smaller box.
-  // Greeting/contextMessage/studentName/date badge content, the
-  // sunset image asset, its gradient overlay, and HERO_TEXT_COLOR/
-  // HERO_SUBTLE_COLOR contrast are all unchanged.
+  // Corrective fix: driven by the actual resolved greeting text, not by
+  // the (independent, possibly manually-overridden) Atmosphere scene —
+  // "Still Studying" only ever appears when it's actually late at night.
+  const isLateNight = greeting === "Still Studying";
   return (
-    <div
-      className="takda-glass relative overflow-hidden rounded-2xl px-5 py-5 mb-6 min-h-[130px] md:min-h-[150px] flex items-end"
-      style={{
-        backgroundImage:
-          "linear-gradient(to right, rgba(10,8,30,0.62) 0%, rgba(10,8,30,0.28) 45%, rgba(10,8,30,0.05) 70%), url('/takda-hero-sunset.png')",
-        backgroundSize: "cover, cover",
-        backgroundPosition: "left center, center",
-        backgroundRepeat: "no-repeat, no-repeat",
-        backdropFilter: "none",
-        WebkitBackdropFilter: "none",
-      }}
-    >
-      <div className="relative max-w-[70%] md:max-w-[60%]">
-        {/* 10A.22B: text-xl below sm only — the heading column's
-            position/width/gradient coverage are unchanged (zero
-            contrast impact, per the 10A.22A audit's gradient-stop
-            math); a smaller phone-only size needs less line-width,
-            reducing unnecessary wrap at 320-414px. sm:text-2xl
-            md:text-3xl exactly reproduce the prior sizing at 640px+. */}
-        <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold" style={{ color: HERO_TEXT_COLOR }}>
-          {greeting}{studentName ? `, ${studentName}` : ""} 👋
-        </h1>
-        <p className="text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
-        <div
-          className="inline-flex items-center gap-1.5 mt-3 rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{ background: "rgba(255,255,255,0.14)", color: HERO_TEXT_COLOR }}
-        >
-          <CalendarIcon size={13} aria-hidden="true" />
-          <span>{todayLabel}</span>
+    <div className="takda-glass relative overflow-hidden rounded-2xl mb-6 min-h-[128px] sm:min-h-[150px] md:min-h-[168px]">
+      {/* Decorative atmosphere layers — purely presentational: aria-hidden
+          AND pointer-events-none (so they can never intercept a click/
+          hover even where the real content column doesn't cover them),
+          sitting behind the real greeting text in a separate, normal
+          layer below. */}
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+        {ATMOSPHERE_PERIODS.map((p) => (
+          <div key={p} data-p={p} className={`takda-atm-scene ${atmosphere === p ? "is-active" : ""}`}>
+            <div className="takda-atm-sky" />
+            {/* Corrective fix: halo+glow render for every period, not
+                just dawn/day/dusk — Night's halo+glow is the moon's
+                own ambient light + disc; excluding it there was a bug
+                (index.css already defined Night-specific halo/glow
+                rules that this condition was silently never reaching). */}
+            <div className="takda-atm-halo" />
+            <div className="takda-atm-glow" />
+            {/* Design Excellence Category D: a crisp sun/moon disc on
+                top of the halo/glow ambient light — previously only the
+                light itself was drawn, never the body casting it. */}
+            <div className="takda-atm-body" />
+            {p === "dawn" && (
+              <>
+                <div className="takda-atm-rays" />
+                <div className="takda-atm-cloud takda-atm-cloud-1" />
+                <div className="takda-atm-cloud takda-atm-cloud-2" />
+                <div className="takda-atm-mist" />
+                <div className="takda-atm-birds">
+                  <AtmosphereBird className="takda-atm-bird-1" />
+                  <AtmosphereBird className="takda-atm-bird-2" />
+                  <AtmosphereBird className="takda-atm-bird-3" />
+                </div>
+              </>
+            )}
+            {p === "day" && (
+              <>
+                <div className="takda-atm-wisp takda-atm-wisp-1" />
+                <div className="takda-atm-wisp takda-atm-wisp-2" />
+              </>
+            )}
+            {p === "dusk" && (
+              <>
+                <div className="takda-atm-cloud takda-atm-cloud-soft takda-atm-cloud-1" />
+                <div className="takda-atm-cloud takda-atm-cloud-soft takda-atm-cloud-2" />
+              </>
+            )}
+            {p === "night" && (
+              <div className="takda-atm-stars">
+                {ATMOSPHERE_STAR_POSITIONS.map(([x, y], i) => (
+                  <span
+                    key={i}
+                    // Design Excellence Category D: every 5th star (0,
+                    // 5, 10, 15 — a fixed, hand-chosen subset, not
+                    // random-per-render) renders slightly larger/
+                    // brighter for visual variety instead of 18
+                    // uniform dots.
+                    className={`takda-atm-star ${i % 5 === 0 ? "takda-atm-star-bright" : ""}`}
+                    style={{
+                      left: `${x}%`,
+                      top: `${y}%`,
+                      animationDelay: `${-(i * 0.37) % 3.6}s`,
+                      animationDuration: `${2.6 + (i % 5) * 0.4}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {/* Design Excellence Category D: consistent 3-layer depth
+                (far/mid/near) across all four periods — previously only
+                dusk/night got a second ("rim") layer, and it reused the
+                near layer's own exact shape, just blurred. */}
+            <div className="takda-atm-horizon">
+              <AtmosphereHill variant="mountain" className="takda-atm-mountain" />
+              <AtmosphereHill variant="far" className="takda-atm-hill-far" />
+              <AtmosphereHill variant="mid" className="takda-atm-hill-mid" />
+              <AtmosphereHill variant="river" className="takda-atm-river" />
+              <AtmosphereHill variant="near" />
+            </div>
+          </div>
+        ))}
+        <div className="takda-atm-scrim" />
+      </div>
+
+      <div className="relative z-[2] flex min-h-[128px] sm:min-h-[150px] md:min-h-[168px] items-end px-4 py-3.5 sm:px-6 sm:py-4">
+        <div className="relative max-w-[85%] sm:max-w-[68%] md:max-w-[58%] lg:max-w-[50%]">
+          {/* Minimalist Almanac V5: the date moves from a bottom pill
+              (with its own icon/background chip) to a small uppercase
+              eyebrow above the greeting — same `todayLabel` value,
+              restyled only. Removing the pill is a deliberate part of
+              the approved typographic hierarchy (eyebrow → greeting →
+              context), not a data change. */}
+          <p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: HERO_SUBTLE_COLOR, opacity: 0.8 }}>
+            {todayLabel}
+          </p>
+          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-medium" style={{ color: HERO_TEXT_COLOR }}>
+            {isLateNight
+              ? <>{greeting}{studentName ? `, ${studentName}` : ""}?</>
+              : <>{greeting}{studentName ? `, ${studentName}` : ""} 👋</>}
+          </h1>
+          <p className="text-xs sm:text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
         </div>
       </div>
     </div>
@@ -3689,8 +3989,12 @@ function GreetingHero({ greeting, contextMessage, studentName }) {
 // `motion-safe:`-gated Tailwind utilities (respects prefers-reduced-
 // motion automatically) plus the existing `.takda-interactive` press
 // scale (already reduced-motion-safe in index.css, untouched).
+// Design Excellence Category B: same "lavender" fix as OVERVIEW_ACCENTS
+// above — this 4-tile grid has the identical disconnected-card/
+// contrast issue in Twilight (brand-tint-2 lighter than its 3
+// siblings, raw brand failing as text) for the same reason.
 const QUICK_ACTION_ACCENTS = {
-  lavender: { bg: "var(--takda-brand-tint-2)", accent: "var(--takda-brand)" },
+  lavender: { bg: "var(--takda-overview-lavender-bg)", accent: "var(--takda-brand-text)" },
   mint: { bg: "var(--takda-status-week-bg)", accent: "var(--takda-status-week-text)" },
   blue: { bg: "var(--takda-label-inprogress-bg)", accent: "var(--takda-label-inprogress)" },
   amber: { bg: "var(--takda-status-tomorrow-bg)", accent: "var(--takda-status-tomorrow-text)" },
@@ -3709,15 +4013,21 @@ const QUICK_ACTION_ACCENTS = {
 // value actually setting the rendered height — a small, deliberate
 // floor rather than padding alone, keeping the 44px touch target
 // exact instead of just "at least."
-function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, bg, accent }) {
+// Minimalist Almanac V5: `flat` (desktop-only, see QuickActions below)
+// drops this tile's own colored background/border/shadow so it can sit
+// as a plain row inside one shared grouped surface instead of being
+// its own card — the accent color still comes through via the icon
+// alone. Every prop/handler/the bg-driven mobile rendering below is
+// unchanged when `flat` is omitted.
+function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, bg, accent, flat = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className="takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative border border-[var(--takda-border)] takda-quick-action-shadow motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
-      style={{ background: bg }}
+      className={`takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 ${flat ? "hover:bg-[var(--takda-bg-page)]" : "border border-[var(--takda-border)] takda-quick-action-shadow"}`}
+      style={{ background: flat ? "transparent" : bg }}
     >
       {showProBadge && (
         <span
@@ -3758,46 +4068,64 @@ function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenNotes
   // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to Next
   // Class. grid-cols-2 sm:grid-cols-4 and every handler/gating prop
   // below are unchanged.
+  const tiles = (flat) => (
+    <>
+      <QuickActionTile
+        icon={BookOpen}
+        label="Add Subject"
+        onClick={onAddSubject}
+        disabled={!canCreate}
+        title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
+        bg={QUICK_ACTION_ACCENTS.lavender.bg}
+        accent={QUICK_ACTION_ACCENTS.lavender.accent}
+        flat={flat}
+      />
+      <QuickActionTile
+        icon={CheckCircle2}
+        label="Add Activity"
+        onClick={onAddActivity}
+        disabled={!canCreate}
+        title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+        bg={QUICK_ACTION_ACCENTS.mint.bg}
+        accent={QUICK_ACTION_ACCENTS.mint.accent}
+        flat={flat}
+      />
+      <QuickActionTile
+        icon={CalendarIcon}
+        label="View Calendar"
+        onClick={onViewSchedule}
+        bg={QUICK_ACTION_ACCENTS.blue.bg}
+        accent={QUICK_ACTION_ACCENTS.blue.accent}
+        flat={flat}
+      />
+      <QuickActionTile
+        icon={StickyNote}
+        label="Take Notes"
+        onClick={onOpenNotes}
+        bg={QUICK_ACTION_ACCENTS.amber.bg}
+        accent={QUICK_ACTION_ACCENTS.amber.accent}
+        flat={flat}
+      />
+    </>
+  );
   return (
     <div className="mb-4">
       {/* Visible "Quick Actions" heading removed per Phase 09B.6 — kept
           in the DOM as sr-only so screen-reader heading navigation and
-          grouping context are preserved. */}
-      <h2 className="sr-only">Quick Actions</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <QuickActionTile
-          icon={BookOpen}
-          label="Add Subject"
-          onClick={onAddSubject}
-          disabled={!canCreate}
-          title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-          bg={QUICK_ACTION_ACCENTS.lavender.bg}
-          accent={QUICK_ACTION_ACCENTS.lavender.accent}
-        />
-        <QuickActionTile
-          icon={CheckCircle2}
-          label="Add Activity"
-          onClick={onAddActivity}
-          disabled={!canCreate}
-          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          bg={QUICK_ACTION_ACCENTS.mint.bg}
-          accent={QUICK_ACTION_ACCENTS.mint.accent}
-        />
-        <QuickActionTile
-          icon={CalendarIcon}
-          label="View Calendar"
-          onClick={onViewSchedule}
-          bg={QUICK_ACTION_ACCENTS.blue.bg}
-          accent={QUICK_ACTION_ACCENTS.blue.accent}
-        />
-        <QuickActionTile
-          icon={StickyNote}
-          label="Take Notes"
-          onClick={onOpenNotes}
-          bg={QUICK_ACTION_ACCENTS.amber.bg}
-          accent={QUICK_ACTION_ACCENTS.amber.accent}
-        />
+          grouping context are preserved. Minimalist Almanac V5: scoped
+          to lg:hidden now that the new desktop surface below has its
+          own real, visible heading — without this, both would be in
+          the accessible tree at once on desktop, announced twice. */}
+      <h2 className="sr-only lg:hidden">Quick Actions</h2>
+      {/* Minimalist Almanac V5: desktop (lg+) groups the 4 tiles into
+          one neutral surface (accent moves to the icon only); below
+          lg, the original 4 individually-colored tiles in a compact
+          2x2-then-4-across grid are fully preserved, unchanged. */}
+      <div className="hidden lg:block rounded-2xl p-4 border border-[var(--takda-border)]" style={{ background: "var(--takda-bg-surface)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}>
+        <h2 className="font-display text-sm font-semibold tracking-wide mb-3" style={{ color: "var(--takda-text-primary)" }}>Quick Actions</h2>
+        <div className="grid grid-cols-4 gap-1">{tiles(true)}</div>
       </div>
+      <div className="lg:hidden grid grid-cols-2 sm:grid-cols-4 gap-2.5">{tiles(false)}</div>
     </div>
   );
 }
@@ -3995,7 +4323,7 @@ function SmartInsightsSection({ insights }) {
           const Icon = INSIGHT_ICON[insight.type] || AlertCircle;
           const rowContent = (
             <>
-              <Icon size={15} className="shrink-0 mt-0.5" style={{ color: "var(--takda-brand)" }} />
+              <Icon size={15} className="shrink-0 mt-0.5" style={{ color: "var(--takda-brand-text)" }} />
               {/* 10A.6B: flex-1 min-w-0 (same defensive pattern already
                   used by ActivityRow's title block) lets this text wrap
                   within whatever width the flex row actually has,
@@ -4040,7 +4368,7 @@ function ViewAllLink({ label, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[color:var(--takda-brand)] hover:underline focus:outline-none focus-visible:underline"
+      className="shrink-0 -my-1.5 py-1.5 px-1 text-xs font-semibold text-[color:var(--takda-brand-text)] hover:underline focus:outline-none focus-visible:underline"
     >
       {label} →
     </button>
@@ -4085,10 +4413,38 @@ function DashboardEmptyState({ icon: Icon, title, subtitle, tone }) {
 // relative-luminance formula, whereas --takda-text-muted-3 computes to
 // ~7.2:1 (Classic) / ~6.8:1 (Matcha) — comfortably clear of AA in both
 // themes, not a hairline pass.
+// Work Package 5: lightweight Almanac-style empty-state illustration —
+// a simple open-book line drawing (fitting an academic-planner app),
+// shared by every EmptyRow call site (Subjects/Activities/Materials/
+// Notes/Semesters/Grades) so the decorative treatment is consistent
+// everywhere without touching any individual call site. Pure line art,
+// a handful of elements, no gradients/filters/animation — "lightweight"
+// per the approved requirement. aria-hidden since `text` below already
+// carries the actual message.
+function EmptyStateIllustration() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="44"
+      height="44"
+      viewBox="0 0 44 44"
+      fill="none"
+      className="mx-auto mb-2.5"
+      style={{ color: "var(--takda-text-muted-1)" }}
+    >
+      <path d="M22 11 C18 8.5 12 8 7 9 V30 C12 29 18 29.5 22 32 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M22 11 C26 8.5 32 8 37 9 V30 C32 29 26 29.5 22 32 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M22 11 V32" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M11 15 H17.5 M11 19.5 H16" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.6" />
+      <path d="M27 15 H33.5 M28 19.5 H33" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+}
+
 function EmptyRow({ text }) {
   return (
     <div
-      className="rounded-2xl text-center text-sm py-5 px-4 mb-7"
+      className="rounded-2xl text-center text-sm py-6 px-4 mb-7"
       style={{
         background: "var(--takda-bg-empty-state)",
         border: "1px solid var(--takda-border)",
@@ -4096,6 +4452,7 @@ function EmptyRow({ text }) {
         boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
       }}
     >
+      <EmptyStateIllustration />
       {text}
     </div>
   );
@@ -4117,9 +4474,16 @@ function NextClassCard({ nextClass, onOpenSubject }) {
     nextClass && (nextClass.dayOffset === 0 ? "Today" : nextClass.dayOffset === 1 ? "Tomorrow" : SCHEDULE_WEEKDAY_FULL_LABEL[nextClass.dayOfWeek]);
   // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to Today's
   // Focus. No change to the card itself (nextClass/location/colors).
+  // Work Package 1: "Featured Up Next" framing — an eyebrow rule + a
+  // slightly larger font-display label, matching the Almanac masthead's
+  // own eyebrow/heading pairing. Purely a heading-level change; the
+  // card beneath it (data, colors, navigation) is untouched.
   return (
     <div className="mb-4">
-      <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-primary)" }}>Next Class</h2>
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="h-3 w-0.5 rounded-full shrink-0" style={{ background: "var(--takda-brand)" }} aria-hidden="true" />
+        <h2 className="font-display text-sm font-semibold tracking-wide" style={{ color: "var(--takda-text-primary)" }}>Up Next</h2>
+      </div>
       {!nextClass ? (
         // 10A.15B: compacted to one concise line (title only, no
         // subtitle, no action/handler) — still the same amber surface
@@ -4128,9 +4492,10 @@ function NextClassCard({ nextClass, onOpenSubject }) {
         // only one line of content. No navigation was added; this
         // remains purely informational, same as before.
         <div
-          className="rounded-2xl p-3"
+          className="rounded-2xl p-3 border"
           style={{
-            background: "var(--takda-status-tomorrow-bg)",
+            background: "var(--takda-bg-page)",
+            borderColor: "var(--takda-border)",
             boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
           }}
         >
@@ -4141,24 +4506,41 @@ function NextClassCard({ nextClass, onOpenSubject }) {
           />
         </div>
       ) : (
+        // Minimalist Almanac V5: outer surface changed from a full
+        // saturated amber wash (--takda-status-tomorrow-bg) to a
+        // neutral page surface + border — "neutral surface, restrained
+        // semantic accent" per the approved direction. The dayLabel
+        // badge just below already *was* a small, restrained accent
+        // chip; it is unchanged, it just no longer sits on top of a
+        // same-colored card, so it actually reads as an accent now.
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="takda-focus-visible takda-interactive w-full text-left rounded-2xl p-4 md:p-5 flex items-center gap-3"
+          className="takda-focus-visible takda-interactive w-full text-left rounded-2xl p-4 md:p-5 flex items-center gap-3 border"
           style={{
-            background: "var(--takda-status-tomorrow-bg)",
+            background: "var(--takda-bg-page)",
+            borderColor: "var(--takda-border)",
             boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
           }}
         >
-          <span className="w-3 h-3 rounded-full shrink-0 ring-2 ring-white/60" style={{ background: nextClass.subject?.color || "var(--takda-brand)" }} />
+          <SubjectSeal name={nextClass.subject?.name} color={nextClass.subject?.color} size={34} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold line-clamp-2 break-words" style={{ color: "var(--takda-text-primary)" }}>
               {nextClass.subject?.name || "Untitled Subject"}
             </div>
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {/* Work Package 4 fix: was background: tomorrow-text + white
+                  text — tomorrow-text is dark in Classic (#92400E, safe
+                  for white) but light in Twilight (#F0C98A), which
+                  computed to a real white-on-light failure. tomorrow-dot
+                  is a bright, roughly equally-light saturated amber in
+                  BOTH themes, so a fixed dark literal (same pattern as
+                  the already-approved "BEST VALUE" badge fix) passes
+                  comfortably in both: ~7.8:1 Classic, ~9.2:1 Twilight
+                  (hand-computed via the WCAG relative-luminance formula). */}
               <span
                 className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                style={{ background: "var(--takda-status-tomorrow-text)", color: "#fff" }}
+                style={{ background: "var(--takda-status-tomorrow-dot)", color: "#1B1B2F" }}
               >
                 {dayLabel}
               </span>
@@ -4171,6 +4553,68 @@ function NextClassCard({ nextClass, onOpenSubject }) {
             )}
           </div>
         </button>
+      )}
+    </div>
+  );
+}
+
+// Minimalist Almanac V5: new Subject Shelf — a horizontal, scrollable
+// row of real subjects (`dashboardSubjects` in TakdaApp — the same
+// active-semester-scoped filter `creatableSubjectsForActivity` already
+// proved correct, reused as its own variable for display; see that
+// definition's own comment). Deliberately kept to just the
+// subject seal + name: a correct per-subject "N pending/overdue" count
+// would need a new subject-to-activity aggregation that does not exist
+// anywhere in this file today, and inventing one without the ability
+// to verify it against real data risked shipping a confidently-wrong
+// number — exactly what Section 0 warns against. That aggregation is a
+// legitimate follow-up, not something this pass added.
+function SubjectShelf({ subjects, onOpenSubject, onAddSubject, canCreate = true }) {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-0.5 rounded-full shrink-0" style={{ background: "var(--takda-brand)" }} aria-hidden="true" />
+          <h2 className="font-display text-sm font-semibold tracking-wide" style={{ color: "var(--takda-text-primary)" }}>Subjects</h2>
+        </div>
+        {subjects.length > 0 && (
+          <span className="text-xs font-medium shrink-0" style={{ color: "var(--takda-text-muted-2)" }}>
+            {subjects.length} active
+          </span>
+        )}
+      </div>
+      {subjects.length === 0 ? (
+        <EmptyRow text="Add your first subject to see it here." />
+      ) : (
+        <div
+          className="takda-focus-visible takda-shelf-scroll flex gap-2.5 overflow-x-auto pb-1"
+          tabIndex={0}
+          role="group"
+          aria-label="Subjects, scroll horizontally for more"
+        >
+          {subjects.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onOpenSubject(s.id)}
+              className="takda-focus-visible takda-interactive flex items-center gap-2.5 shrink-0 rounded-2xl border border-[var(--takda-border)] px-3 py-2.5 text-left"
+              style={{ background: "var(--takda-bg-page)", minWidth: "148px" }}
+            >
+              <SubjectSeal name={s.name} color={s.color} size={32} />
+              <span className="block text-xs font-semibold truncate min-w-0" style={{ color: "var(--takda-text-primary)", maxWidth: "88px" }}>{s.name}</span>
+            </button>
+          ))}
+          {canCreate && (
+            <button
+              type="button"
+              onClick={onAddSubject}
+              className="takda-focus-visible takda-interactive flex items-center gap-1.5 shrink-0 rounded-2xl border border-dashed border-[var(--takda-text-muted-1)] px-3 py-2.5 text-xs font-semibold"
+              style={{ color: "var(--takda-text-muted-2)" }}
+            >
+              <Plus size={14} /> Add Subject
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -4228,7 +4672,7 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
                   className={`takda-focus-visible takda-interactive flex-1 text-left rounded-xl bg-[var(--takda-bg-page)] border border-[var(--takda-border)] p-3 flex items-center gap-3 transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] ${isLast ? "" : "mb-2"}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold" style={{ color: "var(--takda-brand)" }}>{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
+                    <div className="text-xs font-semibold" style={{ color: "var(--takda-brand-text)" }}>{formatScheduleTimeRange(row.startTime, row.endTime)}</div>
                     <div className="text-sm font-semibold mt-0.5 line-clamp-2 break-words" style={{ color: "var(--takda-text-primary)" }}>
                       {row.subject?.name || "Untitled Subject"}
                     </div>
@@ -4249,7 +4693,7 @@ function TodaysClassesSection({ classes, onOpenSubject }) {
 function TypeChip({ type }) {
   if (!type) return null;
   return (
-    <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-2)] bg-slate-100 rounded-full px-1.5 py-0.5">
+    <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[color:var(--takda-text-muted-3)] bg-[var(--takda-border)] rounded-full px-1.5 py-0.5">
       {type}
     </span>
   );
@@ -4296,7 +4740,7 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight, cl
       <div className="flex-1 min-w-0">
         <button className="takda-focus-visible text-left w-full" onClick={() => activity.subjectId && onOpenSubject(activity.subjectId)}>
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activity.subject?.color || "#94A3B8" }} />
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activity.subject?.color || "var(--takda-text-muted-1)" }} />
             <span className="text-[11px] font-medium text-[color:var(--takda-text-muted-2)] truncate">{activity.subject?.name || "General"}</span>
             <TypeChip type={activity.type} />
             <PriorityTag priority={activity.priority} />
@@ -4319,16 +4763,66 @@ function ActivityRow({ activity, onToggle, onOpenSubject, compact, highlight, cl
   );
 }
 
+// Work Package 1: circular subject "seal" — a medallion-style monogram
+// used in place of the plain color dot. Deliberately does NOT use the
+// subject's own `color` as the letter's text color: half of the 8
+// COLORS palette entries (computed by hand via the WCAG relative-
+// luminance formula) fall under 4.5:1 against both white and a light
+// tint of themselves (#FF5A5F ~3.05:1, #16A34A ~3.30:1, #F59E0B
+// ~2.16:1, #0EA5A4 ~3.03:1), so painting the initial in that color
+// would silently reintroduce a contrast failure for exactly the
+// subjects whose color a student is most likely to have picked. The
+// subject color is used only for the ring and the small corner dot —
+// both decorative/non-text, so WCAG text-contrast rules don't apply —
+// while the initial itself always uses the theme's own vetted
+// --takda-text-primary. The subject's name is already rendered as
+// visible text beside every seal, so the seal itself is aria-hidden.
+function SubjectSeal({ name, color, size = 44 }) {
+  const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+  const ringColor = color || "var(--takda-border-neutral-2)";
+  return (
+    <span
+      aria-hidden="true"
+      className="takda-subject-seal relative shrink-0 inline-flex items-center justify-center rounded-full font-display font-semibold"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.4),
+        background: "var(--takda-bg-page)",
+        border: `2px solid ${ringColor}`,
+        color: "var(--takda-text-primary)",
+        boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)",
+      }}
+    >
+      {initial}
+      <span
+        className="absolute rounded-full"
+        style={{
+          width: Math.round(size * 0.24),
+          height: Math.round(size * 0.24),
+          right: -1,
+          bottom: -1,
+          background: ringColor,
+          border: "2px solid var(--takda-bg-surface)",
+        }}
+      />
+    </span>
+  );
+}
+
 /* ---------------- Subjects ---------------- */
 // Phase 09C.3A: Balanced Premium redesign. Cards stay plain token-based
 // surfaces with a soft inset highlight + shadow — no backdrop-filter,
 // per this batch's explicit "avoid backdrop-filter on repeated cards"
 // performance rule (there can be many of these in one grid).
+// Work Package 1: the plain color dot is replaced by SubjectSeal (a
+// circular monogram) for the Almanac's editorial/medallion language;
+// nothing about the card's own surface, shadow, or layout changed.
 function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onAdd, canCreate = true }) {
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between mb-5">
-        <h1 className="font-display text-2xl font-semibold">My Subjects</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">My Subjects</h1>
         <button
           onClick={onAdd}
           aria-disabled={!canCreate}
@@ -4354,9 +4848,9 @@ function SubjectsView({ subjects, activities, subjectSchedules = [], onOpen, onA
                 className="takda-focus-visible takda-interactive text-left rounded-2xl p-5 bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors hover:border-[var(--takda-border-neutral-2)] hover:shadow-sm"
                 style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: s.color }} />
-                  <span className="font-display text-lg font-semibold truncate">{s.name}</span>
+                <div className="flex items-center gap-3 mb-3">
+                  <SubjectSeal name={s.name} color={s.color} />
+                  <span className="font-display text-lg font-semibold truncate min-w-0">{s.name}</span>
                 </div>
                 <div className="mb-3">
                   {s.teacher && <div className="text-xs mb-1 flex items-center gap-1" style={{ color: "var(--takda-text-muted-2)" }}><User size={12} />{s.teacher}</div>}
@@ -4396,14 +4890,14 @@ function SubjectDetail({
     <div className="p-5 md:p-8">
       <button onClick={onBack} className="takda-focus-visible flex items-center gap-1 text-sm mb-4" style={{ color: "var(--takda-text-muted-2)" }}><ArrowLeft size={15} /> Subjects</button>
       <div className="flex items-start justify-between gap-3 mb-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: subject.color }} />
+        <div className="flex items-center gap-3 min-w-0">
+          <SubjectSeal name={subject.name} color={subject.color} size={40} />
           <h1 className="font-display text-2xl font-semibold truncate">{subject.name}</h1>
           {readOnly && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{ color: "var(--takda-text-muted-2)", background: "var(--takda-border)" }}>Archived</span>}
         </div>
         <div className="flex gap-2 shrink-0">
           <button onClick={onEditSubject} disabled={readOnly} aria-label="Edit subject" className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-border-neutral-2)] disabled:opacity-40"><Edit2 size={14} /></button>
-          <button onClick={onDeleteSubject} disabled={readOnly} aria-label="Delete subject" className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] text-red-500 transition-colors duration-150 hover:bg-red-50 disabled:opacity-40"><Trash2 size={14} /></button>
+          <button onClick={onDeleteSubject} disabled={readOnly} aria-label="Delete subject" className="takda-focus-visible p-2.5 rounded-xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 hover:bg-[var(--takda-feedback-error-bg)] disabled:opacity-40"><Trash2 size={14} /></button>
         </div>
       </div>
       <div className="mb-6">
@@ -4420,8 +4914,8 @@ function SubjectDetail({
       </div>
 
       <div className="flex items-center justify-between mb-2.5">
-        <h2 className="text-sm font-semibold min-w-0 truncate" style={{ color: "var(--takda-text-heading)" }}>Activities ({pending.length} pending, {completed.length} completed)</h2>
-        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canCreate ? "opacity-40" : ""}`} style={{ color: "var(--takda-brand)" }}><Plus size={13} /> Add</button>
+        <h2 className="font-display text-sm font-semibold min-w-0 truncate" style={{ color: "var(--takda-text-heading)" }}>Activities ({pending.length} pending, {completed.length} completed)</h2>
+        <button onClick={onAddActivity} aria-disabled={!canCreate} title={!canCreate ? "Switch to your active semester to add an activity." : undefined} className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canCreate ? "opacity-40" : ""}`} style={{ color: "var(--takda-brand-text)" }}><Plus size={13} /> Add</button>
       </div>
       {activities.length === 0 ? (
         <EmptyRow text="No activities for this subject yet." />
@@ -4444,14 +4938,14 @@ function SubjectDetail({
                   <PriorityTag priority={a.priority} />
                 </div>
               </div>
-              <button onClick={() => onEditActivity(a)} disabled={readOnly} aria-label="Edit activity" className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
-              <button onClick={() => onDeleteActivity(a.id)} disabled={readOnly} aria-label="Delete activity" className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+              <button onClick={() => onEditActivity(a)} disabled={readOnly} aria-label="Edit activity" className="takda-focus-visible p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+              <button onClick={() => onDeleteActivity(a.id)} disabled={readOnly} aria-label="Delete activity" className="takda-focus-visible p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
       )}
 
-      <h2 className="text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-heading)" }}>Notes</h2>
+      <h2 className="font-display text-sm font-semibold mb-2.5" style={{ color: "var(--takda-text-heading)" }}>Notes</h2>
       <div className="flex gap-2 mb-3">
         <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Write a quick note…" className="takda-focus-visible flex-1 rounded-xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] px-3 py-2 text-base outline-none" />
         <button
@@ -4479,7 +4973,7 @@ function SubjectDetail({
                   className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-base outline-none resize-none"
                 />
                 <div className="flex flex-wrap justify-end gap-2">
-                  <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-slate-50" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
+                  <button onClick={() => { setEditingNoteId(null); setEditNoteText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-[var(--takda-bg-hover)]" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
                   <button
                     onClick={() => { if (editNoteText.trim()) { onEditNote(n.id, editNoteText.trim()); setEditingNoteId(null); setEditNoteText(""); } }}
                     disabled={!editNoteText.trim()}
@@ -4491,8 +4985,8 @@ function SubjectDetail({
               <div className="flex items-start justify-between gap-2">
                 <span className="flex-1 min-w-0 break-words">{n.body}</span>
                 <div className="flex shrink-0 gap-1">
-                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
-                  <button onClick={() => onDeleteNote(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
+                  <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150 disabled:opacity-40"><Edit2 size={13} /></button>
+                  <button onClick={() => onDeleteNote(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40"><Trash2 size={13} /></button>
                 </div>
               </div>
             )}
@@ -4500,8 +4994,8 @@ function SubjectDetail({
         ))}
       </div>
 
-      <h2 className="text-sm font-semibold mb-2.5 mt-7" style={{ color: "var(--takda-text-heading)" }}>Lesson Materials</h2>
-      {materialsError && <div className="text-sm text-red-500 mb-2">{materialsError}</div>}
+      <h2 className="font-display text-sm font-semibold mb-2.5 mt-7" style={{ color: "var(--takda-text-heading)" }}>Lesson Materials</h2>
+      {materialsError && <div className="text-sm text-[color:var(--takda-feedback-error-text)] mb-2">{materialsError}</div>}
       {!materialsLoading && !materialsError && typeof materialUploadLimitBytes === "number" && (
         accountUploadUsageValid ? (
           <MaterialStorageUsageIndicator
@@ -4524,18 +5018,37 @@ function SubjectDetail({
             disabled={!canAddMaterials}
             title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
             className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canAddMaterials ? "opacity-40" : ""}`}
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           ><Plus size={13} /> Upload File</button>
           <button
             onClick={onAddMaterial}
             disabled={!canAddMaterials}
             title={!canAddMaterials ? "Switch to your active semester to add a lesson material." : undefined}
             className={`takda-focus-visible flex items-center gap-1 text-xs font-semibold shrink-0 -my-1.5 py-1.5 px-1 rounded ${!canAddMaterials ? "opacity-40" : ""}`}
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           ><Plus size={13} /> Add Link</button>
         </div>
       </div>
-      {!materialsLoading && materials.length === 0 ? (
+      {materialsLoading ? (
+        // Work Package 5: genuine skeleton placeholder for the one
+        // loading state in this screen that previously rendered nothing
+        // at all (the "Loading…" caption above was the only feedback).
+        // Shape mimics MaterialLinkCard/MaterialUploadCard's own row
+        // (icon + two text lines) so the layout doesn't jump once real
+        // materials arrive. aria-hidden since the caption's "Loading…"
+        // text already carries this state to assistive tech.
+        <div className="flex flex-col gap-2" role="status" aria-label="Loading lesson materials">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-[var(--takda-border)] p-3" aria-hidden="true">
+              <div className="takda-skeleton w-9 h-9 rounded-xl shrink-0" />
+              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                <div className="takda-skeleton h-3 rounded" style={{ width: `${62 - i * 8}%` }} />
+                <div className="takda-skeleton h-2.5 rounded" style={{ width: "38%" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : materials.length === 0 ? (
         <EmptyRow text="No lesson materials yet." />
       ) : (
         <div className="flex flex-col gap-2">
@@ -4616,7 +5129,7 @@ function SubjectDetail({
 function MaterialStorageUsageIndicator({ usageBytes, limitBytes }) {
   const display = getMaterialUploadUsageDisplay(usageBytes, limitBytes);
   const accessibleValue = getMaterialUploadUsageAccessibleValue(usageBytes, limitBytes);
-  const barColor = display.isOverLimit ? "#DC2626" : "var(--takda-brand)";
+  const barColor = display.isOverLimit ? "var(--takda-feedback-error-text)" : "var(--takda-brand)";
 
   return (
     <div className="mb-3">
@@ -4633,7 +5146,7 @@ function MaterialStorageUsageIndicator({ usageBytes, limitBytes }) {
         aria-valuemax={Math.round(limitBytes)}
         aria-valuenow={accessibleValue.valueNow}
         aria-valuetext={accessibleValue.valueText}
-        className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden"
+        className="h-1.5 w-full rounded-full bg-[var(--takda-border)] overflow-hidden"
       >
         <div
           className="h-full rounded-full transition-[width] duration-150"
@@ -4641,7 +5154,7 @@ function MaterialStorageUsageIndicator({ usageBytes, limitBytes }) {
         />
       </div>
       {display.isOverLimit && (
-        <p className="text-xs text-red-500 mt-1">
+        <p className="text-xs text-[color:var(--takda-feedback-error-text)] mt-1">
           You're over your plan's lesson-file storage limit. Delete an uploaded file to free space.
         </p>
       )}
@@ -4675,7 +5188,7 @@ function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
           target="_blank"
           rel="noopener noreferrer"
           className="takda-focus-visible text-xs mt-1 inline-block truncate max-w-full hover:underline"
-          style={{ color: "var(--takda-brand)" }}
+          style={{ color: "var(--takda-brand-text)" }}
         >
           {hostname || "Open link"}
         </a>
@@ -4686,14 +5199,14 @@ function MaterialLinkCard({ material, readOnly, deleting, onEdit, onDelete }) {
           disabled={readOnly}
           aria-label="Edit lesson material"
           title={readOnly ? "Switch to your active semester to edit lesson materials." : "Edit"}
-          className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"
+          className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150 disabled:opacity-40"
         ><Edit2 size={13} /></button>
         <button
           onClick={onDelete}
           disabled={readOnly || deleting}
           aria-label="Delete lesson material"
           title={readOnly ? "Switch to your active semester to delete lesson materials." : "Delete"}
-          className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
+          className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40"
         ><Trash2 size={13} /></button>
       </div>
     </div>
@@ -4749,9 +5262,9 @@ function MaterialLinkModal({ material, onClose, onSave }) {
         <input className={inputCls} value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://..." />
       </Field>
       {!looksLikeHttps && (
-        <p className="text-xs text-amber-600 -mt-2 mb-3">Links must start with https://</p>
+        <p className="text-xs text-[color:var(--takda-status-tomorrow-text)] -mt-2 mb-3">Links must start with https://</p>
       )}
-      {error && <p className="text-xs text-red-500 -mt-2 mb-3">{error}</p>}
+      {error && <p className="text-xs text-[color:var(--takda-feedback-error-text)] -mt-2 mb-3">{error}</p>}
       <button
         disabled={!trimmedTitle || !trimmedUrl || saving}
         onClick={handleSubmit}
@@ -4791,7 +5304,7 @@ function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, o
           onClick={onOpen}
           disabled={opening}
           className="takda-focus-visible text-xs mt-1 inline-flex items-center gap-1 hover:underline disabled:opacity-40"
-          style={{ color: "var(--takda-brand)" }}
+          style={{ color: "var(--takda-brand-text)" }}
         >
           <ExternalLink size={12} /> {opening ? "Opening..." : "Open"}
         </button>
@@ -4802,7 +5315,7 @@ function MaterialUploadCard({ material, readOnly, deleting, opening, onDelete, o
           disabled={readOnly || deleting}
           aria-label="Delete lesson material"
           title={readOnly ? "Switch to your active semester to delete lesson materials." : "Delete"}
-          className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"
+          className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40"
         ><Trash2 size={13} /></button>
       </div>
     </div>
@@ -4917,14 +5430,14 @@ function MaterialUploadModal({ onClose, onSave }) {
         />
       </Field>
       <p className="text-xs -mt-2 mb-3" style={{ color: "var(--takda-text-muted-1)" }}>PDF, JPG, or PNG — up to 10 MB</p>
-      {fileError && <p className="text-xs text-red-500 -mt-2 mb-3">{fileError}</p>}
+      {fileError && <p className="text-xs text-[color:var(--takda-feedback-error-text)] -mt-2 mb-3">{fileError}</p>}
       <Field label="Title *">
         <input className={inputCls} value={title} onChange={handleTitleChange} placeholder="e.g. Lesson 1 — Skeletal System" />
       </Field>
       <Field label="Description">
         <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes" />
       </Field>
-      {error && <p className="text-xs text-red-500 -mt-2 mb-3">{error}</p>}
+      {error && <p className="text-xs text-[color:var(--takda-feedback-error-text)] -mt-2 mb-3">{error}</p>}
       <button
         disabled={!file || !trimmedTitle || !!fileError || saving}
         onClick={handleSubmit}
@@ -4942,8 +5455,8 @@ const CALENDAR_CLASS_DOT_LIMIT = 3;
 // Same soft-tint palette already used for FOCUS_TILE_STYLE on the Dashboard —
 // reused values, not a new color scheme.
 const CALENDAR_DAY_TONE = {
-  overdue: { bg: "#FEF2F2", border: "#FBD5D5" },
-  completed: { bg: "#F0FDF4", border: "#CDEFD8" },
+  overdue: { bg: "var(--takda-status-overdue-bg)", border: "var(--takda-focustile-overdue-border)" },
+  completed: { bg: "var(--takda-status-week-bg)", border: "var(--takda-focustile-upcoming-border)" },
 };
 
 // Phase 9D Stage 9D-4B: is `date` inside `semester`'s startDate/endDate
@@ -5067,7 +5580,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-1">
-        <h1 className="font-display text-2xl font-semibold">Calendar</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Calendar</h1>
         <button
           onClick={() => onAddActivity(formatLocalDate(selected))}
           aria-disabled={!canCreate}
@@ -5093,7 +5606,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
           <span className="font-display text-lg font-semibold truncate">{cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
           <button
             onClick={goToToday}
-            className="takda-focus-visible shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-brand)] hover:text-[color:var(--takda-brand)]"
+            className="takda-focus-visible shrink-0 text-[11px] font-semibold px-2 -my-1.5 py-2.5 rounded-full border border-[var(--takda-border)] transition-colors duration-150 hover:border-[var(--takda-brand)] hover:text-[color:var(--takda-brand-text)]"
             style={{ color: "var(--takda-text-muted-2)" }}
           >
             Today
@@ -5193,7 +5706,7 @@ function CalendarView({ activities, subjectSchedules = [], subjectMap = {}, seme
       </div>
 
       <div className="flex items-baseline justify-between mb-2.5">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--takda-text-heading)" }}>{fmtDateFull(selected)}</h2>
+        <h2 className="font-display text-sm font-semibold" style={{ color: "var(--takda-text-heading)" }}>{fmtDateFull(selected)}</h2>
         <span className="text-xs" style={{ color: "var(--takda-text-muted-1)" }}>{selectedList.length} {selectedList.length === 1 ? "activity" : "activities"}</span>
       </div>
 
@@ -5281,7 +5794,7 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
                     className="takda-focus-visible w-full rounded-xl border border-[var(--takda-border)] px-3 py-2 text-base outline-none resize-none"
                   />
                   <div className="flex flex-wrap justify-end gap-2">
-                    <button onClick={() => { setEditingId(null); setEditText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-slate-50" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
+                    <button onClick={() => { setEditingId(null); setEditText(""); }} className="takda-focus-visible rounded-xl px-3 py-1.5 text-sm font-semibold border border-[var(--takda-border)] transition-colors duration-150 hover:bg-[var(--takda-bg-hover)]" style={{ color: "var(--takda-text-muted-2)" }}>Cancel</button>
                     <button
                       onClick={() => { if (editText.trim()) { onEdit(n.id, editText.trim()); setEditingId(null); setEditText(""); } }}
                       disabled={!editText.trim()}
@@ -5294,8 +5807,8 @@ function NotesView({ notes, subjectMap, onAdd, onEdit, onDelete, subjects, canCr
                   <div className="flex items-start justify-between gap-2">
                     <span className="flex-1 min-w-0 break-words">{n.body}</span>
                     <div className="flex shrink-0 gap-1">
-                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40"><Edit2 size={14} /></button>
-                      <button onClick={() => onDelete(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="takda-focus-visible p-2 -m-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40"><Trash2 size={14} /></button>
+                      <button onClick={() => { setEditingId(n.id); setEditText(n.body); }} disabled={readOnly} aria-label="Edit note" title="Edit note" className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150 disabled:opacity-40"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(n.id)} disabled={readOnly} aria-label="Delete note" title="Delete note" className="takda-focus-visible p-2 -m-1 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40"><Trash2 size={14} /></button>
                     </div>
                   </div>
                   {n.subjectId && subjectMap[n.subjectId] && (
@@ -5426,7 +5939,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
   return (
     <div className="p-5 md:p-8">
       <div className="flex items-center justify-between gap-3 mb-1.5">
-        <h1 className="font-display text-2xl font-semibold">All Activities</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">All Activities</h1>
         <button
           onClick={onAdd}
           aria-disabled={!canCreate}
@@ -5449,7 +5962,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="takda-focus-visible shrink-0 p-1.5 -m-1.5 text-slate-300 hover:text-slate-500 transition-colors duration-150"
+              className="takda-focus-visible shrink-0 p-1.5 -m-1.5 text-[color:var(--takda-border-neutral-2)] hover:text-[color:var(--takda-text-muted-2)] transition-colors duration-150"
             >
               <X size={14} />
             </button>
@@ -5497,7 +6010,7 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
               <button
                 onClick={() => onToggle(a)}
                 disabled={readOnly}
-                className="takda-focus-visible shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-emerald-400 disabled:opacity-40"
+                className="takda-focus-visible shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ease-out hover:border-[var(--takda-status-week-dot)] disabled:opacity-40"
                 style={{ borderColor: a.computedStatus === "completed" ? "var(--takda-status-week-dot)" : "var(--takda-border-neutral-2)", background: a.computedStatus === "completed" ? "var(--takda-status-week-dot)" : "transparent" }}
                 aria-label={a.computedStatus === "completed" ? "Reopen task" : "Mark complete"}
               >
@@ -5512,8 +6025,8 @@ function AllActivities({ activities, query, setQuery, statusFilter, setStatusFil
                   <StatusBadge status={a.computedStatus} />
                 </div>
               </div>
-              <button onClick={() => onEdit(a)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit activity"><Edit2 size={13} /></button>
-              <button onClick={() => onDelete(a.id)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete activity"><Trash2 size={13} /></button>
+              <button onClick={() => onEdit(a)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150 disabled:opacity-40" aria-label="Edit activity"><Edit2 size={13} /></button>
+              <button onClick={() => onDelete(a.id)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40" aria-label="Delete activity"><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
@@ -5531,7 +6044,7 @@ function GradeLockedView({ onUpgrade }) {
         style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}
       >
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full" style={{ background: "var(--takda-bg-grade-locked-icon)" }}>
-          <Lock size={20} className="text-amber-700" />
+          <Lock size={20} className="text-[color:var(--takda-status-tomorrow-text)]" />
         </div>
         <span className="takda-pro-badge inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold tracking-wide">
           <span aria-hidden="true">✦</span> PRO
@@ -5686,7 +6199,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
     <div className="p-5 md:p-8">
       <div className="flex items-start justify-between gap-3 mb-5">
         <div>
-          <h1 className="font-display text-2xl font-semibold">My Grades</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">My Grades</h1>
           <p className="text-sm mt-1" style={{ color: "var(--takda-text-muted-2)" }}>Track your recorded scores and subject performance.</p>
         </div>
         <button
@@ -5722,9 +6235,9 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
               <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Overall Recorded Average</div>
-              <div className="font-display text-2xl font-semibold">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
+              <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{overallAverage === null ? "—" : `${overallAverage.toFixed(1)}%`}</div>
               {overallAverage !== null && (
-                <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div className="mt-2 h-1.5 rounded-full bg-[var(--takda-border)] overflow-hidden">
                   <div
                     className="h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
                     style={{ width: `${clampPercent(overallAverage)}%`, background: "var(--takda-brand)" }}
@@ -5740,12 +6253,12 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
             </div>
             <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
               <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Subjects With Grades</div>
-              <div className="font-display text-2xl font-semibold">{subjectsWithGrades.length}</div>
+              <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{subjectsWithGrades.length}</div>
               <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Out of {subjects.length} {subjects.length === 1 ? "subject" : "subjects"}</div>
             </div>
             <div className="rounded-2xl bg-[var(--takda-bg-surface)] border border-[var(--takda-border)] p-4" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
               <div className="text-xs mb-1" style={{ color: "var(--takda-text-muted-2)" }}>Total Grade Entries</div>
-              <div className="font-display text-2xl font-semibold">{grades.length}</div>
+              <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{grades.length}</div>
               <div className="text-[11px] mt-1.5" style={{ color: "var(--takda-text-muted-1)" }}>Recorded across all subjects</div>
             </div>
           </div>
@@ -5784,7 +6297,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
                         <div className="text-[10px]" style={{ color: "var(--takda-text-muted-1)" }}>{count} {count === 1 ? "entry" : "entries"}</div>
                       </div>
                     </div>
-                    <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-[var(--takda-border)] overflow-hidden">
                       <div
                         className="h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
                         style={{ width: `${clampPercent(average)}%`, background: subject.color || "var(--takda-text-muted-1)" }}
@@ -5811,7 +6324,7 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             {subjectFilter !== "all" && (
-              <button onClick={() => setSubjectFilter("all")} className="takda-focus-visible text-xs font-medium transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1" style={{ color: "var(--takda-brand)" }}>Clear filter</button>
+              <button onClick={() => setSubjectFilter("all")} className="takda-focus-visible text-xs font-medium transition-colors duration-150 hover:underline -my-1.5 py-1.5 px-1" style={{ color: "var(--takda-brand-text)" }}>Clear filter</button>
             )}
           </div>
 
@@ -5848,8 +6361,8 @@ function GradesView({ grades, subjects, subjectMap, onSave, onDelete, canCreate 
                       <div className="text-sm font-semibold">{g.score}/{g.totalScore}</div>
                       <div className="text-[11px]" style={{ color: "var(--takda-text-muted-2)" }}>{percent.toFixed(1)}%</div>
                     </div>
-                    <button onClick={() => openEdit(g)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150 disabled:opacity-40" aria-label="Edit grade"><Edit2 size={13} /></button>
-                    <button onClick={() => onDelete(g.id)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 disabled:opacity-40" aria-label="Delete grade"><Trash2 size={13} /></button>
+                    <button onClick={() => openEdit(g)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150 disabled:opacity-40" aria-label="Edit grade"><Edit2 size={13} /></button>
+                    <button onClick={() => onDelete(g.id)} disabled={readOnly} className="takda-focus-visible p-2 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150 disabled:opacity-40" aria-label="Delete grade"><Trash2 size={13} /></button>
                   </div>
                 );
               })}
@@ -5893,7 +6406,7 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
         <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Quiz 1" />
       </Field>
       <Field label="Subject *">
-        <select disabled={!!grade} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
+        <select disabled={!!grade} className={`${inputCls} disabled:bg-[var(--takda-bg-page)] disabled:text-[color:var(--takda-text-muted-1)]`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
           {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         {grade && <p className="text-[11px] mt-1" style={{ color: "var(--takda-text-muted-1)" }}>Subject is fixed after creation.</p>}
@@ -5913,8 +6426,8 @@ function GradeModal({ grade, subjects, onClose, onSave }) {
       </div>
       {form.score !== "" && form.totalScore !== "" && (
         <div
-          className={`rounded-xl px-3 py-2 text-xs mb-3 ${validNumbers ? "" : "bg-red-50 text-red-600"}`}
-          style={validNumbers ? { background: "var(--takda-brand-tint-2)", color: "var(--takda-brand)" } : undefined}
+          className={`rounded-xl px-3 py-2 text-xs mb-3 ${validNumbers ? "" : "bg-[var(--takda-feedback-error-bg)] text-[color:var(--takda-feedback-error-text)]"}`}
+          style={validNumbers ? { background: "var(--takda-brand-tint-2)", color: "var(--takda-brand-text)" } : undefined}
         >
           {validNumbers ? `Percentage: ${preview.toFixed(1)}%` : "Score must be between 0 and the total score."}
         </div>
@@ -6123,7 +6636,7 @@ function ModalShell({ title, onClose, onOpenerCapture, children }) {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--takda-border)] sticky top-0 bg-[var(--takda-bg-surface)]">
           <h3 className="font-display text-lg font-semibold" style={{ color: "var(--takda-text-heading)" }}>{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="takda-focus-visible p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors duration-150"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close" className="takda-focus-visible p-2 rounded-xl text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-bg-hover)] hover:text-[color:var(--takda-text-muted-3)] transition-colors duration-150"><X size={18} /></button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -6322,7 +6835,7 @@ function SubjectScheduleSummary({ schedules }) {
   return (
     <div className="flex flex-col gap-0.5">
       {groups.map((g, i) => (
-        <div key={i} className="flex items-center gap-1 text-xs text-slate-500 min-w-0">
+        <div key={i} className="flex items-center gap-1 text-xs text-[color:var(--takda-text-muted-2)] min-w-0">
           <Clock size={12} className="shrink-0" />
           <span className="truncate">
             {formatScheduleDays(g.days)} • {formatScheduleTimeRange(g.startTime, g.endTime)}
@@ -6412,7 +6925,7 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
     <div className="rounded-2xl border border-[var(--takda-border)] p-3" style={{ boxShadow: "inset 0 1px 0 var(--takda-glass-highlight)" }}>
       <div className="flex items-center justify-between mb-2.5">
         <span className="text-xs font-semibold" style={{ color: "var(--takda-text-muted-2)" }}>Schedule Group {index + 1}</span>
-        <button type="button" onClick={onRemove} aria-label="Remove schedule" className="takda-focus-visible p-1.5 -m-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors duration-150">
+        <button type="button" onClick={onRemove} aria-label="Remove schedule" className="takda-focus-visible p-1.5 -m-1.5 rounded-lg text-[color:var(--takda-text-muted-1)] hover:bg-[var(--takda-feedback-error-bg)] hover:text-[color:var(--takda-feedback-error-text)] transition-colors duration-150">
           <Trash2 size={13} />
         </button>
       </div>
@@ -6434,7 +6947,7 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
           );
         })}
       </div>
-      {noDays && <p className="text-[11px] text-red-500 mb-2.5">Select at least one day.</p>}
+      {noDays && <p className="text-[11px] text-[color:var(--takda-feedback-error-text)] mb-2.5">Select at least one day.</p>}
 
       <div className="grid grid-cols-2 gap-2.5">
         <Field label="Start Time">
@@ -6444,7 +6957,7 @@ function ScheduleGroupCard({ index, group, onChange, onToggleDay, onRemove }) {
           <input type="time" className={inputCls} value={group.endTime} onChange={(e) => onChange({ endTime: e.target.value })} />
         </Field>
       </div>
-      {invalidRange && <p className="text-[11px] text-red-500 -mt-2 mb-2.5">End time must be after start time.</p>}
+      {invalidRange && <p className="text-[11px] text-[color:var(--takda-feedback-error-text)] -mt-2 mb-2.5">End time must be after start time.</p>}
 
       <Field label="Location / Room (optional)">
         <input className={inputCls} value={group.location} onChange={(e) => onChange({ location: e.target.value })} placeholder="e.g. Room 203" />
@@ -6539,7 +7052,7 @@ function SubjectModal({ subject, schedules = [], onClose, onSave, onOpenerCaptur
             type="button"
             onClick={() => setGroups((prev) => [...prev, newScheduleGroup()])}
             className="takda-focus-visible flex items-center gap-1 text-xs font-semibold"
-            style={{ color: "var(--takda-brand)" }}
+            style={{ color: "var(--takda-brand-text)" }}
           >
             <Plus size={13} /> Add Schedule
           </button>
@@ -6616,7 +7129,7 @@ function ActivityModal({ activity, subjects, creatableSubjects, defaultSubjectId
         <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Problem Set #3" />
       </Field>
       <Field label="Subject">
-        <select disabled={!!activity} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
+        <select disabled={!!activity} className={`${inputCls} disabled:bg-[var(--takda-bg-page)] disabled:text-[color:var(--takda-text-muted-1)]`} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
           <option value="">General</option>
           {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>

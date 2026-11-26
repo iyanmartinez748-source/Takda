@@ -31,8 +31,8 @@ export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateA
     >
       <article>
         <p className="mb-3 text-sm font-semibold text-[color:var(--takda-brand)]">ABOUT TAKDA</p>
-        <h1 className="text-3xl font-bold leading-tight sm:text-4xl">About Takda</h1>
-        <p className="mt-5 text-base leading-7 text-slate-600">
+        <h1 className="font-display text-3xl font-bold leading-tight sm:text-4xl">About Takda</h1>
+        <p className="mt-5 text-base leading-7 text-[color:var(--takda-text-muted-2)]">
           Takda is an academic planning workspace designed to help students organize school
           responsibilities in one place.
         </p>
@@ -40,24 +40,24 @@ export default function AboutPage({ isAuthenticated, onNavigateHome, onNavigateA
         <h2 className="mt-10 text-xl font-bold">What students can organize</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {features.map(([icon, title, description]) => (
-            <div key={title} className="rounded-2xl border border-[var(--takda-border)] bg-white p-5">
+            <div key={title} className="rounded-2xl border border-[var(--takda-border)] bg-[var(--takda-bg-surface)] p-5">
               <div className="mb-2 text-2xl" aria-hidden="true">
                 {icon}
               </div>
               <h3 className="font-bold">{title}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+              <p className="mt-2 text-sm leading-6 text-[color:var(--takda-text-muted-2)]">{description}</p>
             </div>
           ))}
         </div>
 
         <h2 className="mt-10 text-xl font-bold">Our purpose</h2>
-        <p className="mt-3 text-sm leading-7 text-slate-600">
+        <p className="mt-3 text-sm leading-7 text-[color:var(--takda-text-muted-2)]">
           Takda aims to make academic planning simpler by giving students a clear place to
           organize what they need to do and when they need to do it.
         </p>
 
         <h2 className="mt-10 text-xl font-bold">Free and Pro</h2>
-        <p className="mt-3 text-sm leading-7 text-slate-600">
+        <p className="mt-3 text-sm leading-7 text-[color:var(--takda-text-muted-2)]">
           Takda offers a Free experience for getting started, and a Pro experience with
           additional capacity and features for students who want more.
         </p>

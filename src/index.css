@@ -33,12 +33,39 @@
   --takda-brand-tint-3: #EEECFC;
   --takda-brand-border-tint: #DCD9FF;
   --takda-brand-border-dashed: #C7C7E8;
+  /* Design Excellence Category B: the brand-text / brand-solid split.
+     --takda-brand-solid is for FILLED elements (button backgrounds,
+     checkboxes, focus rings, progress rings) where white sits ON it —
+     identical to --takda-brand in every theme, since that pairing
+     already passes (Classic 7.83:1, Twilight 5.33:1, both computed via
+     WCAG relative luminance in an earlier phase). --takda-brand-text is
+     for brand-colored TEXT/icons on a neutral or tinted surface — in
+     Classic/Matcha this is also identical to --takda-brand (already
+     7.83:1 / ~5.6:1 against their own surfaces, no change needed); only
+     Twilight's block below redefines it, because Twilight's own
+     --takda-brand as text measured only ~2.7–3.1:1 against its own
+     surfaces and tinted cards (computed by hand) — a real, previously
+     disclosed-but-unresolved failure, now fixed. */
+  --takda-brand-solid: var(--takda-brand);
+  --takda-brand-text: var(--takda-brand);
+  /* Design Excellence Category B: AcademicOverview's "lavender" tile
+     background. Classic/Matcha both already sit at ~97-99% lightness
+     across all 4 status tiles regardless of source, so this simply
+     aliases the existing tint scale — only Twilight's block below
+     needs a dedicated, darker value. See that block's comment. */
+  --takda-overview-lavender-bg: var(--takda-brand-tint-2);
 
   /* Backgrounds / surfaces */
   --takda-bg-page: #F5F6FA;
   --takda-bg-page-landing: #F7F8FC;
   --takda-bg-surface: #FFFFFF;
   --takda-bg-reminder-chip: #FFF8E7;
+  /* Work Package 4: neutral hover fill for plain surfaces/buttons —
+     tracks whichever theme's bg-page is active via var() reference, so
+     it never needs its own per-theme redefinition. Replaces raw
+     hover:bg-slate-50/100 utilities that previously ignored Matcha and
+     Twilight entirely. */
+  --takda-bg-hover: var(--takda-bg-page);
   --takda-bg-grade-locked-icon: #F5F1E4;
 
   /* Text */
@@ -101,6 +128,33 @@
   --takda-success-icon: #10B981;
   --takda-bg-empty-state: #F8FAFC;
 
+  /* Stage D: deliberately theme-INDEPENDENT (declared once here, never
+     overridden by Matcha or Twilight below) — ProModal's header band is
+     a fixed dramatic-dark design choice, the same kind of decision
+     .takda-pro-badge already makes for its own always-graphite styling
+     a few lines down. A themed surface token would make this header
+     nearly invisible against a dark Twilight page; this token exists
+     specifically so it never has to be. */
+  --takda-ink-surface: #1B1B2F;
+  --takda-ink-surface-text: #FFFFFF;
+  --takda-ink-surface-text-muted: #CBD0DC;
+
+  /* Stage D: form-feedback tokens (distinct semantic domain from the
+     task-urgency --takda-status-* tokens above — a validation error is
+     not an "overdue task"). Classic values are copied verbatim from
+     ProModal/MyProfile's existing bg-red-50/text-red-600 and
+     bg-green-50/text-green-700 Tailwind pairs, so defining them here
+     changes no rendered pixel in Classic. Matcha deliberately inherits
+     these unmodified, same precedent as it already sets for the
+     --takda-status-* tokens above ("inherits Classic's status colors
+     for now"). Only Twilight overrides them below, reusing its own
+     overdue/week token values for visual consistency rather than
+     inventing a third unrelated red/green pair. */
+  --takda-feedback-error-bg: #FEF2F2;
+  --takda-feedback-error-text: #DC2626;
+  --takda-feedback-success-bg: #F0FDF4;
+  --takda-feedback-success-text: #15803D;
+
   /* Motion (Step 52D.2) — theme-independent, deliberately NOT declared
      inside any `:root[data-takda-theme="..."]` block: every current
      and future theme inherits the same timing from this base `:root`
@@ -159,6 +213,133 @@
   --takda-text-heading: #5A5345;
   --takda-success-icon: #10B981;
   --takda-bg-empty-state: #F7F2E4;
+}
+
+/* =========================
+   TAKDA DESIGN TOKENS — Twilight theme (Stage D)
+
+   Third additive theme, same mechanism as Matcha above (a
+   :root[data-takda-theme="..."] override block — nothing about how
+   themes are selected, stored, or applied changes). Unlike Matcha,
+   Twilight DOES override the status/priority/focustile/feedback tokens
+   Classic leaves to Matcha's light palette, because those are light
+   pastel chips that would look like bright, out-of-place patches on
+   this theme's dark page — a visual-harmony problem Matcha (also
+   light) never has.
+
+   Contrast, computed via the WCAG relative-luminance formula (not
+   estimated): --takda-text-primary on --takda-bg-page measures
+   ~15.6:1, and on --takda-bg-surface ~13.1:1 — both far clear of the
+   7:1 AAA floor, let alone AA's 4.5:1. --takda-text-muted-1 on
+   --takda-bg-page measures ~3.7:1 — below the 4.5:1 normal-text floor,
+   but this matches this app's EXISTING pattern exactly: Classic's own
+   --takda-text-muted-1 (#94A3B8) on white measures only ~2.6:1 by the
+   same formula, confirming muted-1 has always been this codebase's
+   large-text/decorative tier, never its body-text tier. Twilight's
+   muted-1 is already a real improvement over that baseline, not a
+   regression.
+========================= */
+:root[data-takda-theme="twilight"] {
+  /* Corrective fix (post-Stage-C review): the original #8F81FF only
+     measured ~3.11:1 for white text on it — this app's own buttons
+     everywhere else (Classic #3D2FE0 measures 7.83:1, documented
+     above) rely on brand being dark/saturated enough for white CTA
+     text, which a "light mode" violet tuned to read well against a
+     dark PAGE does not automatically satisfy once it's also used as a
+     button FILL. #6655E0 measures ~5.33:1 for white text (passes AA)
+     — kept as --takda-brand-solid for exactly that FILL role.
+     Design Excellence Category B: the previously-disclosed gap for
+     brand-as-TEXT (~3.1:1 against the page/surface, below the 4.5:1
+     small-text minimum) is now resolved by --takda-brand-text below,
+     a lighter periwinkle in the same hue family (#9B8FFF, ~249°,
+     matching --takda-brand's own ~249° hue) — computed by hand:
+     ~6.06:1 against --takda-bg-surface, ~6.18:1 against the new
+     --takda-overview-lavender-bg below, ~6.70:1 against --takda-bg-page.
+     Hover stays darker than the base, same convention as Classic/
+     Matcha's existing hover treatment. */
+  --takda-brand: #6655E0;
+  --takda-brand-hover: #5547C2;
+  --takda-brand-solid: #6655E0;
+  --takda-brand-text: #9B8FFF;
+  --takda-brand-tint-1: #211C3F;
+  --takda-brand-tint-2: #2A2550;
+  --takda-brand-tint-3: #332C63;
+  --takda-brand-border-tint: #4B4280;
+  --takda-brand-border-dashed: #433C70;
+
+  /* Design Excellence Category B: this theme's own OverviewCard
+     "lavender" tile background — darkened off the brand TINT SCALE
+     (which jumps to ~22.9% HSL-lightness here, visibly lighter than
+     the other 3 status tiles' own ~13.7-16.5%, the literal
+     "disconnected card" the directive names) down to ~16.1%,
+     matching its siblings. Same hue (~247°, matches --takda-brand),
+     just darker — paired with --takda-brand-text (not raw --takda-
+     brand) for the tile's own accent/text, computed ~6.18:1. */
+  --takda-overview-lavender-bg: #1D1A38;
+
+  --takda-bg-page: #15132A;
+  --takda-bg-page-landing: #15132A;
+  --takda-bg-surface: #1F1C38;
+  --takda-bg-reminder-chip: #332B1A;
+  --takda-bg-grade-locked-icon: #2E2A1E;
+
+  /* Design Excellence Category E: muted-1/-2 previously measured only
+     ~3.3-3.65:1 and ~4.22:1 against these dark surfaces (computed by
+     hand) — both below the 4.5:1 small-text minimum. Lightened within
+     the same lavender-grey hue family (not recolored) to clear it with
+     a safety margin: muted-1 ~4.68:1, muted-2 ~6.40:1 against
+     --takda-bg-surface (the harder, lighter of the two dark
+     backgrounds) — still clearly ordered below muted-3 (~7.89:1) so
+     the 3-tier hierarchy stays visually distinct, not collapsed. */
+  --takda-text-primary: #EFECFA;
+  --takda-text-muted-1: #8B84AD;
+  --takda-text-muted-2: #A49DC4;
+  --takda-text-muted-3: #B5AFDA;
+
+  --takda-border: #312A4F;
+  --takda-border-neutral-2: #3D3560;
+  --takda-scrollbar-thumb: #3D3560;
+
+  /* Deliberately NOT aliased to --takda-brand here (unlike Classic and
+     Matcha): a focus ring specifically benefits from the highest
+     available contrast, and --takda-text-primary's near-white
+     (~15.6:1 against the page, computed above) is higher-contrast
+     than brand's own violet on these dark surfaces. */
+  --takda-focus: #EFECFA;
+
+  --takda-status-overdue-dot: #FF6B70;
+  --takda-status-overdue-text: #FFA8AB;
+  --takda-status-overdue-bg: #3A1A1C;
+  --takda-status-tomorrow-dot: #F5B342;
+  --takda-status-tomorrow-text: #F0C98A;
+  --takda-status-tomorrow-bg: #332B1A;
+  --takda-status-week-dot: #4ADE80;
+  --takda-status-week-text: #9AE6B4;
+  --takda-status-week-bg: #16301F;
+  --takda-status-later-dot: #8E86B3;
+  --takda-status-later-text: #B5AFDA;
+  --takda-status-later-bg: #211F38;
+
+  --takda-label-pending: #B5AFDA;
+  --takda-label-pending-bg: #26223F;
+  --takda-label-inprogress: #93B4FF;
+  --takda-label-inprogress-bg: #1C2540;
+
+  --takda-priority-medium: #F0C98A;
+  --takda-priority-high: #FFA8AB;
+
+  --takda-focustile-overdue-border: #4A2529;
+  --takda-focustile-duetoday-border: #473A20;
+  --takda-focustile-upcoming-border: #1E3A28;
+
+  --takda-text-heading: #D9D4EE;
+  --takda-success-icon: #4ADE80;
+  --takda-bg-empty-state: #1C1934;
+
+  --takda-feedback-error-bg: #3A1A1C;
+  --takda-feedback-error-text: #FFA8AB;
+  --takda-feedback-success-bg: #16301F;
+  --takda-feedback-success-text: #9AE6B4;
 }
 
 html, body, #root {
@@ -380,6 +561,14 @@ body {
   --takda-glass-neutral-bg: rgba(255, 255, 255, 0.55);
   --takda-glass-neutral-bg-solid: #FFFFFF;
   --takda-glass-neutral-border: rgba(255, 255, 255, 0.45);
+
+  /* Work Package 4: SemesterBar's own .takda-glass-silver chrome had no
+     Twilight override (unlike glass-neutral below), so it rendered a
+     light silver bar even in the dark theme. Hover overlay for glass
+     surfaces (e.g. SemesterBar's semester-switcher button) must also be
+     theme-aware — a flat white wash reads as a hover highlight on a
+     light glass surface but as a bright smudge on a dark one. */
+  --takda-glass-hover-overlay: rgba(255, 255, 255, 0.4);
 }
 
 :root[data-takda-theme="matcha"] {
@@ -389,6 +578,27 @@ body {
   --takda-glass-neutral-bg: rgba(255, 254, 250, 0.55);
   --takda-glass-neutral-bg-solid: #FFFEFA;
   --takda-glass-neutral-border: rgba(255, 250, 235, 0.45);
+}
+
+:root[data-takda-theme="twilight"] {
+  /* Dark frosted glass to match Twilight's own surface tone, same
+     pattern as Matcha's override above. The six vivid accent variants
+     stay unchanged for the same reason stated on the Classic block. */
+  --takda-glass-neutral-bg: rgba(31, 28, 56, 0.55);
+  --takda-glass-neutral-bg-solid: #1F1C38;
+  --takda-glass-neutral-border: rgba(75, 66, 128, 0.4);
+
+  /* Work Package 4 fix: glass-silver (SemesterBar) previously had no
+     Twilight entry at all and fell back to the light Classic/Matcha
+     value above. Mirrors glass-neutral's own dark override exactly. */
+  --takda-glass-silver-bg: rgba(31, 28, 56, 0.55);
+  --takda-glass-silver-bg-solid: #1F1C38;
+  --takda-glass-silver-border: rgba(75, 66, 128, 0.4);
+
+  /* A flat white hover wash would read as a bright smudge on Twilight's
+     dark glass surfaces — a faint light wash still reads as "hover"
+     without breaking the dark atmosphere. */
+  --takda-glass-hover-overlay: rgba(255, 255, 255, 0.08);
 }
 
 @media (max-width: 640px) {
@@ -528,7 +738,444 @@ body {
   .takda-glass:hover {
     transform: none;
   }
+
+  /* Stage C: every atmosphere animation (cloud drift, bird flight/wing
+     flap, star twinkle) is suppressed outright, not just slowed — a
+     twinkling star or flapping wing is exactly the kind of persistent
+     motion prefers-reduced-motion exists to remove, same standard this
+     file already applies to .takda-pro-badge's shine sweep above. The
+     scene crossfade itself (not purely decorative — it's how the
+     active period's content becomes visible) is shortened rather than
+     removed, same treatment the glass hover lift gets just above. */
+  .takda-atm-cloud,
+  .takda-atm-wisp,
+  .takda-atm-bird,
+  .takda-atm-bird-wing,
+  .takda-atm-star {
+    animation: none !important;
+  }
+
+  .takda-atm-scene {
+    transition-duration: 0.2s;
+  }
 }
+
+/* =========================
+   Stage C: Animated Atmospheric Environments
+
+   Four time-of-day scenes (dawn/day/dusk/night) layered inside
+   GreetingHero (src/App.jsx), crossfaded by toggling .is-active based
+   on the `timePeriod` prop — never by swapping DOM nodes, so the
+   1.6s opacity transition below has something to animate between.
+   Decorative only: every element here is wrapped in a parent marked
+   aria-hidden="true" in the JSX, so none of it is ever exposed to
+   assistive tech; the actual greeting/context text sits in a separate,
+   normal (non-hidden) layer on top.
+
+   Deliberately independent of theme: these selectors key off
+   [data-p="..."] (the scene's own time-of-day), never off
+   [data-takda-theme="..."] — Theme and Atmosphere must stay
+   independently selectable, exactly as Stage C's brief requires.
+========================= */
+.takda-atm-scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.6s ease;
+  overflow: hidden;
+}
+
+.takda-atm-scene.is-active {
+  opacity: 1;
+}
+
+.takda-atm-sky {
+  position: absolute;
+  inset: 0;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-sky {
+  background: linear-gradient(185deg, #6a5a9e 0%, #c97d93 42%, #f3b48f 70%, #ffdba3 100%);
+}
+
+/* Minimalist Almanac V5: sophisticated muted teal/slate/sage/champagne
+   replacing the prior bright-blue-to-white gradient — computed contrast
+   re-verified below against the darkened hill-near silhouette (the
+   worst-case text zone), not merely re-estimated: white text over the
+   new #51705C hill-near measures ~5.49:1 via the WCAG relative-
+   luminance formula, clearing 4.5:1 AA with the existing shared
+   .takda-atm-scrim untouched (it is a horizontal, left-side gradient —
+   vertically position-agnostic — so this scene's own darker landscape
+   carries the legibility margin, not a scrim change). */
+.takda-atm-scene[data-p="day"] .takda-atm-sky {
+  background: linear-gradient(185deg, #7c93a3 0%, #8e9ba8 30%, #a8b18f 62%, #e3d3a6 100%);
+}
+
+.takda-atm-scene[data-p="dusk"] .takda-atm-sky {
+  background: linear-gradient(185deg, #2d2259 0%, #7a3d6b 38%, #c6577c 62%, #f3985c 88%, #ffc98a 100%);
+}
+
+.takda-atm-scene[data-p="night"] .takda-atm-sky {
+  background: linear-gradient(185deg, #0a0918 0%, #161340 55%, #241f52 82%, #2d2766 100%);
+}
+
+.takda-atm-halo {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(22px);
+  width: 150px;
+  height: 150px;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-halo { left: 24%; top: 12%; background: radial-gradient(circle, rgba(255,228,180,.65), rgba(255,228,180,0) 70%); }
+.takda-atm-scene[data-p="day"] .takda-atm-halo { left: 73%; top: 8%; width: 86px; height: 86px; background: radial-gradient(circle, rgba(243,223,174,.5), rgba(243,223,174,0) 72%); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-halo { left: 62%; top: 26%; width: 210px; height: 210px; background: radial-gradient(circle, rgba(255,206,138,.62), rgba(255,206,138,0) 72%); }
+.takda-atm-scene[data-p="night"] .takda-atm-halo { left: 66%; top: 6%; width: 120px; height: 120px; background: radial-gradient(circle, rgba(235,230,255,.42), rgba(235,230,255,0) 72%); }
+
+.takda-atm-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(2px);
+  width: 40px;
+  height: 40px;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-glow { left: 24%; top: 26%; background: radial-gradient(circle, #fff6df, #ffd9a0 60%, rgba(255,217,160,0) 100%); }
+.takda-atm-scene[data-p="day"] .takda-atm-glow { left: 74%; top: 15%; width: 26px; height: 26px; background: radial-gradient(circle, #fff8e8, #f3dfae 70%, rgba(243,223,174,0) 100%); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-glow { left: 62%; top: 42%; width: 52px; height: 52px; background: radial-gradient(circle, #fff0cf, #ffb15e 55%, rgba(255,177,94,0) 100%); }
+.takda-atm-scene[data-p="night"] .takda-atm-glow { left: 66%; top: 15%; width: 36px; height: 36px; background: radial-gradient(circle, #f6f3ff, #d9d2ff 55%, rgba(217,210,255,0) 100%); }
+
+/* Design Excellence Category D: a cloud as 3 overlapping puff-lobes
+   (classic cumulus silhouette) baked into one element's background —
+   still a single DOM node, same paint cost as the old one-lobe
+   ellipse, just a richer shape than a plain blurred oval. */
+.takda-atm-cloud {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(8px);
+  background:
+    radial-gradient(circle at 24% 62%, rgba(255,255,255,.92), rgba(255,255,255,0) 58%),
+    radial-gradient(circle at 54% 32%, rgba(255,255,255,.95), rgba(255,255,255,0) 54%),
+    radial-gradient(circle at 80% 58%, rgba(255,255,255,.85), rgba(255,255,255,0) 56%);
+}
+
+.takda-atm-cloud-soft {
+  background:
+    radial-gradient(circle at 24% 62%, rgba(255,210,180,.72), rgba(255,210,180,0) 58%),
+    radial-gradient(circle at 54% 32%, rgba(255,210,180,.8), rgba(255,210,180,0) 54%),
+    radial-gradient(circle at 80% 58%, rgba(255,210,180,.65), rgba(255,210,180,0) 56%);
+}
+
+.takda-atm-cloud-1 { width: 110px; height: 38px; left: 6%; top: 24%; opacity: .55; }
+.takda-atm-cloud-2 { width: 82px; height: 30px; left: 54%; top: 38%; opacity: .45; }
+.takda-atm-cloud-3 { width: 100px; height: 34px; left: 62%; top: 42%; opacity: .5; }
+
+.takda-atm-scene.is-active[data-p="dawn"] .takda-atm-cloud-1 { animation: takda-atm-drift1 46s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="dawn"] .takda-atm-cloud-2 { animation: takda-atm-drift2 60s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-1 { animation: takda-atm-drift1 52s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-2 { animation: takda-atm-drift2 68s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-3 { animation: takda-atm-drift1 80s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="dusk"] .takda-atm-cloud { animation: takda-atm-drift2 70s ease-in-out infinite; }
+
+/* Minimalist Almanac V5: Day's lobed/pancake cloud shapes are replaced
+   by two thin, understated atmospheric wisps — soft-edged purely via
+   the gradient's own falloff (no filter:blur, no outline), confined to
+   the upper-right quadrant so they can never reach the left-anchored
+   greeting text regardless of drift offset. Dawn/Dusk's existing
+   .takda-atm-cloud/.takda-atm-cloud-soft are untouched (out of this
+   Day-only scope). */
+.takda-atm-wisp {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,.22) 0%, rgba(255,255,255,.10) 48%, rgba(255,255,255,0) 78%);
+}
+.takda-atm-wisp-1 { top: 10%; left: 55%; width: 26%; height: 10px; }
+.takda-atm-wisp-2 { top: 24%; left: 70%; width: 18%; height: 8px; }
+
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-wisp-1 { animation: takda-atm-wispdrift1 170s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-wisp-2 { animation: takda-atm-wispdrift2 210s ease-in-out infinite; }
+
+.takda-atm-mist {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 26px;
+  height: 32px;
+  background: linear-gradient(to top, rgba(255,255,255,.5), rgba(255,255,255,0));
+  filter: blur(6px);
+}
+
+.takda-atm-birds {
+  position: absolute;
+  top: 16%;
+  left: 10%;
+  width: 50%;
+  height: 34%;
+  color: rgba(40,28,40,.5);
+}
+
+.takda-atm-bird {
+  position: absolute;
+  width: 20px;
+  height: 11px;
+}
+
+.takda-atm-bird-1 { top: 6%; left: 0%; animation-delay: 0s; }
+.takda-atm-bird-2 { top: 34%; left: 16%; animation-delay: -6s; transform: scale(.82); }
+.takda-atm-bird-3 { top: 0%; left: 30%; animation-delay: -13s; transform: scale(.65); }
+
+.takda-atm-bird-wing {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.takda-atm-stars {
+  position: absolute;
+  inset: 0;
+}
+
+.takda-atm-star {
+  position: absolute;
+  width: 2.2px;
+  height: 2.2px;
+  border-radius: 50%;
+  background: #fdfbff;
+}
+
+/* Design Excellence Category D: a handful of slightly larger, brighter
+   stars among the 18 (applied to specific indices in the JSX, not a
+   nth-child guess) reads as more sophisticated than 18 uniform dots —
+   same twinkle animation, just a size/glow variant. */
+.takda-atm-star-bright {
+  width: 3px;
+  height: 3px;
+  box-shadow: 0 0 4px 1px rgba(253,251,255,.55);
+}
+
+/* Performance fix (post-Stage-C review): all four scenes are always
+   mounted (so the opacity crossfade has something to animate between),
+   but only the active one should actually be animating — the other
+   three sat at opacity:0 while their clouds/birds/stars kept running,
+   burning CPU/battery for nothing visible. Every continuous-loop
+   animation is now scoped to `.is-active` specifically, never the bare
+   [data-p="..."] selector alone. */
+.takda-atm-scene.is-active .takda-atm-bird {
+  animation: takda-atm-flypath 26s ease-in-out infinite alternate;
+}
+
+.takda-atm-scene.is-active .takda-atm-bird-wing {
+  animation: takda-atm-flap .7s ease-in-out infinite;
+}
+
+.takda-atm-scene.is-active .takda-atm-star {
+  animation: takda-atm-twinkle 3.6s ease-in-out infinite;
+}
+
+/* Design Excellence Category D: layered landscape depth. The horizon
+   used to be a single foreground silhouette plus one identical-shape
+   "rim" duplicate (dusk/night only, just blurred+offset) — real depth
+   needs distinct shapes at distinct distances, consistently across all
+   four periods, not just two of them. Three static layers (far/mid/
+   near), each its own SVG path, lightening and desaturating toward the
+   back (atmospheric perspective) — no animation on any of them, so
+   this costs nothing beyond the existing single-layer version and
+   needs no prefers-reduced-motion handling. */
+.takda-atm-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 36px;
+  color: rgba(42,22,46,.85);
+}
+
+.takda-atm-scene[data-p="day"] .takda-atm-horizon { color: rgba(81,112,92,.82); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-horizon { color: rgba(20,10,28,.9); }
+.takda-atm-scene[data-p="night"] .takda-atm-horizon { color: rgba(5,5,16,.92); }
+
+.takda-atm-horizon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.takda-atm-horizon svg path {
+  fill: currentColor;
+}
+
+.takda-atm-hill-far { opacity: .55; color: rgba(201,157,172,.5); }
+.takda-atm-hill-mid { opacity: .7; color: rgba(120,85,110,.6); transform: translateY(2px); }
+
+/* Minimalist Almanac V5: a fourth, farthest depth layer — an elegant,
+   recognizable mountain silhouette (angular, not another rolling-hill
+   curve) sitting behind the existing far/mid/near hills, haziest and
+   lightest of the four per atmospheric perspective. Shares the exact
+   same shared-geometry/period-recolor mechanism as hill-far/hill-mid
+   (one path in App.jsx's AtmosphereHill, recolored here per [data-p]),
+   so it renders identically shaped across all four periods — only
+   color changes, per Stage C/Minimalist-Almanac's "same world, same
+   geometry" requirement. */
+.takda-atm-mountain { opacity: .5; color: rgba(221,187,197,.4); transform: translateY(-3px); }
+.takda-atm-scene[data-p="day"] .takda-atm-mountain { color: rgba(201,210,190,.48); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-mountain { color: rgba(205,152,158,.42); }
+.takda-atm-scene[data-p="night"] .takda-atm-mountain { color: rgba(85,85,130,.4); }
+
+/* Minimalist Almanac V5: a winding river — one shared path (see
+   AtmosphereHill's river variant in App.jsx), sitting between the mid
+   and near hill layers, recolored per period like every other horizon
+   element. New element, not a restyle; added because no river existed
+   in any prior Atmosphere pass. */
+.takda-atm-river { opacity: .5; }
+.takda-atm-scene[data-p="dawn"] .takda-atm-river { color: rgba(255,224,170,.5); }
+/* Note: this element also carries the shared .takda-atm-river{opacity:.5}
+   rule below (same compounding convention hill-far/hill-mid already
+   use), so its EFFECTIVE alpha is .5 x this color's own alpha, not the
+   alpha written here alone — set higher than it might look in
+   isolation specifically so Day's river stays genuinely prominent
+   after that compounding, per the explicit "clearly visible" requirement. */
+.takda-atm-scene[data-p="day"] .takda-atm-river { color: rgba(230,210,160,.85); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-river { color: rgba(240,200,150,.55); }
+.takda-atm-scene[data-p="night"] .takda-atm-river { color: rgba(110,108,165,.35); }
+
+.takda-atm-scene[data-p="day"] .takda-atm-hill-far { color: rgba(185,196,176,.6); }
+.takda-atm-scene[data-p="day"] .takda-atm-hill-mid { color: rgba(140,161,138,.68); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-hill-far { color: rgba(185,112,120,.55); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-hill-mid { color: rgba(95,52,72,.68); }
+.takda-atm-scene[data-p="night"] .takda-atm-hill-far { color: rgba(55,55,95,.5); }
+.takda-atm-scene[data-p="night"] .takda-atm-hill-mid { color: rgba(24,24,50,.68); }
+
+/* Design Excellence Category D: a proper crisp sun/moon disc — halo
+   (ambient light, heavy blur) and glow (inner brightness, light blur)
+   already existed but neither has a defined edge, so the "sun"/"moon"
+   itself was never actually drawn, only its light. Sits on top of
+   both, same position as .takda-atm-glow per period. Night's moon gets
+   2 extra radial-gradient layers baked into the same background
+   (subtle craters) — texture, not geometry, so still a single static
+   element. */
+.takda-atm-body {
+  position: absolute;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+}
+
+.takda-atm-scene[data-p="dawn"] .takda-atm-body { left: 25.5%; top: 27.5%; width: 30px; height: 30px; background: radial-gradient(circle at 35% 35%, #fff6df, #ffdba3 70%, #f3b48f 100%); }
+.takda-atm-scene[data-p="day"] .takda-atm-body { left: 74.5%; top: 16%; width: 30px; height: 30px; background: radial-gradient(circle at 35% 35%, #fff8e8, #f3dfae 60%, #e3c686 100%); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-body { left: 63.5%; top: 43.5%; width: 38px; height: 38px; background: radial-gradient(circle at 35% 35%, #fff0cf, #ffb15e 58%, #ff8a4a 100%); }
+.takda-atm-scene[data-p="night"] .takda-atm-body {
+  left: 67%; top: 16%; width: 24px; height: 24px;
+  background:
+    radial-gradient(circle at 30% 70%, rgba(170,160,215,.45), rgba(170,160,215,0) 42%),
+    radial-gradient(circle at 66% 34%, rgba(170,160,215,.35), rgba(170,160,215,0) 36%),
+    radial-gradient(circle at 38% 38%, #fbf9ff, #e4ddff 65%, #c9c0f0 100%);
+}
+
+/* Design Excellence Category D: soft dawn light rays — a static conic
+   gradient centered on the sun, no animation (a sweeping/rotating ray
+   is exactly the kind of motion prefers-reduced-motion exists to
+   avoid, and a static ray reads just as well as "soft atmospheric
+   light" here). mix-blend-mode: screen lets it brighten the sky
+   beneath it instead of sitting as a flat shape on top. */
+.takda-atm-rays {
+  position: absolute;
+  left: 2%;
+  top: 0%;
+  width: 70%;
+  height: 75%;
+  opacity: .8;
+  mix-blend-mode: screen;
+  background: conic-gradient(from 205deg at 46% 38%,
+    transparent 0deg, rgba(255,238,205,.22) 7deg, transparent 15deg,
+    transparent 38deg, rgba(255,238,205,.16) 45deg, transparent 53deg,
+    transparent 86deg, rgba(255,238,205,.19) 93deg, transparent 101deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Already static (no animation declared), kept transparent-safe for
+     any future author who adds motion here. */
+  .takda-atm-rays { transition: none; }
+}
+
+.takda-atm-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, rgba(10,8,22,.55) 0%, rgba(10,8,22,.22) 48%, rgba(10,8,22,.02) 72%);
+}
+
+@keyframes takda-atm-drift1 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(12px); } }
+@keyframes takda-atm-drift2 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-9px); } }
+@keyframes takda-atm-wispdrift1 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(10px); } }
+@keyframes takda-atm-wispdrift2 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-8px); } }
+@keyframes takda-atm-twinkle { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@keyframes takda-atm-flap { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.45); } }
+@keyframes takda-atm-flypath { 0% { transform: translate(0,0); } 100% { transform: translate(44px,-11px); } }
+
+/* ========================= Stage F: Academic progress arc ========================= */
+.takda-progress-ring circle {
+  transition: stroke-dashoffset var(--takda-motion-slow) var(--takda-ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .takda-progress-ring circle {
+    transition: none;
+  }
+}
+
+/* ========================= Stage H: Loading spinner ========================= */
+@keyframes takda-spin {
+  to { transform: rotate(360deg); }
+}
+
+.takda-spinner {
+  animation: takda-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A spinner communicates real, ongoing loading state — removing its
+     motion entirely would remove the only signal it carries. Slowed
+     instead of stopped, same "shorten, don't delete the meaning"
+     treatment the scene crossfade gets above. */
+  .takda-spinner {
+    animation-duration: 1.6s;
+  }
+}
+
+/* ========================= Stage H: Skeleton placeholders ========================= */
+@keyframes takda-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+.takda-skeleton {
+  background: var(--takda-border);
+  border-radius: 8px;
+  animation: takda-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .takda-skeleton {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/* Minimalist Almanac V5: a slim, theme-aware horizontal scrollbar for
+   the new Subject Shelf. --takda-scrollbar-thumb already existed (per
+   theme) but had no actual ::-webkit-scrollbar/scrollbar-color rule
+   anywhere in this file to apply it — this is that rule's first real
+   use, scoped to the one new scrollable row that needs it, not a
+   retrofit of every scrollable surface in the app. */
+.takda-shelf-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--takda-scrollbar-thumb) transparent;
+}
+.takda-shelf-scroll::-webkit-scrollbar { height: 6px; }
+.takda-shelf-scroll::-webkit-scrollbar-track { background: transparent; }
+.takda-shelf-scroll::-webkit-scrollbar-thumb { background: var(--takda-scrollbar-thumb); border-radius: 999px; }
+.takda-shelf-scroll::-webkit-scrollbar-thumb:hover { background: var(--takda-text-muted-1); }
 
 /* 10A.4H: Reminder category grid — container-query responsive layout.
    The chip grid lives inside the Dashboard's ~40% "supporting" column

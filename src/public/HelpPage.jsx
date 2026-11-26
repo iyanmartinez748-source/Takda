@@ -20,8 +20,8 @@ export default function HelpPage({ isAuthenticated, onNavigateHome, onNavigateAb
     >
       <article className="pt-4 sm:pt-0">
         <p className="mb-3 text-sm font-semibold text-[color:var(--takda-brand)]">TAKDA</p>
-        <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{helpContent.title}</h1>
-        <p className="mt-5 text-base leading-7 text-slate-600">{helpContent.intro}</p>
+        <h1 className="font-display text-3xl font-bold leading-tight sm:text-4xl">{helpContent.title}</h1>
+        <p className="mt-5 text-base leading-7 text-[color:var(--takda-text-muted-2)]">{helpContent.intro}</p>
 
         {helpContent.sections.map((section) => (
           <div key={section.title} className="mt-10">
@@ -30,7 +30,7 @@ export default function HelpPage({ isAuthenticated, onNavigateHome, onNavigateAb
               {section.items.map((item) => (
                 <div key={item.question}>
                   <h3 className="font-bold text-[color:var(--takda-text-primary)]">{item.question}</h3>
-                  <p className="mt-1.5 text-sm leading-7 text-slate-600">{item.answer}</p>
+                  <p className="mt-1.5 text-sm leading-7 text-[color:var(--takda-text-muted-2)]">{item.answer}</p>
                 </div>
               ))}
             </div>
@@ -39,7 +39,7 @@ export default function HelpPage({ isAuthenticated, onNavigateHome, onNavigateAb
 
         <div className="mt-10">
           <h2 className="text-xl font-bold">Contact Support</h2>
-          <p className="mt-3 text-sm leading-7 text-slate-600">
+          <p className="mt-3 text-sm leading-7 text-[color:var(--takda-text-muted-2)]">
             Still need help? Reach out at{" "}
             <a href="mailto:iyanmartinez748@gmail.com?subject=Takda%20Support" className="font-semibold text-[color:var(--takda-brand)] hover:underline">
               Contact / Support
