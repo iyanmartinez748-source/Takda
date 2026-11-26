@@ -482,6 +482,23 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "", a
     return subjects.filter((s) => s.semesterId === activeSemesterId);
   }, [subjects, semesters.length, activeSemesterId]);
 
+  // Minimalist Almanac V5: the new dashboard Subject Shelf needs an
+  // ACTIVE-semester-scoped subjects list — the same scoping convention
+  // every other Dashboard data point (stats, nextClass, todaysClasses)
+  // already uses — not `viewSubjects` (SELECTED-semester-scoped, used
+  // by the standalone Subjects page), which could silently disagree
+  // with the rest of the dashboard if the user has a different
+  // semester merely selected elsewhere. Same filter expression as
+  // `creatableSubjectsForActivity` above (proven existing logic, not a
+  // new rule), kept as its own variable rather than reusing that one
+  // directly since its name/intent is specifically about activity
+  // creation, not display.
+  const dashboardSubjects = useMemo(() => {
+    if (semesters.length === 0) return subjects;
+    if (activeSemesterId === null) return [];
+    return subjects.filter((s) => s.semesterId === activeSemesterId);
+  }, [subjects, semesters.length, activeSemesterId]);
+
   // Semester hotfix: resolves the semesterId for a NEW activity only.
   // Unlike semesterIdForNewChild, this never lets an activity inherit a
   // subject's semesterId that disagrees with the currently active
@@ -1667,6 +1684,7 @@ export default function TakdaApp({ isPro = false, onUpgrade, studentName = "", a
               studentName={studentName}
               overallAverage={dashboardOverallAverage}
               onOpenNotes={() => setView("notes")}
+              subjects={dashboardSubjects}
             />
           )}
 
@@ -2992,9 +3010,70 @@ function AcademicProgressCard({ value, bg, accent }) {
 // 10A.14B: mb-7 (28px) -> mb-4 (16px), the one spacing change
 // authorized for AcademicOverview in this phase — its own card
 // styling (OverviewCard) is untouched.
+// Minimalist Almanac V5: desktop (lg+) regroups the 4 same-weight
+// colored tiles below into ONE neutral surface with stacked rows —
+// "reduce competition between brightly colored cards" per the approved
+// direction (design-intelligence.md §2/§3's 60-30-10 / hierarchy
+// reasoning). The accent color now lives only in each row's icon chip,
+// not the row's own background. Below lg, the ORIGINAL compact 2x2
+// tile grid (OverviewCard, unchanged) still renders — this is the
+// explicitly preserved mobile baseline, not touched by this pass. Same
+// stats/classesToday/overallAverage/isPro/onOpenGrades props, same
+// values, same onOpenGrades handler — this is a presentation-only
+// regrouping, no new data.
+function AcademicOverviewRow({ icon: Icon, label, value, bg, accent }) {
+  return (
+    <div className="flex items-center gap-3 py-2.5 border-b border-[var(--takda-border)] last:border-b-0 last:pb-0 first:pt-0">
+      <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0" style={{ background: bg }}>
+        <Icon size={14} color={accent} />
+      </span>
+      <span className="text-xs font-medium flex-1" style={{ color: "var(--takda-text-muted-2)" }}>{label}</span>
+      <span className="font-display text-base font-semibold tabular-nums" style={{ color: "var(--takda-text-primary)" }}>{value}</span>
+    </div>
+  );
+}
+
 function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGrades }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+    <>
+      <div className="hidden lg:block rounded-2xl p-4 border border-[var(--takda-border)] mb-4" style={{ background: "var(--takda-bg-surface)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}>
+        <h2 className="font-display text-sm font-semibold tracking-wide mb-1" style={{ color: "var(--takda-text-primary)" }}>Academic Overview</h2>
+        <AcademicOverviewRow icon={CheckCircle2} label="Pending Activities" value={stats.pending} bg={OVERVIEW_ACCENTS.rose.bg} accent={OVERVIEW_ACCENTS.rose.accent} />
+        <AcademicOverviewRow icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
+        <AcademicOverviewRow icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
+        {isPro ? (
+          <div className="flex items-center gap-3 py-2.5">
+            <svg aria-hidden="true" className="takda-progress-ring shrink-0" width="28" height="28" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--takda-border)" strokeWidth="4" />
+              <circle
+                cx="18" cy="18" r="15" fill="none" stroke="var(--takda-brand)" strokeWidth="4" strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 15}
+                strokeDashoffset={overallAverage !== null ? (2 * Math.PI * 15) * (1 - Math.max(0, Math.min(100, overallAverage)) / 100) : 2 * Math.PI * 15}
+                transform="rotate(-90 18 18)"
+              />
+            </svg>
+            <span className="text-xs font-medium flex-1" style={{ color: "var(--takda-text-muted-2)" }}>Academic Performance</span>
+            <span className="font-display text-base font-semibold tabular-nums" style={{ color: "var(--takda-text-primary)" }}>
+              {overallAverage !== null ? `${overallAverage.toFixed(1)}%` : "—"}
+            </span>
+          </div>
+        ) : (
+          <button type="button" onClick={onOpenGrades} className="takda-focus-visible takda-interactive w-full flex items-center gap-3 py-2.5 text-left">
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0" style={{ background: OVERVIEW_ACCENTS.amber.bg }}>
+              <Lock size={14} color={OVERVIEW_ACCENTS.amber.accent} />
+            </span>
+            <span className="text-xs font-medium flex-1" style={{ color: "var(--takda-text-muted-2)" }}>Academic Performance</span>
+            <span className="takda-pro-badge inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide">
+              <span aria-hidden="true">✦</span> PRO
+            </span>
+          </button>
+        )}
+      </div>
+
+      {/* Preserved mobile/tablet baseline (unchanged below lg) — the
+          original compact 2x2-then-4-across grid of colored
+          OverviewCard tiles. */}
+      <div className="lg:hidden grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
       <OverviewCard icon={CheckCircle2} label="Pending Activities" value={stats.pending} bg={OVERVIEW_ACCENTS.rose.bg} accent={OVERVIEW_ACCENTS.rose.accent} />
       <OverviewCard icon={BookOpen} label="Active Subjects" value={stats.subjects} bg={OVERVIEW_ACCENTS.lavender.bg} accent={OVERVIEW_ACCENTS.lavender.accent} />
       <OverviewCard icon={CalendarIcon} label="Classes Today" value={classesToday} bg={OVERVIEW_ACCENTS.mint.bg} accent={OVERVIEW_ACCENTS.mint.accent} />
@@ -3043,7 +3122,8 @@ function AcademicOverview({ stats, classesToday, overallAverage, isPro, onOpenGr
           </div>
         </button>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -3375,6 +3455,7 @@ function Dashboard({
   studentName,
   overallAverage,
   onOpenNotes,
+  subjects,
 }) {
   // overdueVisible/dueTodayVisible/upcomingVisible used to be computed
   // here for the old 3-stacked-sections render; that render is now
@@ -3410,13 +3491,27 @@ function Dashboard({
         </div>
       )}
 
-      <AcademicOverview
-        stats={stats}
-        classesToday={todaysClasses.length}
-        overallAverage={overallAverage}
-        isPro={isPro}
-        onOpenGrades={onOpenGrades}
-      />
+      {/* Minimalist Almanac V5 — approved arrangement: "Up Next" on the
+          left, "Academic Overview" on the right (desktop), with Up
+          Next appearing FIRST on mobile too. A flex-col container is
+          used (not a plain stacked block) specifically so `order-*`
+          takes effect at every breakpoint, not only inside the lg:grid
+          state — this reorders presentation only; no prop, handler, or
+          data computation on either child changed. */}
+      <div className="flex flex-col lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start mb-4">
+        <div className="order-1">
+          <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
+        </div>
+        <div className="order-2">
+          <AcademicOverview
+            stats={stats}
+            classesToday={todaysClasses.length}
+            overallAverage={overallAverage}
+            isPro={isPro}
+            onOpenGrades={onOpenGrades}
+          />
+        </div>
+      </div>
 
       <QuickActions
         onAddSubject={onAddSubject}
@@ -3426,7 +3521,26 @@ function Dashboard({
         canCreate={canCreate}
       />
 
-      <NextClassCard nextClass={nextClass} onOpenSubject={onOpenSubject} />
+      {/* Minimalist Almanac V5: TodaysFocusPanel moved up out of the
+          preserved widget grid below (it is explicitly named in the
+          approved arrangement, unlike its 6 former grid-mates, which
+          stay exactly where they are — same component, same props,
+          same data, just rendered at a different point in this file). */}
+      <TodaysFocusPanel
+        focusLists={focusLists}
+        onToggle={onToggle}
+        onOpenSubject={onOpenSubject}
+        onFocusFilter={onFocusFilter}
+        canCreate={canCreate}
+        onAddActivity={onAddActivity}
+      />
+
+      {/* Minimalist Almanac V5: new Subject Shelf — real subjects data
+          (the same semester-scoped list the Subjects page itself
+          uses), not on the dashboard before this pass. See SubjectShelf
+          below for what was deliberately kept simple (name + seal only,
+          no fabricated per-subject status count) and why. */}
+      <SubjectShelf subjects={subjects} onOpenSubject={onOpenSubject} onAddSubject={onAddSubject} canCreate={canCreate} />
 
       {/* 10A.5B: FocusForToday (Overdue/Due Today/Upcoming count tiles)
           removed from here — it duplicated the exact same counts
@@ -3494,27 +3608,14 @@ function Dashboard({
           rhythm now comes from each widget's own margin alone, exactly
           as it did before this grid existed. Not verified in a
           browser. */}
+      {/* Minimalist Almanac V5: TodaysFocusPanel no longer renders here
+          — it moved above (see the comment at its new call site) to
+          match the approved arrangement. Nothing else about this grid
+          changed: SmartReminders becomes this grid's own first item,
+          its existing lg:col-span-2 and every sibling's own span are
+          untouched, so the grid simply auto-flows starting one item
+          earlier — not a restructure of the grid itself. */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-x-6 lg:items-start">
-        {/* Phase 10A.3: the old eyebrow heading + 3 separately-glassed
-            sections (Needs Attention/Due Today/Upcoming Deadlines) are
-            replaced by one unified TodaysFocusPanel with filter tabs.
-            It receives the same focusLists/onToggle/onOpenSubject/
-            onFocusFilter/canCreate/onAddActivity Dashboard already
-            had in scope — no new data source, no new classification
-            logic (see the component's own comment above its
-            definition for the confirmed existing deadline-boundary
-            rules this reuses verbatim). */}
-        <div className="lg:col-span-2">
-          <TodaysFocusPanel
-            focusLists={focusLists}
-            onToggle={onToggle}
-            onOpenSubject={onOpenSubject}
-            onFocusFilter={onFocusFilter}
-            canCreate={canCreate}
-            onAddActivity={onAddActivity}
-          />
-        </div>
-
         <div className="lg:col-span-2">
           <SmartRemindersSection
             groups={reminderGroups}
@@ -3675,12 +3776,23 @@ const HERO_SUBTLE_COLOR = "#F2EFFF";
 // undulation, near (the original path, unchanged) is the sharpest and
 // closest. className selects far/mid/near's own color treatment from
 // index.css; the shape itself never changes with theme or period.
+// Minimalist Almanac V5: added "mountain" (a new, farthest layer — an
+// angular, more "elegant and recognizable" silhouette than another
+// rolling-hill curve, per the approved direction) and "river" (a new
+// winding band sitting between mid and near). "far"'s own path is
+// otherwise unchanged; "mountain" and "river" are new path strings,
+// not replacements, so the existing far/mid/near layers keep rendering
+// exactly as before everywhere this component is already used.
 function AtmosphereHill({ variant = "near", className = "" }) {
   const path =
-    variant === "far"
+    variant === "mountain"
+      ? "M0,41 L55,23 L105,38 L165,16 L225,36 L295,22 L355,38 L400,27 L400,90 L0,90 Z"
+      : variant === "far"
       ? "M0,78 Q100,58 200,72 Q300,84 400,64 L400,90 L0,90 Z"
       : variant === "mid"
       ? "M0,74 Q80,48 160,64 Q260,80 320,52 Q370,38 400,54 L400,90 L0,90 Z"
+      : variant === "river"
+      ? "M0,78 Q90,68 180,80 Q260,90 400,74 L400,82 Q260,98 180,88 Q90,76 0,86 Z"
       : "M0,70 Q60,30 130,52 Q190,70 260,40 Q330,16 400,46 L400,90 L0,90 Z";
   return (
     <svg viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true" className={className}>
@@ -3726,18 +3838,21 @@ const ATMOSPHERE_PERIODS = ["dawn", "day", "dusk", "night"];
 // greeting says. The date line is `new Date()` formatted inline on
 // every render — no new timer, no new state.
 function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
+  // Minimalist Almanac V5: year dropped from this specific label — it
+  // now renders as a compact uppercase eyebrow (see below), where a
+  // full "Weekday, Month Day, Year" string reads as heavy/cramped at
+  // that small size. No other date computation in the file is touched.
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
-    year: "numeric",
   });
   // Corrective fix: driven by the actual resolved greeting text, not by
   // the (independent, possibly manually-overridden) Atmosphere scene —
   // "Still Studying" only ever appears when it's actually late at night.
   const isLateNight = greeting === "Still Studying";
   return (
-    <div className="takda-glass relative overflow-hidden rounded-2xl mb-6 min-h-[150px] md:min-h-[170px]">
+    <div className="takda-glass relative overflow-hidden rounded-2xl mb-6 min-h-[128px] sm:min-h-[150px] md:min-h-[168px]">
       {/* Decorative atmosphere layers — purely presentational: aria-hidden
           AND pointer-events-none (so they can never intercept a click/
           hover even where the real content column doesn't cover them),
@@ -3773,9 +3888,8 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
             )}
             {p === "day" && (
               <>
-                <div className="takda-atm-cloud takda-atm-cloud-1" />
-                <div className="takda-atm-cloud takda-atm-cloud-2" />
-                <div className="takda-atm-cloud takda-atm-cloud-3" />
+                <div className="takda-atm-wisp takda-atm-wisp-1" />
+                <div className="takda-atm-wisp takda-atm-wisp-2" />
               </>
             )}
             {p === "dusk" && (
@@ -3810,8 +3924,10 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
                 dusk/night got a second ("rim") layer, and it reused the
                 near layer's own exact shape, just blurred. */}
             <div className="takda-atm-horizon">
+              <AtmosphereHill variant="mountain" className="takda-atm-mountain" />
               <AtmosphereHill variant="far" className="takda-atm-hill-far" />
               <AtmosphereHill variant="mid" className="takda-atm-hill-mid" />
+              <AtmosphereHill variant="river" className="takda-atm-river" />
               <AtmosphereHill variant="near" />
             </div>
           </div>
@@ -3819,21 +3935,23 @@ function GreetingHero({ greeting, contextMessage, studentName, atmosphere }) {
         <div className="takda-atm-scrim" />
       </div>
 
-      <div className="relative z-[2] flex min-h-[150px] md:min-h-[170px] items-end px-5 py-5">
-        <div className="relative max-w-[70%] md:max-w-[60%]">
-          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight" style={{ color: HERO_TEXT_COLOR }}>
+      <div className="relative z-[2] flex min-h-[128px] sm:min-h-[150px] md:min-h-[168px] items-end px-4 py-3.5 sm:px-6 sm:py-4">
+        <div className="relative max-w-[85%] sm:max-w-[68%] md:max-w-[58%] lg:max-w-[50%]">
+          {/* Minimalist Almanac V5: the date moves from a bottom pill
+              (with its own icon/background chip) to a small uppercase
+              eyebrow above the greeting — same `todayLabel` value,
+              restyled only. Removing the pill is a deliberate part of
+              the approved typographic hierarchy (eyebrow → greeting →
+              context), not a data change. */}
+          <p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: HERO_SUBTLE_COLOR, opacity: 0.8 }}>
+            {todayLabel}
+          </p>
+          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-medium" style={{ color: HERO_TEXT_COLOR }}>
             {isLateNight
               ? <>{greeting}{studentName ? `, ${studentName}` : ""}?</>
               : <>{greeting}{studentName ? `, ${studentName}` : ""} 👋</>}
           </h1>
-          <p className="text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
-          <div
-            className="inline-flex items-center gap-1.5 mt-3 rounded-full px-3 py-1.5 text-xs font-semibold"
-            style={{ background: "rgba(255,255,255,0.14)", color: HERO_TEXT_COLOR }}
-          >
-            <CalendarIcon size={13} aria-hidden="true" />
-            <span>{todayLabel}</span>
-          </div>
+          <p className="text-xs sm:text-sm mt-1" style={{ color: HERO_SUBTLE_COLOR }}>{contextMessage}</p>
         </div>
       </div>
     </div>
@@ -3877,15 +3995,21 @@ const QUICK_ACTION_ACCENTS = {
 // value actually setting the rendered height — a small, deliberate
 // floor rather than padding alone, keeping the 44px touch target
 // exact instead of just "at least."
-function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, bg, accent }) {
+// Minimalist Almanac V5: `flat` (desktop-only, see QuickActions below)
+// drops this tile's own colored background/border/shadow so it can sit
+// as a plain row inside one shared grouped surface instead of being
+// its own card — the accent color still comes through via the icon
+// alone. Every prop/handler/the bg-driven mobile rendering below is
+// unchanged when `flat` is omitted.
+function QuickActionTile({ icon: Icon, label, onClick, disabled, title, showProBadge, bg, accent, flat = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-disabled={disabled}
       title={title}
-      className="takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative border border-[var(--takda-border)] takda-quick-action-shadow motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5"
-      style={{ background: bg }}
+      className={`takda-focus-visible takda-interactive flex items-center gap-2 min-h-11 rounded-2xl py-3 px-3 text-left relative motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 ${flat ? "hover:bg-[var(--takda-bg-page)]" : "border border-[var(--takda-border)] takda-quick-action-shadow"}`}
+      style={{ background: flat ? "transparent" : bg }}
     >
       {showProBadge && (
         <span
@@ -3926,46 +4050,64 @@ function QuickActions({ onAddSubject, onAddActivity, onViewSchedule, onOpenNotes
   // 10A.14B: mb-7 (28px) -> mb-4 (16px), reducing the gap to Next
   // Class. grid-cols-2 sm:grid-cols-4 and every handler/gating prop
   // below are unchanged.
+  const tiles = (flat) => (
+    <>
+      <QuickActionTile
+        icon={BookOpen}
+        label="Add Subject"
+        onClick={onAddSubject}
+        disabled={!canCreate}
+        title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
+        bg={QUICK_ACTION_ACCENTS.lavender.bg}
+        accent={QUICK_ACTION_ACCENTS.lavender.accent}
+        flat={flat}
+      />
+      <QuickActionTile
+        icon={CheckCircle2}
+        label="Add Activity"
+        onClick={onAddActivity}
+        disabled={!canCreate}
+        title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
+        bg={QUICK_ACTION_ACCENTS.mint.bg}
+        accent={QUICK_ACTION_ACCENTS.mint.accent}
+        flat={flat}
+      />
+      <QuickActionTile
+        icon={CalendarIcon}
+        label="View Calendar"
+        onClick={onViewSchedule}
+        bg={QUICK_ACTION_ACCENTS.blue.bg}
+        accent={QUICK_ACTION_ACCENTS.blue.accent}
+        flat={flat}
+      />
+      <QuickActionTile
+        icon={StickyNote}
+        label="Take Notes"
+        onClick={onOpenNotes}
+        bg={QUICK_ACTION_ACCENTS.amber.bg}
+        accent={QUICK_ACTION_ACCENTS.amber.accent}
+        flat={flat}
+      />
+    </>
+  );
   return (
     <div className="mb-4">
       {/* Visible "Quick Actions" heading removed per Phase 09B.6 — kept
           in the DOM as sr-only so screen-reader heading navigation and
-          grouping context are preserved. */}
-      <h2 className="sr-only">Quick Actions</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <QuickActionTile
-          icon={BookOpen}
-          label="Add Subject"
-          onClick={onAddSubject}
-          disabled={!canCreate}
-          title={!canCreate ? "Switch to your active semester to add a subject." : undefined}
-          bg={QUICK_ACTION_ACCENTS.lavender.bg}
-          accent={QUICK_ACTION_ACCENTS.lavender.accent}
-        />
-        <QuickActionTile
-          icon={CheckCircle2}
-          label="Add Activity"
-          onClick={onAddActivity}
-          disabled={!canCreate}
-          title={!canCreate ? "Switch to your active semester to add an activity." : undefined}
-          bg={QUICK_ACTION_ACCENTS.mint.bg}
-          accent={QUICK_ACTION_ACCENTS.mint.accent}
-        />
-        <QuickActionTile
-          icon={CalendarIcon}
-          label="View Calendar"
-          onClick={onViewSchedule}
-          bg={QUICK_ACTION_ACCENTS.blue.bg}
-          accent={QUICK_ACTION_ACCENTS.blue.accent}
-        />
-        <QuickActionTile
-          icon={StickyNote}
-          label="Take Notes"
-          onClick={onOpenNotes}
-          bg={QUICK_ACTION_ACCENTS.amber.bg}
-          accent={QUICK_ACTION_ACCENTS.amber.accent}
-        />
+          grouping context are preserved. Minimalist Almanac V5: scoped
+          to lg:hidden now that the new desktop surface below has its
+          own real, visible heading — without this, both would be in
+          the accessible tree at once on desktop, announced twice. */}
+      <h2 className="sr-only lg:hidden">Quick Actions</h2>
+      {/* Minimalist Almanac V5: desktop (lg+) groups the 4 tiles into
+          one neutral surface (accent moves to the icon only); below
+          lg, the original 4 individually-colored tiles in a compact
+          2x2-then-4-across grid are fully preserved, unchanged. */}
+      <div className="hidden lg:block rounded-2xl p-4 border border-[var(--takda-border)]" style={{ background: "var(--takda-bg-surface)", boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)" }}>
+        <h2 className="font-display text-sm font-semibold tracking-wide mb-3" style={{ color: "var(--takda-text-primary)" }}>Quick Actions</h2>
+        <div className="grid grid-cols-4 gap-1">{tiles(true)}</div>
       </div>
+      <div className="lg:hidden grid grid-cols-2 sm:grid-cols-4 gap-2.5">{tiles(false)}</div>
     </div>
   );
 }
@@ -4332,9 +4474,10 @@ function NextClassCard({ nextClass, onOpenSubject }) {
         // only one line of content. No navigation was added; this
         // remains purely informational, same as before.
         <div
-          className="rounded-2xl p-3"
+          className="rounded-2xl p-3 border"
           style={{
-            background: "var(--takda-status-tomorrow-bg)",
+            background: "var(--takda-bg-page)",
+            borderColor: "var(--takda-border)",
             boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
           }}
         >
@@ -4345,12 +4488,20 @@ function NextClassCard({ nextClass, onOpenSubject }) {
           />
         </div>
       ) : (
+        // Minimalist Almanac V5: outer surface changed from a full
+        // saturated amber wash (--takda-status-tomorrow-bg) to a
+        // neutral page surface + border — "neutral surface, restrained
+        // semantic accent" per the approved direction. The dayLabel
+        // badge just below already *was* a small, restrained accent
+        // chip; it is unchanged, it just no longer sits on top of a
+        // same-colored card, so it actually reads as an accent now.
         <button
           type="button"
           onClick={() => nextClass.subject && onOpenSubject(nextClass.subject.id)}
-          className="takda-focus-visible takda-interactive w-full text-left rounded-2xl p-4 md:p-5 flex items-center gap-3"
+          className="takda-focus-visible takda-interactive w-full text-left rounded-2xl p-4 md:p-5 flex items-center gap-3 border"
           style={{
-            background: "var(--takda-status-tomorrow-bg)",
+            background: "var(--takda-bg-page)",
+            borderColor: "var(--takda-border)",
             boxShadow: "inset 0 1px 0 var(--takda-glass-highlight), 0 1px 3px rgba(15,23,42,0.05)",
           }}
         >
@@ -4384,6 +4535,68 @@ function NextClassCard({ nextClass, onOpenSubject }) {
             )}
           </div>
         </button>
+      )}
+    </div>
+  );
+}
+
+// Minimalist Almanac V5: new Subject Shelf — a horizontal, scrollable
+// row of real subjects (`dashboardSubjects` in TakdaApp — the same
+// active-semester-scoped filter `creatableSubjectsForActivity` already
+// proved correct, reused as its own variable for display; see that
+// definition's own comment). Deliberately kept to just the
+// subject seal + name: a correct per-subject "N pending/overdue" count
+// would need a new subject-to-activity aggregation that does not exist
+// anywhere in this file today, and inventing one without the ability
+// to verify it against real data risked shipping a confidently-wrong
+// number — exactly what Section 0 warns against. That aggregation is a
+// legitimate follow-up, not something this pass added.
+function SubjectShelf({ subjects, onOpenSubject, onAddSubject, canCreate = true }) {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-0.5 rounded-full shrink-0" style={{ background: "var(--takda-brand)" }} aria-hidden="true" />
+          <h2 className="font-display text-sm font-semibold tracking-wide" style={{ color: "var(--takda-text-primary)" }}>Subjects</h2>
+        </div>
+        {subjects.length > 0 && (
+          <span className="text-xs font-medium shrink-0" style={{ color: "var(--takda-text-muted-2)" }}>
+            {subjects.length} active
+          </span>
+        )}
+      </div>
+      {subjects.length === 0 ? (
+        <EmptyRow text="Add your first subject to see it here." />
+      ) : (
+        <div
+          className="takda-focus-visible takda-shelf-scroll flex gap-2.5 overflow-x-auto pb-1"
+          tabIndex={0}
+          role="group"
+          aria-label="Subjects, scroll horizontally for more"
+        >
+          {subjects.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onOpenSubject(s.id)}
+              className="takda-focus-visible takda-interactive flex items-center gap-2.5 shrink-0 rounded-2xl border border-[var(--takda-border)] px-3 py-2.5 text-left"
+              style={{ background: "var(--takda-bg-page)", minWidth: "148px" }}
+            >
+              <SubjectSeal name={s.name} color={s.color} size={32} />
+              <span className="block text-xs font-semibold truncate min-w-0" style={{ color: "var(--takda-text-primary)", maxWidth: "88px" }}>{s.name}</span>
+            </button>
+          ))}
+          {canCreate && (
+            <button
+              type="button"
+              onClick={onAddSubject}
+              className="takda-focus-visible takda-interactive flex items-center gap-1.5 shrink-0 rounded-2xl border border-dashed border-[var(--takda-text-muted-1)] px-3 py-2.5 text-xs font-semibold"
+              style={{ color: "var(--takda-text-muted-2)" }}
+            >
+              <Plus size={14} /> Add Subject
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

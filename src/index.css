@@ -748,6 +748,7 @@ body {
      active period's content becomes visible) is shortened rather than
      removed, same treatment the glass hover lift gets just above. */
   .takda-atm-cloud,
+  .takda-atm-wisp,
   .takda-atm-bird,
   .takda-atm-bird-wing,
   .takda-atm-star {
@@ -797,8 +798,17 @@ body {
   background: linear-gradient(185deg, #6a5a9e 0%, #c97d93 42%, #f3b48f 70%, #ffdba3 100%);
 }
 
+/* Minimalist Almanac V5: sophisticated muted teal/slate/sage/champagne
+   replacing the prior bright-blue-to-white gradient — computed contrast
+   re-verified below against the darkened hill-near silhouette (the
+   worst-case text zone), not merely re-estimated: white text over the
+   new #51705C hill-near measures ~5.49:1 via the WCAG relative-
+   luminance formula, clearing 4.5:1 AA with the existing shared
+   .takda-atm-scrim untouched (it is a horizontal, left-side gradient —
+   vertically position-agnostic — so this scene's own darker landscape
+   carries the legibility margin, not a scrim change). */
 .takda-atm-scene[data-p="day"] .takda-atm-sky {
-  background: linear-gradient(185deg, #6fb8e6 0%, #a9d8f0 46%, #d9eef8 78%, #f1faff 100%);
+  background: linear-gradient(185deg, #7c93a3 0%, #8e9ba8 30%, #a8b18f 62%, #e3d3a6 100%);
 }
 
 .takda-atm-scene[data-p="dusk"] .takda-atm-sky {
@@ -818,7 +828,7 @@ body {
 }
 
 .takda-atm-scene[data-p="dawn"] .takda-atm-halo { left: 24%; top: 12%; background: radial-gradient(circle, rgba(255,228,180,.65), rgba(255,228,180,0) 70%); }
-.takda-atm-scene[data-p="day"] .takda-atm-halo { left: 72%; top: 6%; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255,250,225,.6), rgba(255,250,225,0) 70%); }
+.takda-atm-scene[data-p="day"] .takda-atm-halo { left: 73%; top: 8%; width: 86px; height: 86px; background: radial-gradient(circle, rgba(243,223,174,.5), rgba(243,223,174,0) 72%); }
 .takda-atm-scene[data-p="dusk"] .takda-atm-halo { left: 62%; top: 26%; width: 210px; height: 210px; background: radial-gradient(circle, rgba(255,206,138,.62), rgba(255,206,138,0) 72%); }
 .takda-atm-scene[data-p="night"] .takda-atm-halo { left: 66%; top: 6%; width: 120px; height: 120px; background: radial-gradient(circle, rgba(235,230,255,.42), rgba(235,230,255,0) 72%); }
 
@@ -831,7 +841,7 @@ body {
 }
 
 .takda-atm-scene[data-p="dawn"] .takda-atm-glow { left: 24%; top: 26%; background: radial-gradient(circle, #fff6df, #ffd9a0 60%, rgba(255,217,160,0) 100%); }
-.takda-atm-scene[data-p="day"] .takda-atm-glow { left: 72%; top: 14%; width: 32px; height: 32px; background: radial-gradient(circle, #fffdf3, #fff2c6 65%, rgba(255,242,198,0) 100%); }
+.takda-atm-scene[data-p="day"] .takda-atm-glow { left: 74%; top: 15%; width: 26px; height: 26px; background: radial-gradient(circle, #fff8e8, #f3dfae 70%, rgba(243,223,174,0) 100%); }
 .takda-atm-scene[data-p="dusk"] .takda-atm-glow { left: 62%; top: 42%; width: 52px; height: 52px; background: radial-gradient(circle, #fff0cf, #ffb15e 55%, rgba(255,177,94,0) 100%); }
 .takda-atm-scene[data-p="night"] .takda-atm-glow { left: 66%; top: 15%; width: 36px; height: 36px; background: radial-gradient(circle, #f6f3ff, #d9d2ff 55%, rgba(217,210,255,0) 100%); }
 
@@ -866,6 +876,24 @@ body {
 .takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-2 { animation: takda-atm-drift2 68s ease-in-out infinite; }
 .takda-atm-scene.is-active[data-p="day"] .takda-atm-cloud-3 { animation: takda-atm-drift1 80s ease-in-out infinite; }
 .takda-atm-scene.is-active[data-p="dusk"] .takda-atm-cloud { animation: takda-atm-drift2 70s ease-in-out infinite; }
+
+/* Minimalist Almanac V5: Day's lobed/pancake cloud shapes are replaced
+   by two thin, understated atmospheric wisps — soft-edged purely via
+   the gradient's own falloff (no filter:blur, no outline), confined to
+   the upper-right quadrant so they can never reach the left-anchored
+   greeting text regardless of drift offset. Dawn/Dusk's existing
+   .takda-atm-cloud/.takda-atm-cloud-soft are untouched (out of this
+   Day-only scope). */
+.takda-atm-wisp {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,.22) 0%, rgba(255,255,255,.10) 48%, rgba(255,255,255,0) 78%);
+}
+.takda-atm-wisp-1 { top: 10%; left: 55%; width: 26%; height: 10px; }
+.takda-atm-wisp-2 { top: 24%; left: 70%; width: 18%; height: 8px; }
+
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-wisp-1 { animation: takda-atm-wispdrift1 170s ease-in-out infinite; }
+.takda-atm-scene.is-active[data-p="day"] .takda-atm-wisp-2 { animation: takda-atm-wispdrift2 210s ease-in-out infinite; }
 
 .takda-atm-mist {
   position: absolute;
@@ -962,7 +990,7 @@ body {
   color: rgba(42,22,46,.85);
 }
 
-.takda-atm-scene[data-p="day"] .takda-atm-horizon { color: rgba(38,56,52,.5); }
+.takda-atm-scene[data-p="day"] .takda-atm-horizon { color: rgba(81,112,92,.82); }
 .takda-atm-scene[data-p="dusk"] .takda-atm-horizon { color: rgba(20,10,28,.9); }
 .takda-atm-scene[data-p="night"] .takda-atm-horizon { color: rgba(5,5,16,.92); }
 
@@ -981,8 +1009,39 @@ body {
 .takda-atm-hill-far { opacity: .55; color: rgba(201,157,172,.5); }
 .takda-atm-hill-mid { opacity: .7; color: rgba(120,85,110,.6); transform: translateY(2px); }
 
-.takda-atm-scene[data-p="day"] .takda-atm-hill-far { color: rgba(180,205,195,.55); }
-.takda-atm-scene[data-p="day"] .takda-atm-hill-mid { color: rgba(100,130,120,.5); }
+/* Minimalist Almanac V5: a fourth, farthest depth layer — an elegant,
+   recognizable mountain silhouette (angular, not another rolling-hill
+   curve) sitting behind the existing far/mid/near hills, haziest and
+   lightest of the four per atmospheric perspective. Shares the exact
+   same shared-geometry/period-recolor mechanism as hill-far/hill-mid
+   (one path in App.jsx's AtmosphereHill, recolored here per [data-p]),
+   so it renders identically shaped across all four periods — only
+   color changes, per Stage C/Minimalist-Almanac's "same world, same
+   geometry" requirement. */
+.takda-atm-mountain { opacity: .5; color: rgba(221,187,197,.4); transform: translateY(-3px); }
+.takda-atm-scene[data-p="day"] .takda-atm-mountain { color: rgba(201,210,190,.48); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-mountain { color: rgba(205,152,158,.42); }
+.takda-atm-scene[data-p="night"] .takda-atm-mountain { color: rgba(85,85,130,.4); }
+
+/* Minimalist Almanac V5: a winding river — one shared path (see
+   AtmosphereHill's river variant in App.jsx), sitting between the mid
+   and near hill layers, recolored per period like every other horizon
+   element. New element, not a restyle; added because no river existed
+   in any prior Atmosphere pass. */
+.takda-atm-river { opacity: .5; }
+.takda-atm-scene[data-p="dawn"] .takda-atm-river { color: rgba(255,224,170,.5); }
+/* Note: this element also carries the shared .takda-atm-river{opacity:.5}
+   rule below (same compounding convention hill-far/hill-mid already
+   use), so its EFFECTIVE alpha is .5 x this color's own alpha, not the
+   alpha written here alone — set higher than it might look in
+   isolation specifically so Day's river stays genuinely prominent
+   after that compounding, per the explicit "clearly visible" requirement. */
+.takda-atm-scene[data-p="day"] .takda-atm-river { color: rgba(230,210,160,.85); }
+.takda-atm-scene[data-p="dusk"] .takda-atm-river { color: rgba(240,200,150,.55); }
+.takda-atm-scene[data-p="night"] .takda-atm-river { color: rgba(110,108,165,.35); }
+
+.takda-atm-scene[data-p="day"] .takda-atm-hill-far { color: rgba(185,196,176,.6); }
+.takda-atm-scene[data-p="day"] .takda-atm-hill-mid { color: rgba(140,161,138,.68); }
 .takda-atm-scene[data-p="dusk"] .takda-atm-hill-far { color: rgba(185,112,120,.55); }
 .takda-atm-scene[data-p="dusk"] .takda-atm-hill-mid { color: rgba(95,52,72,.68); }
 .takda-atm-scene[data-p="night"] .takda-atm-hill-far { color: rgba(55,55,95,.5); }
@@ -1004,7 +1063,7 @@ body {
 }
 
 .takda-atm-scene[data-p="dawn"] .takda-atm-body { left: 25.5%; top: 27.5%; width: 30px; height: 30px; background: radial-gradient(circle at 35% 35%, #fff6df, #ffdba3 70%, #f3b48f 100%); }
-.takda-atm-scene[data-p="day"] .takda-atm-body { left: 73%; top: 15%; width: 22px; height: 22px; background: radial-gradient(circle at 35% 35%, #fffdf3, #fff6cf 65%, #ffe9a0 100%); }
+.takda-atm-scene[data-p="day"] .takda-atm-body { left: 74.5%; top: 16%; width: 30px; height: 30px; background: radial-gradient(circle at 35% 35%, #fff8e8, #f3dfae 60%, #e3c686 100%); }
 .takda-atm-scene[data-p="dusk"] .takda-atm-body { left: 63.5%; top: 43.5%; width: 38px; height: 38px; background: radial-gradient(circle at 35% 35%, #fff0cf, #ffb15e 58%, #ff8a4a 100%); }
 .takda-atm-scene[data-p="night"] .takda-atm-body {
   left: 67%; top: 16%; width: 24px; height: 24px;
@@ -1048,6 +1107,8 @@ body {
 
 @keyframes takda-atm-drift1 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(12px); } }
 @keyframes takda-atm-drift2 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-9px); } }
+@keyframes takda-atm-wispdrift1 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(10px); } }
+@keyframes takda-atm-wispdrift2 { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-8px); } }
 @keyframes takda-atm-twinkle { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 @keyframes takda-atm-flap { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.45); } }
 @keyframes takda-atm-flypath { 0% { transform: translate(0,0); } 100% { transform: translate(44px,-11px); } }
@@ -1100,6 +1161,21 @@ body {
     opacity: 0.75;
   }
 }
+
+/* Minimalist Almanac V5: a slim, theme-aware horizontal scrollbar for
+   the new Subject Shelf. --takda-scrollbar-thumb already existed (per
+   theme) but had no actual ::-webkit-scrollbar/scrollbar-color rule
+   anywhere in this file to apply it — this is that rule's first real
+   use, scoped to the one new scrollable row that needs it, not a
+   retrofit of every scrollable surface in the app. */
+.takda-shelf-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--takda-scrollbar-thumb) transparent;
+}
+.takda-shelf-scroll::-webkit-scrollbar { height: 6px; }
+.takda-shelf-scroll::-webkit-scrollbar-track { background: transparent; }
+.takda-shelf-scroll::-webkit-scrollbar-thumb { background: var(--takda-scrollbar-thumb); border-radius: 999px; }
+.takda-shelf-scroll::-webkit-scrollbar-thumb:hover { background: var(--takda-text-muted-1); }
 
 /* 10A.4H: Reminder category grid — container-query responsive layout.
    The chip grid lives inside the Dashboard's ~40% "supporting" column
